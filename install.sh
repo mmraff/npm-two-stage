@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WARNING: The files referenced in this script are specific to npm 2.x
+# WARNING: The files referenced in this script are specific to npm 3.x
 
 if [ ! -f ./target-ver.txt ]
 then
@@ -33,7 +33,7 @@ then
   exit -3
 fi
 
-CHANGED_FILES="cache install npm"
+CHANGED_FILES="cache fetch-package-metadata install config/cmd-list"
 ADDED_FILES="download git-offline offliner"
 ADDED_DIRS="download"
 
