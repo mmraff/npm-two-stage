@@ -1,41 +1,41 @@
-var assert = require("assert")
-  , log = require("npmlog")
-  , path = require("path")
-  , sha = require("sha")
-  , retry = require("retry")
-  , writeStreamAtomic = require("fs-write-stream-atomic")
-  , PassThrough = require('readable-stream').PassThrough
-  , normalizePkgData = require('normalize-package-data')
-  , npm = require("../npm.js")
-  , inflight = require("inflight")
-  , getDlFilename = require("./get-dl-filename.js")
-  , filenameParser = require("./npm-package-filename.js")
-  , readFromTarball = require("./untar-to-mem-lite.js").readEntry
-  , semver = require("semver")
+var assert = require('assert')
+var log = require('npmlog')
+var path = require('path')
+var sha = require('sha')
+var retry = require('retry')
+var writeStreamAtomic = require('fs-write-stream-atomic')
+var PassThrough = require('readable-stream').PassThrough
+var normalizePkgData = require('normalize-package-data')
+var npm = require('../npm.js')
+var inflight = require('inflight')
+var getDlFilename = require('./get-dl-filename.js')
+var filenameParser = require('./npm-package-filename.js')
+var readTarballJson = require('../fetch-package-metadata.js').readTarballJson
+var semver = require('semver')
 
 module.exports = fetchRemoteTarball
 
 // This is called from download_ (in download.js) and fetchNamed (fetch-named.js).
 // Result data fields potentially set here: name, version, tag, filename, anomaly,
 // and the three underscore-prefixed ones below.
-function fetchRemoteTarball (inParams, cb_) {
+function fetchRemoteTarball (inParams, _cb) {
 
-  assert(typeof inParams === "object" && typeof inParams.url === "string",
-         "must have module URL")
-  assert(typeof cb_ === "function", "must have callback")
+  assert(typeof inParams === 'object' && typeof inParams.url === 'string',
+         'must have module URL')
+  assert(typeof _cb === 'function', 'must have callback')
 
   if (!inParams.name)
-    log.warn('fetchRemoteTarball', "Package name not known in advance")
+    log.warn('fetchRemoteTarball', 'Package name not known in advance')
   if (!inParams.ver)
-    log.warn('fetchRemoteTarball', "Package version not known in advance")
+    log.warn('fetchRemoteTarball', 'Package version not known in advance')
 
   var u = inParams.url
-    , shasum = inParams.shasum
+  var shasum = inParams.shasum
 
-  cb_ = inflight(u, cb_)
-  if (!cb_) return log.verbose("fetchRemoteTarball", u, "already in flight; waiting")
-  log.verbose("fetchRemoteTarball", u, "not in flight; adding")
-  log.verbose("fetchRemoteTarball", [u, shasum])
+  _cb = inflight(u, _cb)
+  if (!_cb) return log.verbose('fetchRemoteTarball', u, 'already in flight; waiting')
+  log.verbose('fetchRemoteTarball', u, 'not in flight; adding')
+  log.verbose('fetchRemoteTarball', [u, shasum])
 
   function cb (er, dlData) {
     if (dlData) {
@@ -44,29 +44,32 @@ function fetchRemoteTarball (inParams, cb_) {
       dlData._shasum = dlData._shasum || shasum
 
       getPackageData(dlData.filename, function(pdErr, pkgData, wrapData) {
-        cb_(pdErr, dlData, pkgData, wrapData)
+        _cb(pdErr, dlData, pkgData, wrapData)
       })
     }
-    else cb_(er)
+    else _cb(er)
   }
 
   // Tuned to spread 3 attempts over about a minute.
   // See formula at <https://github.com/tim-kos/node-retry>.
   var operation = retry.operation({
-    retries: npm.config.get("fetch-retries")
-  , factor: npm.config.get("fetch-retry-factor")
-  , minTimeout: npm.config.get("fetch-retry-mintimeout")
-  , maxTimeout: npm.config.get("fetch-retry-maxtimeout")
+    retries: npm.config.get('fetch-retries'),
+    factor: npm.config.get('fetch-retry-factor'),
+    minTimeout: npm.config.get('fetch-retry-mintimeout'),
+    maxTimeout: npm.config.get('fetch-retry-maxtimeout')
   })
   operation.attempt(function (currentAttempt) {
-    log.info("retry", "fetch attempt " + currentAttempt
-      + " at " + (new Date()).toLocaleTimeString())
+    log.info(
+      'retry',
+      'fetch attempt', currentAttempt,
+      'at', (new Date()).toLocaleTimeString()
+    )
     fetchAndShaCheck(inParams, function (er, response, dlData) {
       // Only retry on 408, 5xx or no `response`.
       var sc = response && response.statusCode
       var statusRetry = !sc || (sc === 408 || sc >= 500)
       if (er && statusRetry && operation.retry(er)) {
-        log.warn("retry", "will retry, error on last attempt: " + er)
+        log.warn('retry', 'will retry, error on last attempt: ' + er)
         return
       }
       cb(er, dlData)
@@ -75,13 +78,12 @@ function fetchRemoteTarball (inParams, cb_) {
 }
 
 function fetchAndShaCheck (inParams, cb) {
-
+  cb = pulseTillDone('fetchTarball', cb)
   npm.registry.fetch(inParams.url, { auth : inParams.auth },
     function afterFetch (er, response) {
-      var thisFunc = "afterFetch"
-      // Named it for the sake of debug tracing
+      var thisFunc = 'afterFetch'
       if (er) {
-        log.error(thisFunc, "fetch failed", inParams.url)
+        log.error(thisFunc, 'fetch failed', inParams.url)
         return cb(er, response)
       }
 
@@ -122,23 +124,23 @@ function fetchAndShaCheck (inParams, cb) {
         tarball.destroy()
       })
 
-      tarball.on("finish", function () {
+      tarball.on('finish', function () {
         if (!inParams.shasum) {
           // Well, we weren't given a shasum, so at least sha what we have
           // in case we want to compare it to something else later
           return sha.get(filePath, function (er, shasum) {
-            log.silly("fetchAndShaCheck", "calculated shasum", shasum)
+            log.silly('fetchAndShaCheck', 'calculated shasum', shasum)
             dlData._shasum = shasum
             cb(er, response, dlData)
           })
         }
 
         // validate that the url we just downloaded matches the expected shasum.
-        log.silly("fetchAndShaCheck", "expected shasum", inParams.shasum)
+        log.silly('fetchAndShaCheck', 'expected shasum', inParams.shasum)
         sha.check(filePath, inParams.shasum, function (er) {
           if (er && er.message) {
             // add original filename for better debuggability
-            er.message = er.message + "\n" + "From:     " + inParams.url
+            er.message = er.message + '\n' + 'From:     ' + inParams.url
           }
           else { dlData._shasum = inParams.shasum }
           cb(er, response, dlData)
@@ -159,18 +161,18 @@ function fetchAndShaCheck (inParams, cb) {
 //
 function deriveFromResponse(response, dlData)
 {
-  var thisFunc = "deriveFromResponse"
-    , filename = getDlFilename(response)
-    , parsed
+  var thisFunc = 'deriveFromResponse'
+  var filename = getDlFilename(response)
+  var parsed
 
   if (!filename)
-    return log.verbose(thisFunc, "No filename from response headers")
+    return log.verbose(thisFunc, 'No filename from response headers')
 
   dlData.filename = filename
   parsed = filenameParser.parse(filename)
   if (!parsed) {
     log.verbose(thisFunc,
-      "Non-conforming filename from response header:", filename)
+      'Non-conforming filename from response header:', filename)
     if (!dlData.name) {
       if (!dlData.version) dlData.anomaly = 'all'
       else dlData.anomaly = 'name,filename'
@@ -215,13 +217,13 @@ function deriveFromResponse(response, dlData)
 //
 function deriveFromURL(u, dlData)
 {
-  var thisFunc = "deriveFromURL"
-    , urlParsed = url.parse(u)
-    , urlBasename = path.basename(urlParsed.pathname)
-    , fnameParsed = filenameParser.parse(urlBasename)
+  var thisFunc = 'deriveFromURL'
+  var urlParsed = url.parse(u)
+  var urlBasename = path.basename(urlParsed.pathname)
+  var fnameParsed = filenameParser.parse(urlBasename)
 
   if (fnameParsed) {
-    log.verbose(thisFunc, "URL basename %s is acceptable", urlBasename)
+    log.verbose(thisFunc, 'URL basename %s is acceptable', urlBasename)
     dlData.filename = urlBasename
     delete dlData.anomaly
     if (!dlData.name) dlData.name = fnameParsed.packageName
@@ -249,7 +251,7 @@ function deriveFromURL(u, dlData)
       if (dlData.name) {
         log.verbose(thisFunc, "filename can be built from '%s' and '%s'",
           dlData.name, urlParsed.pathname)
-        dlData.filename = dlData.name + '-' + ver + ".tar.gz"
+        dlData.filename = dlData.name + '-' + ver + '.tar.gz'
         delete dlData.anomaly
       }
       else {
@@ -276,56 +278,38 @@ function deriveFromURL(u, dlData)
     }
 
     if (!filenameParser.hasTarballExtension(dlData.filename)) {
-      dlData.filename += ".tar.gz"
+      dlData.filename += '.tar.gz'
     }
   }
 }
 
-function getPackageData (tgzFilename, cb) {
-  var filePath = path.join(npm.dlTracker.path, tgzFilename)
-  readTarballJson(filePath, "package.json", function (pjErr, pkgData) {
-    log.silly("getPackageData", "readTarballJson(package.json) callback entry")
+function getPackageData (tbName, cb) {
+  var filePath = path.join(npm.dlTracker.path, tbName)
+  readTarballJson(filePath, 'package.json', function (pjErr, pkgData) {
+    log.silly('getPackageData', 'readTarballJson(package.json) callback entry')
     if (pjErr) return cb(pjErr)
+    if (pkgData === null) {
+      pjErr = new Error('No package.json found in ' + tbName)
+      pjErr.code = 'ENOPACKAGEJSON'
+      return cb(pjErr)
+    }
 
     try { normalizePkgData(pkgData) }
     catch (normErr) {
-      log.error('getPackageData', 'While normalizing package data from', tgzFilename)
+      log.error('getPackageData', 'While normalizing package data from', tbName)
       return cb(normErr)
     }
 
-    if (npm.config.get("shrinkwrap") === false) return cb(null, pkgData)
+    if (npm.config.get('shrinkwrap') === false) return cb(null, pkgData)
 
-    readTarballJson(filePath, "npm-shrinkwrap.json", function (shrErr, wrapData) {
-      log.silly("getPackageData", "readTarballJson(npm-shrinkwrap.json) callback entry")
-      if (shrErr && shrErr.code !== 'ENOENT')
-        log.error('getPackageData', 'While extracting npm-shrinkwrap.json from',
-          tgzFilename)
-      else shrErr = null
-      cb(shrErr, pkgData, wrapData)
+    readTarballJson(filePath, 'npm-shrinkwrap.json', function (err, wrapData) {
+      log.silly('getPackageData', 'readTarballJson(npm-shrinkwrap.json) callback entry')
+      // No error if no shrinkwrap file found;
+      // errors only from untar, jsonParse, ...
+      if (err)
+        log.error('getPackageData', 'getting npm-shrinkwrap.json from', tbName)
+      cb(err, pkgData, wrapData)
     })
-  })
-}
-
-function readTarballJson (tarballPath, filename, cb) {
-  log.silly("readTarballJson", "[%s, %s]", tarballPath, filename)
-
-  var fpath = '*/' + filename
-    , opts = { wildcards: true, wildcardsMatchSlash: false }
-
-  readFromTarball(tarballPath, fpath, opts, function (er, buf) {
-    log.silly('readTarballJson', 'entered callback for readFromTarball')
-    if (er) return cb(er)
-
-    var s = buf.toString()
-      , data
-    if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1) // strip BOM, if any
-    try { data = JSON.parse(s) }
-    catch (parseErr) {
-      log.error('readTarballJson', 'JSON.parse exception,', fpath,
-       'from', tarballPath)
-      er = parseErr
-    }
-    cb(er, data)
   })
 }
 

@@ -1,14 +1,16 @@
-var path = require("path")
-  , assert = require("assert")
-  , http = require("http")
-  , log = require("npmlog")
-  , semver = require("semver")
-  , url = require("url")
-  , npm = require("../npm.js")
-  , deprCheck = require("../utils/depr-check.js")
-  , inflight = require("inflight")
-  , fetchRemoteTarball = require("./fetch-remote-tarball.js")
-  , mapToRegistry = require("../utils/map-to-registry.js")
+var path = require('path')
+var assert = require('assert')
+var http = require('http')
+var log = require('npmlog')
+var semver = require('semver')
+var url = require('url')
+var npm = require('../npm.js')
+var deprCheck = require('../utils/depr-check.js')
+var inflight = require('inflight')
+var fetchRemoteTarball = require('./fetch-remote-tarball.js')
+var mapToRegistry = require('../utils/map-to-registry.js')
+var pulseTillDone = require('../utils/pulse-till-done.js')
+var packageId = require('../utils/package-id.js')
 
 module.exports = fetchNamed
 
@@ -28,30 +30,30 @@ function getOnceFromRegistry (name, from, next, done) {
   mapToRegistry(name, npm.config, function (er, uri, auth) {
     if (er) return done(er)
 
-    var key = "registry:" + uri
+    var key = 'registry:' + uri
     next = inflight(key, next)
-    if (!next) return log.verbose(from, key, "already in flight; waiting")
-    else log.verbose(from, key, "not in flight; fetching")
+    if (!next) return log.verbose(from, key, 'already in flight; waiting')
+    else log.verbose(from, key, 'not in flight; fetching')
 
-    npm.registry.get(uri, { auth : auth }, fixName)
+    npm.registry.get(uri, { auth: auth }, pulseTillDone('fetchRegistry', fixName))
   })
 }
 
 // NOTE: target arg is *not* the same object passed to afterDl, but created inline
 // in the call to this function; fields 'name' and 'spec'.
 function fetchNamed (target, pkgData, cb_) {
-  assert(target && typeof target == "object", "must have module target")
-  assert(target.name && typeof target.name == "string",
-         "target must include module name")
-  assert(typeof cb_ == "function", "must have callback")
+  assert(target && typeof target == 'object', 'must have module target')
+  assert(target.name && typeof target.name == 'string',
+         'target must include module name')
+  assert(typeof cb_ == 'function', 'must have callback')
 
   var name = target.name
-    , spec = target.spec
-    , validVerLoose = semver.valid(spec, true)
-    , stringified = JSON.stringify(spec)
-    , key = name + "@" + spec
+  var spec = target.spec
+  var validVerLoose = semver.valid(spec, true)
+  var stringified = JSON.stringify(spec)
+  var key = name + '@' + spec
 
-  log.silly("fetchNamed", key)
+  log.silly('fetchNamed', key)
 
   if (!target.tag && npm.dlTracker.contains('semver', name, spec)) {
     var results = { name: name, spec: spec, _duplicate: true }
@@ -59,7 +61,7 @@ function fetchNamed (target, pkgData, cb_) {
   }
 
   function cb (er, results, pkgData, wrapData) {
-    if (results && !results._fromGithub) results._from = key
+    if (results && !results._fromHosted) results._from = key
     cb_(er, results, pkgData, wrapData)
   }
 
@@ -78,13 +80,13 @@ function fetchNamed (target, pkgData, cb_) {
 }
 
 function fetchNameTag (target, data, cb) {
-  log.info("fetchNameTag", [target.name, target.spec])
+  log.info('fetchNameTag', [target.name, target.spec])
   var explicit = true
 
   target.tag = target.spec
-  if (!target.tag) { // as in spec === ""
+  if (!target.tag) { // as in spec === ''
     explicit = false
-    target.tag = npm.config.get("tag") // default is 'latest'
+    target.tag = npm.config.get('tag') // default is 'latest'
   }
   if (target.tag !== 'latest'
       && npm.dlTracker.contains('tag', target.name, target.tag)) {
@@ -97,23 +99,23 @@ function fetchNameTag (target, data, cb) {
     return cb(null, result)
   }
 
-  getOnceFromRegistry(target.name, "fetchNameTag", next, cb)
+  getOnceFromRegistry(target.name, 'fetchNameTag', next, cb)
 
   function next (er, regData, json, resp) {
     if (!er) er = errorResponse(target.name, resp)
     if (er) return cb(er)
 
-    log.silly("fetchNameTag", "next for", target.name, "with tag", target.tag)
+    log.silly('fetchNameTag', 'next for', target.name, 'with tag', target.tag)
 
     engineFilter(regData)
-    if (regData["dist-tags"] && regData["dist-tags"][target.tag]
-        && regData.versions[regData["dist-tags"][target.tag]]) {
-      var ver = regData["dist-tags"][target.tag]
+    if (regData['dist-tags'] && regData['dist-tags'][target.tag] &&
+        regData.versions[regData['dist-tags'][target.tag]]) {
+      var ver = regData['dist-tags'][target.tag]
       target.spec = ver
       return fetchNamed(target, regData.versions[ver], cb)
     }
     if (!explicit && Object.keys(regData.versions).length) {
-      target.spec = "*"
+      target.spec = '*'
       return fetchNamed(target, regData, cb)
     }
 
@@ -124,17 +126,17 @@ function fetchNameTag (target, data, cb) {
 
 function engineFilter (data) {
   var npmv = npm.version
-    , nodev = npm.config.get("node-version")
-    , strict = npm.config.get("engine-strict")
+  var nodev = npm.config.get('node-version')
+  var strict = npm.config.get('engine-strict')
 
-  if (!nodev || npm.config.get("force")) return data
+  if (!nodev || npm.config.get('force')) return data
 
   Object.keys(data.versions || {}).forEach(function (v) {
     var eng = data.versions[v].engines
     if (!eng) return
-    if (!strict && !data.versions[v].engineStrict) return
-    if (eng.node && !semver.satisfies(nodev, eng.node, true)
-        || eng.npm && !semver.satisfies(npmv, eng.npm, true)) {
+    if (!strict) return
+    if (eng.node && !semver.satisfies(nodev, eng.node, true) ||
+        eng.npm && !semver.satisfies(npmv, eng.npm, true)) {
       delete data.versions[v]
     }
   })
@@ -142,9 +144,8 @@ function engineFilter (data) {
 
 function fetchNameVersion (target, data, cb) {
   var name = target.name
-    , ver = semver.valid(target.spec, true)
-
-  if (!ver) return cb(new Error("Invalid version: " + target.spec))
+  var ver = semver.valid(target.spec, true)
+  if (!ver) return cb(new Error('Invalid version: ' + target.spec))
 
   var response
 
@@ -153,7 +154,7 @@ function fetchNameVersion (target, data, cb) {
     return next()
   }
 
-  getOnceFromRegistry(name, "fetchNameVersion", setData, cb)
+  getOnceFromRegistry(name, 'fetchNameVersion', setData, cb)
 
   function setData (er, d, json, resp) {
     if (!er) {
@@ -162,7 +163,7 @@ function fetchNameVersion (target, data, cb) {
     if (er) return cb(er)
     data = d && d.versions[ver]
     if (!data) {
-      er = new Error("version not found: "+name+"@"+ver)
+      er = new Error('version not found: ' + name + '@' + ver)
       er.package = name
       er.statusCode = 404
       return cb(er)
@@ -175,10 +176,11 @@ function fetchNameVersion (target, data, cb) {
     deprCheck(data)
     var dist = data.dist
 
-    if (!dist) return cb(new Error("No dist in "+data._id+" package"))
+    if (!dist) return cb(new Error('No dist in ' + packageId(data) + ' package'))
 
-    if (!dist.tarball) return cb(new Error(
-      "No dist.tarball in " + data._id + " package"))
+    if (!dist.tarball) {
+      return cb(new Error('No dist.tarball in ' + packageId(data) + ' package'))
+    }
 
     mapToRegistry(name, npm.config, function (er, _, auth, ruri) {
       if (er) return cb(er)
@@ -191,19 +193,19 @@ function fetchNameVersion (target, data, cb) {
       if (tb.hostname === rp.hostname && tb.protocol !== rp.protocol) {
         tb.protocol = rp.protocol
         // If a different port is associated with the other protocol
-          // we need to update that as well
-          if (rp.port !== tb.port) {
-            tb.port = rp.port
-            delete tb.host
-          }
+        // we need to update that as well
+        if (rp.port !== tb.port) {
+          tb.port = rp.port
+          delete tb.host
+        }
         delete tb.href
       }
       var tbUrl = url.format(tb)
 
       // Only add non-shasum'ed packages if --forced. Only ancient things
       // would lack this for good reasons nowadays.
-      if (!dist.shasum && !npm.config.get("force")) {
-        return cb(new Error("package lacks shasum: " + data._id))
+      if (!dist.shasum && !npm.config.get('force')) {
+        return cb(new Error('package lacks shasum: ' + packageId(data)))
       }
 
       var inParams = {
@@ -223,17 +225,18 @@ function fetchNameVersion (target, data, cb) {
 
 function fetchNameRange (target, data, cb) {
   var name = target.name
-    , range = semver.validRange(target.spec, true)
+  var range = semver.validRange(target.spec, true)
+  if (range === null) {
+    return cb(new Error(
+      'Invalid version range: ' + range
+    ))
+  }
 
-  if (range === null) return cb(new Error(
-    "Invalid version range: " + range
-  ))
-
-  log.silly("fetchNameRange", {name:name, range:range, hasData:!!data})
+  log.silly('fetchNameRange', { name: name, range: range, hasData: !!data})
 
   if (data) return next()
 
-  getOnceFromRegistry(name, "fetchNameRange", setData, cb)
+  getOnceFromRegistry(name, 'fetchNameRange', setData, cb)
 
   function setData (er, d, json, resp) {
     if (!er) {
@@ -245,18 +248,20 @@ function fetchNameRange (target, data, cb) {
   }
 
   function next () {
-    log.silly( "fetchNameRange", "number 2"
-             , {name:name, range:range, hasData:!!data})
+    log.silly(
+      'fetchNameRange',
+      'number 2', { name: name, range: range, hasData: !!data }
+    )
     engineFilter(data)
 
-    log.silly("fetchNameRange", "versions"
-             , [data.name, Object.keys(data.versions || {})])
+    log.silly('fetchNameRange', 'versions',
+               [data.name, Object.keys(data.versions || {})])
 
     // if the tagged version satisfies, then use that.
-    var tagged = data["dist-tags"][npm.config.get("tag")]
-    if (tagged
-        && data.versions[tagged]
-        && semver.satisfies(tagged, range, true)) {
+    var tagged = data['dist-tags'][npm.config.get('tag')]
+    if (tagged &&
+        data.versions[tagged] &&
+        semver.satisfies(tagged, range, true)) {
       target.spec = tagged
       return fetchNamed(target, data.versions[tagged], cb)
     }
@@ -265,8 +270,8 @@ function fetchNameRange (target, data, cb) {
     var versions = Object.keys(data.versions || {})
     var ms = semver.maxSatisfying(versions, range, true)
     if (!ms) {
-      if (range === "*" && versions.length) {
-        target.spec = "latest"
+      if (range === '*' && versions.length) {
+        target.spec = 'latest'
         return fetchNameTag(target, data, cb)
       } else {
         return cb(downloadTargetsError(range, data))
@@ -279,20 +284,19 @@ function fetchNameRange (target, data, cb) {
 }
 
 function downloadTargetsError (requested, data) {
-  var targets = Object.keys(data["dist-tags"]).filter(function (f) {
+  var targets = Object.keys(data['dist-tags']).filter(function (f) {
     return (data.versions || {}).hasOwnProperty(f)
   }).concat(Object.keys(data.versions || {}))
 
-  requested = data.name + (requested ? "@'" + requested + "'" : "")
+  requested = data.name + (requested ? "@'" + requested + "'" : '')
 
   targets = targets.length
-          ? "Valid install targets:\n" + JSON.stringify(targets) + "\n"
-          : "No valid targets found.\n"
-          + "Perhaps not compatible with your version of node?"
+          ? 'Valid install targets:\n' + targets.join(', ') + '\n'
+          : 'No valid targets found.\n'
+          + 'Perhaps not compatible with your version of node?'
 
-  var er = new Error( "No compatible version found: "
-                  + requested + "\n" + targets)
-  er.code = "ETARGET"
+  var er = new Error( 'No compatible version found: ' + requested + '\n' + targets)
+  er.code = 'ETARGET'
   return er
 }
 
@@ -301,7 +305,7 @@ function errorResponse (name, response) {
   if (response.statusCode >= 400) {
     er = new Error(http.STATUS_CODES[response.statusCode])
     er.statusCode = response.statusCode
-    er.code = "E" + er.statusCode
+    er.code = 'E' + er.statusCode
     er.pkgid = name
   }
   return er

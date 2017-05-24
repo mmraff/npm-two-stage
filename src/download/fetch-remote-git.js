@@ -1,5 +1,4 @@
 var assert = require('assert')
-var crypto = require('crypto')
 var fs = require('graceful-fs')
 var path = require('path')
 
@@ -11,12 +10,14 @@ var mkdir = require('mkdirp')
 var normalizeGitUrl = require('normalize-git-url')
 var npa = require('npm-package-arg')
 var normalizePkgData = require('normalize-package-data')
+var uniqueFilename = require('unique-filename')
 var rm_rf = require('rimraf')
 
 var git = require('../utils/git.js')
 var gitAux = require('./git-aux.js')
 var npm = require('../npm.js')
 var rm = require('../utils/gently-rm.js')
+var tempFilename = require('../utils/temp-filename.js')
 
 // result data fields set here: from, cloneURL, treeish, repoID, resolvedTreeish.
 // These have meaning throughout git-offline.js.
@@ -37,7 +38,7 @@ function fetchRemoteGit (uri, cb_) {
   if (parsed) {
     // normalize GitHub syntax to org/repo (for now)
     var from
-    if (parsed.type === 'github' && parsed.default === 'shortcut') {
+    if (parsed.type === 'github' && parsed.getDefaultRepresentation() === 'shortcut') {
       from = parsed.path()
     } else {
       from = parsed.toString()
@@ -46,7 +47,7 @@ function fetchRemoteGit (uri, cb_) {
     log.verbose('fetchRemoteGit', from, 'is a repository hosted by', parsed.type)
 
     // prefer explicit URLs to pushing everything through shortcuts
-    if (parsed.default !== 'shortcut') {
+    if (parsed.getDefaultRepresentation() !== 'shortcut') {
       return tryClone(from, parsed.toString(), false, cb)
     }
 
@@ -65,7 +66,7 @@ function fetchRemoteGit (uri, cb_) {
 
 function tryGitProto (from, hostedInfo, cb) {
   var gitURL = hostedInfo.git()
-  if (!gitURL) return trySSH(from, hostedInfo, cb)
+  if (!gitURL) return tryHTTPS(from, hostedInfo, cb)
 
   log.silly('tryGitProto', 'attempting to clone', gitURL)
   tryClone(from, gitURL, true, function (er) {
@@ -108,9 +109,11 @@ function tryClone (from, combinedURL, silent, cb) {
   }
 
   // ensure that similarly-named remotes don't collide
-  var repoID = gitData.cloneURL.replace(/[^a-zA-Z0-9]+/g, '-') + '-' +
-    crypto.createHash('sha1').update(combinedURL).digest('hex').slice(0, 8)
+  var remotes = path.join(npm.dlTracker.path, gitAux.remotesDirName())
+  var clonedRemote = uniqueFilename(remotes, combinedURL.replace(/[^a-zA-Z0-9]+/g, '-'), cloneURL)
+  var repoID = path.relative(remotes, clonedRemote)
   gitData.repoID = repoID
+  clonedRemote = path.join(remotes, repoID)
 
   cb = inflight(repoID, cb)
   if (!cb) {
@@ -122,8 +125,6 @@ function tryClone (from, combinedURL, silent, cb) {
   // save for later any worry about correct perms
   gitAux.getGitDir(npm.dlTracker.path, function (er) {
     if (er) return cb(er)
-
-    var clonedRemote = path.join(npm.dlTracker.path, gitAux.remotesDirName(), repoID)
     fs.stat(clonedRemote, function (er, s) {
       if (er) return mirrorRemote(gitData, clonedRemote, silent, cb)
       if (!s.isDirectory()) return resetRemote(gitData, clonedRemote, cb)
@@ -229,8 +230,33 @@ function updateRemote (gitData, clonedRemote, cb) {
         log.error('git fetch -a origin (' + gitData.cloneURL + ')', combined)
         return cb(er)
       }
-      log.verbose('updateRemote', 'git fetch -a origin (' + gitData.cloneURL + ')',
-        stdout.trim())
+      log.verbose(
+        'updateRemote', 'git fetch -a origin (' + gitData.cloneURL + ')',
+        stdout.trim()
+      )
+
+      updateSubmodules(gitData, clonedRemote, cb)
+    }
+  )
+}
+
+// This is a link added to the chain in npm 3.x.
+// In add-remote-git.js, it is placed between checkoutTreeish and realizePackageSpecifier,
+// but in the split download/install context, those are both in the install phase,
+// while this clearly has to be in the download phase; so this link is relocated
+// to before resolveHead (which only collects a piece of information).
+function updateSubmodules (gitData, clonedRemote, cb) {
+  var args = ['submodule', '-q', 'update', '--init', '--recursive']
+  git.whichAndExec(
+    args,
+    { cwd: clonedRemote, env: gitAux.gitEnv() },
+    function (er, stdout, stderr) {
+      stdout = (stdout + '\n' + stderr).trim()
+      if (er) {
+        log.error('git ' + args.join(' ') + ':', stderr)
+        return cb(er)
+      }
+      log.verbose('updateSubmodules', gitData.from, 'submodule update', stdout)
 
       resolveHead(gitData, clonedRemote, cb)
     }
@@ -270,15 +296,13 @@ function resolveHead (gitData, clonedRemote, cb) {
 // which we can check out the package.json of the resolved treeish
 function cloneResolved (gitData, clonedRemote, cb) {
   // generate a unique filename
-  var tmpdir = path.join(
-    npm.tmp,
-    'git-cache-' + crypto.pseudoRandomBytes(6).toString('hex')
-  )
+  var tmpdir = tempFilename('git-cache')
+  log.silly('cloneResolved', 'Git working directory:', tmpdir)
   var tmpCloneDir = path.join(tmpdir, gitData.resolvedTreeish)
   log.silly('cloneResolved', 'Creating git clone temp directory:', tmpCloneDir)
 
   function done(er, pkgData, wrapData) {
-    log.silly('cloneResolved', 'Removing git temp directory:', tmpdir)
+    log.silly('cloneResolved', 'Removing git temp working directory:', tmpdir)
     rm_rf(tmpdir, { disableGlob: true }, function (rmErr) {
       if (rmErr) {
         // Messy, but not a big problem

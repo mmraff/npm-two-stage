@@ -1,7 +1,6 @@
 // The offline complement to fetch-remote-git
 // Based on an extract from cache/add-remote-git.js
 
-var crypto = require('crypto')
 var fs = require('graceful-fs')
 var path = require('path')
 var url = require('url')
@@ -19,6 +18,7 @@ var git = require('./utils/git.js')
 var gitAux = require('./download/git-aux.js')
 var npm = require('./npm.js')
 var addLocal = require('./cache/add-local.js')
+var tempFilename = require('./utils/temp-filename.js')
 
 module.exports = add
 function add (gitData, next, done) {
@@ -40,8 +40,8 @@ function add (gitData, next, done) {
     }
 
     var cachedRemote = path.join(npm.cache, gitAux.remotesDirName(), gitData.repoID)
-    fs.stat(cachedRemote, function (fsErr, s) {
-      if (fsErr || !s.isDirectory())
+    fs.stat(cachedRemote, function (er, s) {
+      if (er || !s.isDirectory())
         return copyRemote(gitData, cachedRemote, cs, next, done)
 
       validateExistingRemote(gitData, cachedRemote, cs, next, done)
@@ -92,16 +92,19 @@ function validateExistingRemote (gitData, cachedRemote, cStats, next, done) {
       if (stderr) stderr = stderr.trim()
       if (stderr || er) {
         log.warn('gitOffline', gitData.from, 'overwriting cached repo',
-          cachedRemote, 'because of error:', stderr || er)
+                 cachedRemote, 'because of error:', stderr || er)
         return copyRemote(gitData, cachedRemote, next, done)
-      }
-      else if (gitData.cloneURL !== originURL) {
-        log.warn('gitOffline', gitData.from, 'overwriting cached repo',
-          cachedRemote, 'because it points to', originURL,
+      } else if (gitData.cloneURL !== originURL) {
+        log.warn(
+          'gitOffline',
+          gitData.from,
+          'overwriting cached repo', cachedRemote, 'because it points to', originURL,
           'and not', gitData.cloneURL
         )
         return copyRemote(gitData, cachedRemote, cStats, next, done)
       }
+
+      log.verbose('validateExistingRemote', from, 'is cloning existing cached remote', cachedRemote)
       cloneCachedRemote(gitData, cachedRemote, next, done)
     }
   )
@@ -149,11 +152,7 @@ function cloneCachedRemote (gitData, cachedRemote, next, done) {
   log.verbose(thisFunc, gitData.from, 'resolved Git URL:', resolvedURL)
 
   // generate a unique filename
-  var tmpdir = path.join(
-    npm.tmp,
-    'git-cache-' + crypto.pseudoRandomBytes(6).toString('hex'),
-    gitData.resolvedTreeish
-  )
+  var tmpdir = path.join(tempFilename('git-cache'), gitData.resolvedTreeish)
   log.silly(thisFunc, 'Creating git working directory:', tmpdir)
 
   mkdir(tmpdir, function (er) {
@@ -257,7 +256,7 @@ function getResolved (uri, fullTreeish) {
   // Checks for known protocols:
   // http:, https:, ssh:, and git:, with optional git+ prefix.
   if (!parsed.protocol ||
-      !parsed.protocol.match(/^(((git\+)?(https?|ssh))|git|file):$/)) {
+      !parsed.protocol.match(/^(((git\+)?(https?|ssh|file))|git|file):$/)) {
     uri = 'git+ssh://' + uri
   }
 

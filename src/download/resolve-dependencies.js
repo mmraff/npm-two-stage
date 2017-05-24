@@ -1,18 +1,19 @@
-// Based on readDependencies in install.js (npm 2.x).
-// Maintenance should closely track changes to that.
+// Based on readDependencies in install.js (npm 2.15)
+// install.js was completely refactored for npm 3,
+// so this code can't track that anymore.
+
 module.exports = resolveDependencies
 
 var log = require("npmlog")
   , url = require("url")
 
-function resolveDependencies (pkgData, opts, cb)
-{
+function resolveDependencies (pkgData, opts, cb) {
   var wrap = opts ? opts.wrap : null
-    , newwrap = opts ? opts.newwrap : null
-    , rv = {}
+  var newwrap = opts ? opts.newwrap : null
+  var rv = {}
 
   if (opts && opts.dev) {
-    if (!pkgData.dependencies) { pkgData.dependencies = {} }
+    if (!pkgData.dependencies) pkgData.dependencies = {}
     Object.keys(pkgData.devDependencies || {}).forEach(function (k) {
       if (pkgData.dependencies[k]) {
         log.warn("package.json", "Dependency '%s' exists in both dependencies " +
@@ -54,7 +55,7 @@ function resolveDependencies (pkgData, opts, cb)
     return cb(null, rv, wrap)
   }
 
-  if (!newwrap) { return cb(null, pkgData, null) }
+  if (!newwrap) return cb(null, pkgData, null)
 
   log.verbose("resolveDependencies", "npm-shrinkwrap.json is overriding dependencies")
   Object.keys(pkgData).forEach(function (key) {

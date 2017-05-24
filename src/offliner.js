@@ -3,13 +3,13 @@
 module.exports = offliner
 
 var npm = require('./npm.js')
-  , log = require('npmlog')
-  , fs = require('graceful-fs')
-  , path = require('path')
-  , semver = require('semver')
-  , realizePackageSpecifier = require('realize-package-specifier')
-  , fnameParser = require('./download/npm-package-filename.js')
-  , gitOffline = require('./git-offline.js')
+var log = require('npmlog')
+var fs = require('graceful-fs')
+var path = require('path')
+var semver = require('semver')
+var realizePackageSpecifier = require('realize-package-specifier')
+var fnameParser = require('./download/npm-package-filename.js')
+var gitOffline = require('./git-offline.js')
 
 // Intended as a wrapper for the callback passed to realizePackageSpecifier
 // in function add() in file cache.js.

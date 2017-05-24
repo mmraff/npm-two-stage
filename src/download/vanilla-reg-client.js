@@ -5,9 +5,9 @@
 
 module.exports = VanillaRegistryClient
 
-var inherits = require("util").inherits
-  , log = require("npmlog")
-  , RegistryClient = require("npm-registry-client")
+var inherits = require('util').inherits
+var log = require('npmlog')
+var RegistryClient = require('npm-registry-client')
 
 function VanillaRegistryClient (config)
 {
@@ -18,27 +18,27 @@ inherits(VanillaRegistryClient, RegistryClient)
 function adaptConfig (config)
 {
   return {
-    proxy : {
-      http         : config.get("proxy"),
-      https        : config.get("https-proxy"),
-      localAddress : config.get("local-address")
+    proxy: {
+      http: config.get('proxy'),
+      https: config.get('https-proxy'),
+      localAddress: config.get('local-address')
     },
-    ssl : {
-      certificate : config.get("cert"),
-      key         : config.get("key"),
-      ca          : config.get("ca"),
-      strict      : config.get("strict-ssl")
+    ssl: {
+      certificate: config.get('cert'),
+      key: config.get('key'),
+      ca: config.get('ca'),
+      strict: config.get('strict-ssl')
     },
-    retry : {
-      retries    : config.get("fetch-retries"),
-      factor     : config.get("fetch-retry-factor"),
-      minTimeout : config.get("fetch-retry-mintimeout"),
-      maxTimeout : config.get("fetch-retry-maxtimeout")
+    retry: {
+      retries: config.get('fetch-retries'),
+      factor: config.get('fetch-retry-factor'),
+      minTimeout: config.get('fetch-retry-mintimeout'),
+      maxTimeout: config.get('fetch-retry-maxtimeout')
     },
-    userAgent  : config.get("user-agent"),
-    log        : log,
-    defaultTag : config.get("tag"),
-    couchToken : config.get("_token"),
-    maxSockets : config.get('maxsockets')
+    userAgent: config.get('user-agent'),
+    log: log,
+    defaultTag: config.get('tag'),
+    couchToken: config.get('_token'),
+    maxSockets: config.get('maxsockets')
   }
 }

@@ -1,65 +1,66 @@
-module.exports = download
+exports = module.exports = download
 
-var npm = require("./npm.js")
-  , fs = require("graceful-fs")
-  , assert = require("assert")
-  , log = require("npmlog")
-  , path = require("path")
-  , asyncMap = require("slide").asyncMap
-  , VanillaRegClient = require("./download/vanilla-reg-client.js")
-  , DlTracker = require("./download/dltracker.js")
-  , fetchNamed = require("./download/fetch-named.js")
-  , fetchRemoteTarball = require("./download/fetch-remote-tarball.js")
-  , fetchRemoteGit = require("./download/fetch-remote-git.js")
-  , gitAux = require("./download/git-aux.js")
-  , inflight = require("inflight")
-  , npa = require("npm-package-arg")
-  , mapToRegistry = require("./utils/map-to-registry.js")
-  , normalize = require("normalize-package-data")
+var npm = require('./npm.js')
+var fs = require('graceful-fs')
+var assert = require('assert')
+var log = require('npmlog')
+var path = require('path')
+var asyncMap = require('slide').asyncMap
+var VanillaRegClient = require('./download/vanilla-reg-client.js')
+var DlTracker = require('./download/dltracker.js')
+var fetchNamed = require('./download/fetch-named.js')
+var fetchRemoteTarball = require('./download/fetch-remote-tarball.js')
+var fetchRemoteGit = require('./download/fetch-remote-git.js')
+var gitAux = require('./download/git-aux.js')
+var inflight = require('inflight')
+var npa = require('npm-package-arg')
+var mapToRegistry = require('./utils/map-to-registry.js')
+var normalize = require('normalize-package-data')
 
-  , resolveDeps = require("./download/resolve-dependencies.js")
+var resolveDeps = require('./download/resolve-dependencies.js')
 
-download.usage = "npm download <tarball url>"
-               + "\nnpm download <git url>"
-               + "\nnpm download <name>@<version>"
+download.usage = 'npm download <tarball url>'
+               + '\nnpm download <git url>'
+               + '\nnpm download <name>@<version>'
 
 function download (args, cb) {
-  assert(args && args.length && typeof args[0] === "string",
-         "must identify package to download")
-  assert(typeof cb === "function", "must include callback")
+  assert(args && args.length && typeof args[0] === 'string',
+         'must identify package to download')
+  assert(typeof cb === 'function', 'must include callback')
 
   // elements of args can be any of:
-  // "pkg@version"
-  // "username/projectspec" (github shortcut)
-  // "url"
+  // 'pkg@version'
+  // 'username/projectspec' (github shortcut)
+  // 'url'
   // This is tricky, because urls can contain @
 
-  var usage = "Usage:\n"
-            + "    npm download [--dl-dir=<path>] [<pkg>@<ver>|<tarball-url>] ...\n"
+  var usage = 'Usage:\n'
+            + '    npm download [--dl-dir=<path>] [<pkg>@<ver>|<tarball-url>] ...\n'
 
-  log.silly("download", "args:", args)
+  log.silly('download', 'args:', args)
 
   //if (!spec) return cb(usage)
 
   var dlDir = npm.config.get('dl-dir')
-    , phantom = npm.config.get('dl-phantom')
-    , cachingRegClient = npm.registry
+  var phantom = npm.config.get('dl-phantom')
+  var cachingRegClient = npm.registry
 
-  log.verbose("download", "Substituting a no-cache registry client...")
+  log.verbose('download', 'Substituting a no-cache registry client...')
   npm.registry = new VanillaRegClient(npm.config)
 
   if (dlDir) {
-    log.info("download", "configured to use path: " + dlDir)
+    log.info('download', 'configured to use path:', dlDir)
   } else {
-    log.warn("download",
-      "No path configured for downloads - current directory will be used."
+    log.warn('download',
+      'No path configured for downloads - current directory will be used.'
     )
   }
+  // TODO: if dlDir doesn't exist, should use mkdir in dltracker.js?
   npm.dlTracker = new DlTracker()
   npm.dlTracker.initialize(dlDir, phantom, function (errInit) {
     if (errInit) return cb(errInit)
 
-    log.info("download", "established download path:", npm.dlTracker.path)
+    log.info('download', 'established download path:', npm.dlTracker.path)
 
 // TODO: Answer this - do we want the first error to abort the session, or do we
 // want to continue trying to fetch anything remaining to fetch?
@@ -83,9 +84,9 @@ function download (args, cb) {
             else errs = []
             errCount += (errs.length || 1)
             log.error('download', mapData[i].message)
-            for (var j in errs) log.error("download", errs[j].message)
+            for (var j in errs) log.error('download', errs[j].message)
           }
-          else console.log("Successfully downloaded all packages needed for", args[i])
+          else console.log('Successfully downloaded all packages needed for', args[i])
         }
 
         if (errPkgs.length) {
@@ -104,27 +105,20 @@ function download (args, cb) {
   })
 }
 
-var fetching = 0
-
 function download_ (spec, wrap, cb) {
   var target = {}
-    , p
+  var p
 
   try {
     p = npa(spec)
     if (!p.name) {
-      log.warn("download", "No package name parsed from spec", spec)
+      log.warn('download', 'No package name parsed from spec', spec)
     }
   }
   catch (err) {
     return cb(err)
   }
-  log.silly("download", "parsed spec", p)
-
-  if (fetching <= 0) {
-    npm.spinner.start()
-  }
-  fetching++
+  log.silly('download', 'parsed spec', p)
 
   target.name = p.name
   target.spec = p.rawSpec
@@ -132,10 +126,10 @@ function download_ (spec, wrap, cb) {
   cb = afterDl(cb, target)
 
   switch (p.type) {
-    case "local":
-      return cb(new Error("Cannot download a local module"))
+    case 'local':
+      return cb(new Error('Cannot download a local module'))
 
-    case "remote":
+    case 'remote':
       target.type = 'url'
       if (npm.dlTracker.contains('url', p.name, p.rawSpec))
         return cb(null, { name: p.name, spec: p.rawSpec, _duplicate: true })
@@ -151,8 +145,8 @@ function download_ (spec, wrap, cb) {
         }, cb)
       })
       break
-    case "git":
-    case "hosted":
+    case 'git':
+    case 'hosted':
       target.type = 'git'
       if (npm.dlTracker.contains('git', p.name, p.rawSpec))
         return cb(null, { name: p.name, spec: p.rawSpec, _duplicate: true })
@@ -174,20 +168,18 @@ function download_ (spec, wrap, cb) {
 // In args below:
 // target.name will not exist if root package specified by, e.g., URL on cmdline;
 // target.spec is always npa.parse(origSpec).rawSpec;
-// target.type is 'url' if npa.parse(origSpec).type==="remote",
-//                'git' if npa.parse(origSpec).type==="git" or "hosted";
+// target.type is 'url' if npa.parse(origSpec).type==='remote',
+//                'git' if npa.parse(origSpec).type==='git' or 'hosted';
 // target.wrap set to inherited shrinkwrap data, if any.
 // dlResult fields potentially set in fetch-remote-tarball:
 //   name, version, tag, filename, anomaly, _from, _resolved, _shasum
 // dlResult fields set in fetch-remote-git:
 //   from, cloneURL, treeish, repoID, resolvedTreeish
 // dlResult fields potentially set in download_ (above) or in fetch-named:
-//   name, version, _duplicate, _from (= name + "@" + spec)
+//   name, version, _duplicate, _from (= name + '@' + spec)
 // (NOTE that the _from value will *overwrite* what got set on that by fetch-remote-tarball)
 // 
 function afterDl (cb, target) { return function (er, dlResult, pkgData, wrapData) {
-  fetching--
-  if (fetching <= 0) npm.spinner.stop()
 
   if (er) return cb(er, dlResult)
 
@@ -206,15 +198,15 @@ function afterDl (cb, target) { return function (er, dlResult, pkgData, wrapData
   // so "nothing is wrong, but something's not right"
   if (!pkgData) return cb(null, dlResult)
 
-  log.silly("download", "afterDl result:", dlResult)
+  log.silly('download', 'afterDl result:', dlResult)
 
   var fname = target.type === 'git' ?
       path.join(gitAux.remotesDirName(), dlResult.repoID) : dlResult.filename
   var fpath = path.resolve(npm.dlTracker.path, fname)
   var done = inflight(fpath, cb)
-  if (!done) return log.verbose("afterDl", fpath, "already in flight; not adding")
+  if (!done) return log.verbose('afterDl', fpath, 'already in flight; not adding')
 
-  log.verbose("afterDl", fpath, "not in flight; adding")
+  log.verbose('afterDl', fpath, 'not in flight; adding')
 
   if (!dlResult.name) dlResult.name = target.name || pkgData.name
   if (!dlResult.spec) dlResult.spec = target.spec
@@ -230,11 +222,11 @@ function afterDl (cb, target) { return function (er, dlResult, pkgData, wrapData
 
 function fetchDependencies(target, pkgData, wrapData, cb)
 {
-  var opts = { dev: npm.config.get("dev") }
-  if (npm.config.get("optional")) opts.optional = true
+  var opts = { dev: npm.config.get('dev') }
+  if (npm.config.get('optional')) opts.optional = true
 
-  var useShrinkwrap = npm.config.get("shrinkwrap")
-  if (typeof useShrinkwrap == "boolean") opts.useShrinkwrap = useShrinkwrap
+  var useShrinkwrap = npm.config.get('shrinkwrap')
+  if (typeof useShrinkwrap == 'boolean') opts.useShrinkwrap = useShrinkwrap
   if (target.wrap) opts.wrap = target.wrap
   else if (useShrinkwrap && wrapData) opts.newwrap = wrapData
 
@@ -245,7 +237,7 @@ function fetchDependencies(target, pkgData, wrapData, cb)
     // resolveDeps does not add them to dependencies, but we can observe
     // opts.optional here...
     var deps = resolved.dependencies || {}
-      , depErrors = null
+    var depErrors = null
 
     asyncMap(Object.keys(deps),
       function (k, mapCb) {
@@ -258,17 +250,18 @@ function fetchDependencies(target, pkgData, wrapData, cb)
             // TODO:
             // Check all the cb() chain before this: is the error already logged in all cases?
             // If so, don't need to do this here:
-            log.error("download", er.message)
+            log.error('download', er.message)
 
             return mapCb(er)
           }
           if (!depData._duplicate) {
-            log.verbose("download", "Complete: %s@%s, dependency of %s@%s",
+            log.verbose('download', 'Complete: %s@%s, dependency of %s@%s',
               depData.name, depData.version, target.name, target.spec
             )
           } else {
-            log.silly("download", "We already had %s@%s",
-                      depData.name, depData.version)
+            log.silly(
+              'download', 'We already had %s@%s', depData.name, depData.version
+            )
           }
           mapCb(null, depData)
         })
@@ -278,7 +271,7 @@ function fetchDependencies(target, pkgData, wrapData, cb)
           var id = target.name + '@' + target.spec
           if (!npm.dlTracker.errors) npm.dlTracker.errors == {}
           npm.dlTracker.errors[id] = depErrors
-          er = new Error("Failure(s) while fetching dependencies of " + id)
+          er = new Error('Failure(s) while fetching dependencies of ' + id)
         }
         cb(er, target)
       }
