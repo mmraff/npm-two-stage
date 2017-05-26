@@ -8,12 +8,12 @@ Any node.js developer or configuration manager who has reason to install
 node modules on a system that is not connected to the Internet. Some use cases:
 - The security policy of an organization requires that the development/usage
  environment is disconnected from the Internet (some call this _Air-Gapped_)
-- A student needs to work with modules usually installable by npm, but there is
- no Internet connection available to the target system
+- A student needs to work with node modules usually installable by npm, but
+ there is no Internet connection available to the target system
 
 ## What This Is Not
 This repository is not an entire fork of npm; it's only a set of new files and
-a few modified versions of existing files. They are intended to be superimposed
+modified versions of a few existing files. They are intended to be superimposed
 on an existing npm installation.
 _________________________
 
@@ -55,36 +55,39 @@ _________________________
 
 ## To Install
 1. On the github page of this project, navigate to the branch that corresponds
- to your installed version of npm. If your installed version of npm is behind
- by patch or minor version number, you must update first.
+ to your installed version of npm, and locate the correct release. If your
+ installed version of npm is behind by patch or minor version number, you must
+ first update npm.
 2. Download the project archive.
 3. Extract the contents of the project archive where they can be accessed from
  the target system.
-4. In a console window, `cd` into the root directory of this project.
+4. In a console window _with elevated privileges_, `cd` into the root directory
+ of this project.
 5. Execute the script appropriate to your platform:  
-  * if you have a **`bash`** shell,
-    ```sh
-    ./install.sh
-    ```
-  * **TODO!** if you are on Windows and only have a CMD window,
-    ```sh
-    node install.js
-    ```
-6. Observe the output for the success/failure message
+    * if you have a **`bash`** shell,
+      ```sh
+      ./install.sh
+      ```
+    * if you are on Windows and only have a CMD window,
+      ```sh
+      node win-install.js
+      ```
+6. Observe the output for the success/failure message.
 
 ## To Uninstall
 **Only use the same version of this project as was used for installation.**
-1. In a console window, `cd` into the root directory of this project.
+1. In a console window _with elevated privileges_, `cd` into the root directory
+ of this project.
 2. Execute the script appropriate to your platform:  
-  * if you have a **`bash`** shell,
-    ```sh
-    ./uninstall.sh
-    ```
-  * **TODO!** if you are on Windows and only have a CMD window,
-    ```sh
-    node uninstall.js
-    ```
-3. Observe the output for the success/failure message
+    * if you have a **`bash`** shell,
+      ```sh
+      ./uninstall.sh
+      ```
+    * if you are on Windows and only have a CMD window,
+      ```sh
+      node win-uninstall.js
+      ```
+3. Observe the output for the success/failure message.
 _________________________
 
 ## Usage
@@ -102,7 +105,7 @@ will fetch the version of the package that best matches the specification, plus
 all the packages in its dependency tree, as gzipped tar archives, with no
 redundant downloads.  
 
-Note that the '=' is required.  
+Note that the '=' is required for the `--dl-dir` option.  
 Shorthand `dl` may be substituted for `download`.  
 Without the `--dl-dir` option, downloads will go to the current directory.  
 
@@ -117,7 +120,7 @@ into the `dltracker.json` file. This can be done an arbitrary number of times.
 npm install --offline --offline-dir=path/to/find/tarballs PACKAGE_SPEC
 ```
 
-Note that the '=' is required.  
+Note that the '=' is required for the `--offline-dir` option.  
 If `PACKAGE_SPEC` is omitted, will do the reasonable thing: look for
 `package.json` in the current directory, and try to install the dependencies/
 devDependencies listed there.  
