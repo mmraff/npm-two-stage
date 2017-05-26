@@ -62,17 +62,29 @@ _________________________
  the target system.
 4. In a console window, `cd` into the root directory of this project.
 5. Execute the script appropriate to your platform:  
-    * `install.sh` if you have a **`bash`** shell
-    * `install.cmd` if you are on Windows and only have a CMD window
-6. Observe the output for success/failure message
+  * if you have a **`bash`** shell,
+    ```sh
+    ./install.sh
+    ```
+  * **TODO!** if you are on Windows and only have a CMD window,
+    ```sh
+    node install.js
+    ```
+6. Observe the output for the success/failure message
 
 ## To Uninstall
 **Only use the same version of this project as was used for installation.**
 1. In a console window, `cd` into the root directory of this project.
 2. Execute the script appropriate to your platform:  
-    * `uninstall.sh` if you have a **`bash`** shell
-    * `uninstall.cmd` if you are on Windows and only have a CMD window
-3. Observe the output for success/failure message
+  * if you have a **`bash`** shell,
+    ```sh
+    ./uninstall.sh
+    ```
+  * **TODO!** if you are on Windows and only have a CMD window,
+    ```sh
+    node uninstall.js
+    ```
+3. Observe the output for the success/failure message
 _________________________
 
 ## Usage
