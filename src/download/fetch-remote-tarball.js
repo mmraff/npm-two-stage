@@ -12,6 +12,7 @@ var getDlFilename = require('./get-dl-filename.js')
 var filenameParser = require('./npm-package-filename.js')
 var readTarballJson = require('../fetch-package-metadata.js').readTarballJson
 var semver = require('semver')
+var pulseTillDone = require('../utils/pulse-till-done.js')
 
 module.exports = fetchRemoteTarball
 
