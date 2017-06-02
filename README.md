@@ -48,16 +48,16 @@ _________________________
   ...)
 * Ensure your **npm** installation is one of the versions targeted by this
  project, and ensure you are downloading the right branch of this project for
- your version of npm. **You are currently viewing the branch for npm 3.x.**
+ your version of npm. **You are currently viewing the branch for npm 4.x.**
 * Note that backup copies of the original files modified by this project are
  created in the same location. If you ever want to use the uninstall script,
  it's best if you leave the backup files where they are.
 
 ## To Install
-1. On the github page of this project, navigate to the branch that corresponds
- to your installed version of npm, and locate the correct release. If your
- installed version of npm is behind by patch or minor version number, you must
- first update npm.
+1. On the github page of this project, navigate to the releases, find the one
+ that corresponds to your installed version of npm, and locate the correct
+ release. If your installed version of npm is behind by patch or minor version
+ number, you must first update npm.
 2. Download the project archive.
 3. Extract the contents of the project archive where they can be accessed from
  the target system.

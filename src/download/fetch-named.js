@@ -11,6 +11,7 @@ var fetchRemoteTarball = require('./fetch-remote-tarball.js')
 var mapToRegistry = require('../utils/map-to-registry.js')
 var pulseTillDone = require('../utils/pulse-till-done.js')
 var packageId = require('../utils/package-id.js')
+var pickManifestFromRegistryMetadata = require('../utils/pick-manifest-from-registry-metadata.js')
 
 module.exports = fetchNamed
 
@@ -257,29 +258,16 @@ function fetchNameRange (target, data, cb) {
     log.silly('fetchNameRange', 'versions',
                [data.name, Object.keys(data.versions || {})])
 
-    // if the tagged version satisfies, then use that.
-    var tagged = data['dist-tags'][npm.config.get('tag')]
-    if (tagged &&
-        data.versions[tagged] &&
-        semver.satisfies(tagged, range, true)) {
-      target.spec = tagged
-      return fetchNamed(target, data.versions[tagged], cb)
-    }
-
-    // find the max satisfying version.
+    var tag = npm.config.get('tag')
     var versions = Object.keys(data.versions || {})
-    var ms = semver.maxSatisfying(versions, range, true)
-    if (!ms) {
-      if (range === '*' && versions.length) {
-        target.spec = 'latest'
-        return fetchNameTag(target, data, cb)
-      } else {
-        return cb(downloadTargetsError(range, data))
-      }
+      .filter(function (v) { return semver.valid(v) })
+    var picked = pickManifestFromRegistryMetadata(range, tag, versions, data)
+    if (picked) {
+      target.spec = picked.resolvedTo
+      return fetchNamed(target, picked.manifest, cb)
     }
 
-    target.spec = ms
-    fetchNamed(target, data.versions[ms], cb)
+    return cb(downloadTargetsError(range, data))
   }
 }
 
