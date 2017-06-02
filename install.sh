@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WARNING: The files referenced in this script are specific to npm 3.x
+# WARNING: The files referenced in this script are specific to npm 3.x & 4.x
 
 if [ ! -f ./target-ver.txt ]
 then
