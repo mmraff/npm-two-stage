@@ -50,13 +50,14 @@ function fetchNamed (target, pkgData, cb_) {
 
   var name = target.name
   var spec = target.spec
+  var validVer = semver.valid(spec)
   var validVerLoose = semver.valid(spec, true)
   var stringified = JSON.stringify(spec)
   var key = name + '@' + spec
 
   log.silly('fetchNamed', key)
 
-  if (!target.tag && npm.dlTracker.contains('semver', name, spec)) {
+  if (validVer && npm.dlTracker.contains('semver', name, spec)) {
     var results = { name: name, spec: spec, _duplicate: true }
     return cb_(null, results)
   }
