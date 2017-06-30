@@ -104,7 +104,7 @@ function validateExistingRemote (gitData, cachedRemote, cStats, next, done) {
         return copyRemote(gitData, cachedRemote, cStats, next, done)
       }
 
-      log.verbose('validateExistingRemote', from, 'is cloning existing cached remote', cachedRemote)
+      log.verbose('validateExistingRemote', gitData.from, 'is cloning existing cached remote', cachedRemote)
       cloneCachedRemote(gitData, cachedRemote, next, done)
     }
   )

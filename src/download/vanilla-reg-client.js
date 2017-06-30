@@ -7,6 +7,7 @@ module.exports = VanillaRegistryClient
 
 var inherits = require('util').inherits
 var log = require('npmlog')
+var npm = require('../npm.js')
 var RegistryClient = require('npm-registry-client')
 
 function VanillaRegistryClient (config)
@@ -39,6 +40,7 @@ function adaptConfig (config)
     log: log,
     defaultTag: config.get('tag'),
     couchToken: config.get('_token'),
-    maxSockets: config.get('maxsockets')
+    maxSockets: config.get('maxsockets'),
+    scope: npm.projectScope
   }
 }
