@@ -13,6 +13,7 @@ var filenameParser = require('./npm-package-filename.js')
 var readTarballJson = require('../fetch-package-metadata.js').readTarballJson
 var semver = require('semver')
 var pulseTillDone = require('../utils/pulse-till-done.js')
+var npa = require('npm-package-arg')
 
 module.exports = fetchRemoteTarball
 
@@ -102,12 +103,18 @@ function fetchAndShaCheck (inParams, cb) {
       var dlData = {}
       var version = inParams.ver && semver.valid(inParams.ver, true)
       if (version) dlData.version = version
-      if (inParams.name) dlData.name = inParams.name
       if (inParams.tag && inParams.tag !== 'latest') dlData.tag = inParams.tag
+      if (inParams.name) {
+        dlData.name = inParams.name
+
+        var npaObj = npa(inParams.name)
+        if (npaObj.scope) dlData.safeName = npaObj.escapedName
+        else dlData.safeName = inParams.name
+      }
 
       // Option #1
       if (dlData.name && dlData.version) {
-        dlData.filename = dlData.name + '-' + dlData.version + '.tar.gz'
+        dlData.filename = dlData.safeName + '-' + dlData.version + '.tar.gz'
       }
       if (!dlData.filename) {
         // Option #2
@@ -117,6 +124,9 @@ function fetchAndShaCheck (inParams, cb) {
         // Options #3-5
         deriveFromURL(inParams.url, dlData)
       }
+
+      // Was only needed for constructing the tarball filename:
+      if (dlData.safeName) delete dlData.safeName
 
       var filePath = path.join(npm.dlTracker.path, dlData.filename)
       var tarball = writeStreamAtomic(filePath, { mode : npm.modes.file })
@@ -251,8 +261,8 @@ function deriveFromURL(u, dlData)
       dlData.version = ver
       if (dlData.name) {
         log.verbose(thisFunc, "filename can be built from '%s' and '%s'",
-          dlData.name, urlParsed.pathname)
-        dlData.filename = dlData.name + '-' + ver + '.tar.gz'
+          dlData.safeName, urlParsed.pathname)
+        dlData.filename = dlData.safeName + '-' + ver + '.tar.gz'
         delete dlData.anomaly
       }
       else {
@@ -268,7 +278,7 @@ function deriveFromURL(u, dlData)
     else {
       if (dlData.name) {
         if (urlBasename.indexOf(dlData.name) === -1) {
-          dlData.filename = dlData.name + '-' + urlBasename
+          dlData.filename = dlData.safeName + '-' + urlBasename
         }
         dlData.anomaly = 'version,filename'
       }
