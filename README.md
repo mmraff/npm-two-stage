@@ -56,7 +56,7 @@ _________________________
   ...)
 * Ensure your **npm** installation is one of the versions targeted by this
  project, and ensure you are downloading the correct release of this project for
- your version of npm. **You are currently viewing the branch for npm 3.x.**
+ your version of npm. **You are currently viewing the branch for npm 4.x.**
 * Note that backup copies of the original files modified by this project are
  created in the same location. If you ever want to use the uninstall script,
  it's best if you leave the backup files where they are.
