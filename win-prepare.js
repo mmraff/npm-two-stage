@@ -11,8 +11,8 @@ if (os.platform() !== 'win32') {
 
 // WARNING: the files referenced in this script are specific to npm 2.x
 var targets = {
-  CHANGED_FILES: [ 'cache', 'fetch-package-metadata', 'install', 'config\\cmd-list' ],
-  ADDED_FILES: [ 'download', 'git-offline', 'offliner' ],
+  CHANGED_FILES: [ 'fetch-package-metadata', 'install', 'config\\cmd-list', 'install\\action\\refresh-package-json' ],
+  ADDED_FILES: [ 'download', 'git-offline', 'offliner', 'prepare-raw-module' ],
   ADDED_DIRS: [ 'download' ]
 }
 module.exports.targets = targets

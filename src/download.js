@@ -1,281 +1,592 @@
-exports = module.exports = download
+/*
+TODO:
+* A problem has come to my attention: if `npm download [pkg]` has been run,
+  whatever the prod/dev config, the existence of the top-level package [pkg]
+  in the package map will cause any future run of `npm download pkg` to refuse
+  to fetch anything, even if the new prod/dev config would have fetched
+  (dev)dependencies that were not fetched in the 1st run. I think I should fix this.
+  Approach:
+    if it's a top-level package (named on the command line)
+      if the dltracker has the package already
+        process the dependencies as if we've just downloaded it;
+        the dependencies that are found will be skipped, as we want.
 
-var npm = require('./npm.js')
-var fs = require('graceful-fs')
-var assert = require('assert')
-var log = require('npmlog')
-var path = require('path')
-var asyncMap = require('slide').asyncMap
-var VanillaRegClient = require('./download/vanilla-reg-client.js')
-var DlTracker = require('./download/dltracker.js')
-var fetchNamed = require('./download/fetch-named.js')
-var fetchRemoteTarball = require('./download/fetch-remote-tarball.js')
-var fetchRemoteGit = require('./download/fetch-remote-git.js')
-var gitAux = require('./download/git-aux.js')
-var inflight = require('inflight')
-var npa = require('npm-package-arg')
-var mapToRegistry = require('./utils/map-to-registry.js')
-var normalize = require('normalize-package-data')
+* Consider handling the case of `npm download` with no packages specified,
+  where there is a package.json in the current directory.
+  Could also add an option, e.g., --spec=path/to/package.json
+  The reason why I'm on the fence about this is that I think it's questionable
+  to be transporting the package.json of an offline project to a machine that
+  is internet-connected, whether in its project directory or not.
+  Meanwhile, there's no denying that there are cases for which it could lend convenience.
+  And then there's the case where the user wants the devDependencies of the package(s)
+  he would otherwise have to name on the command line. Is that a realistic case?
+  Yes, it is: I've already experienced this with my own packages.
+*/
 
-var resolveDeps = require('./download/resolve-dependencies.js')
+'use strict'
 
-download.usage = 'npm download <tarball url>'
-               + '\nnpm download <git url>'
-               + '\nnpm download <name>@<version>'
+module.exports = download
+
+const usage = require('./utils/usage')
+
+download.usage = usage(
+  'download',
+  [
+    '',
+    '  npm download [<@scope>/]<name>',
+    '  npm download [<@scope>/]<name>@<tag>',
+    '  npm download [<@scope>/]<name>@<version>',
+    '  npm download [<@scope>/]<name>@<version range>',
+    '  npm download <git-host>:<git-user>/<repo-name>',
+    '  npm download <github username>/<github project>',
+    '  npm download <git repo url>',
+    '  npm download <tarball url>',
+    '',
+    'Multiple items can be named as above on the same command line.',
+    'Alternatively, dependencies can be drawn from a package.json file:',
+    '',
+    '  npm download --package-json[=<path-to-package.json>]',
+    '  npm download --pj[=<path-to-package.json>]',
+    '  npm download -J',
+    '',
+    'If <path-to-package.json> is not given, the package.json file is',
+    'expected to be in the current directory.',
+    'The last form assumes this.'
+  ].join('\n'),
+  [
+    /*
+    TODO: arguably, not all of these are "common options".
+    This arg gets automatically labeled that way on output.
+    Probably should remove everything except dl-dir ***AFTER copying these to the README***
+    See output of `npm install --help` for reference.
+    */
+    '',
+    '  --dl-dir=<path>',
+    '  --only=dev[elopment]',
+    '  --also=dev[elopment]      ***deprecated***',
+    '  --include=dev[elopment]',
+    '  --no-optional',
+    '  --no-shrinkwrap'
+  ].join('\n')
+)
+
+// built-in packages
+const fs = require('fs')
+const path = require('path')
+const url = require('url')
+
+// external dependencies
+const BB = require('bluebird')
+const finalizeManifest = require('pacote/lib/finalize-manifest')
+const log = require('npmlog')
+const mkdirpAsync = BB.promisify(require('mkdirp'))
+const npa = require('npm-package-arg')
+const pacote = require('pacote')
+const rimraf = require('rimraf')
+const semver = require('semver')
+const validate = require('aproba')
+
+// npm internal utils
+const DlTracker = require("./download/dltracker.js")
+const gitAux = require('./download/git-aux')
+const gitContext = require('./download/git-context')
+const npf = require('./download/npm-package-filename')
+const npm = require('./npm.js')
+
+const cmdOpts = {}
+const latest = {}
+const inflight = {}
+
+const tempCache = path.join(npm.tmp, 'dl-temp-cache')
+
+function DuplicateSpecError() {}
+DuplicateSpecError.prototype = Object.create(Error.prototype)
+
+// There is a case in which a devDependency is *not* marked as such in a
+// shrinkwrap file: the package in question is "both a development dependency
+// of the top level and a transitive dependency of a non-development dependency
+// of the top level."
+// This function resolves that. However, it must *not* be used when culling
+// devDependencies (rely on 'dev' field in the shrinkwrap dependency record
+// for that).
+function isDevDep(name, vSpec, manifest) {
+  var result
+  const devDeps = manifest.devDependencies
+  if (!devDeps || !(name in devDeps))
+    result = false
+  else if (semver.valid(vSpec) && semver.validRange(devDeps[name])) {
+    result = semver.satisfies(vSpec, devDeps[name])
+  }
+  else {
+    // Last resort. I'm skeptical that this covers all non-semver cases.
+    // TODO: change this log level to 'silly' after reviewing this case.
+    log.warn('download isDevDep', `non-semver case: ${vSpec} vs. ${devDeps[name]}`)
+    result = vSpec.indexOf(devDeps[name]) !== -1
+  }
+  return result
+}
+
+// Tame those nested arrays
+function xformResult(res) {
+  return res.reduce((acc, val) => acc.concat(val), [])
+}
 
 function download (args, cb) {
-  assert(args && args.length && typeof args[0] === 'string',
-         'must identify package to download')
-  assert(typeof cb === 'function', 'must include callback')
-
-  // elements of args can be any of:
-  // 'pkg@version'
-  // 'username/projectspec' (github shortcut)
-  // 'url'
-  // This is tricky, because urls can contain @
-
-  var usage = 'Usage:\n'
-            + '    npm download [--dl-dir=<path>] [<pkg>@<ver>|<tarball-url>] ...\n'
+  validate('AF', [args, cb])
 
   log.silly('download', 'args:', args)
 
-  //if (!spec) return cb(usage)
+  cmdOpts.dlDir = npm.config.get('dl-dir')
+  cmdOpts.phantom = npm.config.get('dl-phantom')
+  cmdOpts.noOptional = npm.config.get('no-optional')
+  cmdOpts.noShrinkwrap = npm.config.get('no-shrinkwrap')
+  cmdOpts.include = new Set()
+  const optInclude = npm.config.get('include')
+  if (optInclude) {
+    const includeItems = optInclude.split(',')
+    for (let i = 0; i < includeItems.length; ++i) {
+      if (includeItems[i] == 'development') cmdOpts.include.add('dev')
+      else cmdOpts.include.add(includeItems[i])
+    }
+  }
+  const optAlso = npm.config.get('also')
+  if (optAlso) { // must be either 'development' or 'dev'
+    if (!cmdOpts.include.has('dev'))
+      cmdOpts.include.add('dev')
+  }
+  const optOnly = npm.config.get('only')
+  if (optOnly) {
+    cmdOpts.onlyProd = /^prod(uction)?$/.test(optOnly)
+    cmdOpts.onlyDev = /^dev(elopment)?$/.test(optOnly)
+  }
+  // NOTE that cmdOpts.include *can* be in conflict with either of the above.
+  // According to npmjs doc for `npm install`, --include overrides --omit.
+  // Make it also override the implied omit of --only.
+  const optPj = npm.config.get('package-json') || npm.config.get('pj') || npm.config.get('J')
+  cmdOpts.packageJson = typeof optPj == 'boolean' ? './' : optPj
 
-  var dlDir = npm.config.get('dl-dir')
-  var phantom = npm.config.get('dl-phantom')
-  var cachingRegClient = npm.registry
+  if (!(cmdOpts.packageJson || (args && args.length > 0))) {
+    return cb(new SyntaxError('no packages named for download'))
+  }
 
-  log.verbose('download', 'Substituting a no-cache registry client...')
-  npm.registry = new VanillaRegClient(npm.config)
+log.warn('download', `config option 'only' is ${optOnly}`)
+log.warn('download', `config option 'also' is ${optAlso}`)
+log.warn('download', `config option 'include' is ${optInclude}`)
+log.warn('download', `config option 'package-json' is ${cmdOpts.packageJson}`)
 
-  if (dlDir) {
-    log.info('download', 'configured to use path:', dlDir)
-  } else {
+  /*
+  include dev   only dev    only prod
+  0             0           0           -> ignore dev
+  0             1           0
+  0             0           1           -> ignore dev
+  1             0           0
+  1             1           0
+  1             0           1
+  */
+  cmdOpts.IGNORE_DEV_DEPS = !cmdOpts.include.has('dev') && !cmdOpts.onlyDev
+
+  if (cmdOpts.dlDir) {
+    log.info('download', 'requested path:', cmdOpts.dlDir)
+  }
+  else {
     log.warn('download',
       'No path configured for downloads - current directory will be used.'
     )
   }
-  // TODO: if dlDir doesn't exist, should use mkdir in dltracker.js?
-  npm.dlTracker = new DlTracker()
-  npm.dlTracker.initialize(dlDir, phantom, function (errInit) {
-    if (errInit) return cb(errInit)
 
-    log.info('download', 'established download path:', npm.dlTracker.path)
+  DlTracker.create(cmdOpts.dlDir, { log: log }, function(er, newTracker) {
+    if (er) return cb(er)
 
-// TODO: Answer this - do we want the first error to abort the session, or do we
-// want to continue trying to fetch anything remaining to fetch?
-    asyncMap(Object.keys(args),
-      function(i, mapCb) {
-        download_(args[i], null, function (dlErr, data) {
-          mapCb(null, dlErr ? dlErr : data)
+    log.info('download', 'established download path:', newTracker.path)
+
+     mkdirpAsync(tempCache)
+    //.catch(mdErr => cb(mdErr))
+      // TODO: devise a way to switch to the npm.cache instead of bailing? See makeOpts.
+    .then(() => {
+      npm.dlTracker = newTracker
+      const pjPromise = !cmdOpts.packageJson ? BB.resolve([]) :
+        pacote.manifest(cmdOpts.packageJson).then(mani => {
+          return processDependencies(mani, { topLevel: true })
+          .then(pjResults => reportItemResultsStats('package.json', pjResults))
         })
-      }, 
-      function (_, mapData) {
-        // TODO: the error sources may need to be modified to include more information
-        // like package name/spec
-        var errs
-        var errCount = 0
-        var errPkgs = []
-        for (var i in mapData) {
-          if (mapData[i] instanceof Error) {
-            errPkgs.push(args[i])
-            if (npm.dlTracker.errors && npm.dlTracker.errors[args[i]])
-              errs = npm.dlTracker.errors[args[i]]
-            else errs = []
-            errCount += (errs.length || 1)
-            log.error('download', mapData[i].message)
-            for (var j in errs) log.error('download', errs[j].message)
-          }
-          else console.log('Successfully downloaded all packages needed for', args[i])
-        }
 
-        if (errPkgs.length) {
-          log.error('download', 'Failed to download everything for these specs:')
-          log.error(errPkgs)
-        }
+      pjPromise.then(pjResults => {
+        return args.length ?
+          BB.map(args, function (item) {
+            return processItem(item, { topLevel: true })
+            .then(results => {
+              reportItemResultsStats(item, results)
+              if (pjResults.length) results.unshift(pjResults)
+              return results
+            })
+          })
+          :
+          pjResults
+      })
+      .then(results => {
+        // Note: results is an array of arrays, 1 for each package on the command line.
+        rimraf(tempCache, function(rimrafErr) {
+          if (rimrafErr)
+            log.warn('download', 'failed to delete the temp dir ' + tempCache)
 
-        // Reset the previously configured registry, in case the return from this
-        // will be followed by something that needs it. Not likely, but possible.
-        npm.registry = cachingRegClient
-
-        npm.dlTracker.serialize(function (serErr) {
-          cb(serErr)
+          newTracker.serialize(function(serializeErr) {
+            console.info('\ndownload', 'finished.')
+            cb(serializeErr, results)
+          })
         })
+      })
     })
+    .error(er => cb(er))
   })
 }
 
-function download_ (spec, wrap, cb) {
-  var target = {}
-  var p
+// NOTE: be sure to use opts.topLevel = true at the right place!
+function processDependencies(manifest, opts) {
+  // opts.shrinkwrap==true indicates that this processing is for a dependency
+  // listed in a shrinkwrap file, where the entire tree of dependencies is
+  // iterated; therefore no dependency recursion should happen.
+  if (opts.shrinkwrap)
+    return BB.resolve([])
 
-  try {
-    p = npa(spec)
-    if (!p.name) {
-      log.warn('download', 'No package name parsed from spec', spec)
+  // IMPORTANT NOTE about scripts.prepare...
+  // We don't have to worry about the devDependencies required for scripts.prepare,
+  // because it only applies in the case of package type 'git', and it's already
+  // handled by pacote when it calls pack() for the local clone of the repo.
+  const bundleDeps = manifest.bundleDependencies || {}
+  const resolvedDeps = []
+  const optionalSet = new Set()
+
+  if (manifest._shrinkwrap && !cmdOpts.noShrinkwrap) {
+    const shrDeps = manifest._shrinkwrap.dependencies || {}
+    for (let name in shrDeps) {
+      let dep = shrDeps[name]
+      if (bundleDeps[name]) continue // No need to fetch a bundled package
+      // Cases in which we're not interested in devDependencies:
+      if (dep.dev && (!opts.topLevel || cmdOpts.IGNORE_DEV_DEPS))
+        continue
+      // When user said --no-optional
+      if (dep.optional && cmdOpts.noOptional)
+        continue
+      // Cases in which we (might) want devDependencies:
+      // cull items that are not devDependencies of a top-level package
+      if (!opts.topLevel || (cmdOpts.onlyDev && !(dep.dev || isDevDep(name, dep.version, manifest))))
+        continue
+
+      const pkgId = `${name}@${dep.version}`
+      resolvedDeps.push(pkgId)
+      if (dep.optional) optionalSet.add(pkgId)
+    }
+    return BB.map(resolvedDeps, function(spec) {
+      return processItem(spec, { shrinkwrap: true })
+      .then(arr => xformResult(arr))
+      .catch(err => {
+        if (optionalSet.has(spec)) {
+          return [{ spec: spec, failedOptional: true }]
+        }
+        throw err
+      })
+    })
+  }
+  else {
+    if (opts.topLevel && !cmdOpts.IGNORE_DEV_DEPS) {
+      const devDeps = manifest.devDependencies || {}
+      for (let name in devDeps) {
+        if (!bundleDeps[name])
+          resolvedDeps.push(`${name}@${devDeps[name]}`)
+      }
+    }
+    if (!cmdOpts.onlyDev) {
+      if (!cmdOpts.noOptional) {
+        const optDeps = manifest.optionalDependencies || {}
+        for (let name in optDeps) {
+          if (!bundleDeps[name]) {
+            const pkgId = `${name}@${optDeps[name]}`
+            resolvedDeps.push(pkgId)
+            optionalSet.add(pkgId)
+          }
+        }
+      }
+      const regDeps = manifest.dependencies || {}
+      for (let name in regDeps) {
+        if (!bundleDeps[name])
+          resolvedDeps.push(`${name}@${regDeps[name]}`)
+      }
+    }
+    return BB.map(resolvedDeps, function(spec) {
+      return processItem(spec)
+      .then(arr => xformResult(arr))
+      .catch(err => {
+        if (optionalSet.has(spec)) {
+          return [{ spec: spec, failedOptional: true }]
+        }
+        throw err
+      })
+    })
+  }
+}
+
+function reportItemResultsStats(item, results) {
+  let filtered = results.filter(res => !res.duplicate)
+  const dupCount = results.length - filtered.length
+  filtered = filtered.filter(res => !res.failedOptional)
+  const failedOptCount = (results.length - filtered.length) - dupCount
+  if (filtered.length)
+    console.info(
+      '\ndownloaded tarballs to satisfy', item,
+      `and ${filtered.length - 1} dependenc${filtered.length == 2 ? 'y' : 'ies'}`
+    )
+  else
+    console.info('\nNothing new to download for', item)
+  if (failedOptCount)
+    console.info(`(failed to fetch ${failedOptCount} optional packages)`)
+  if (dupCount)
+    console.info(`(${dupCount} duplicate spec${dupCount > 1 ? 's' : ''} skipped)`)
+  return results
+}
+
+function processItem(item, opts) {
+  if (!opts) opts = {}
+
+  const p = npa(item)
+  if (!p.name) {
+    log.warn('download', 'No package name parsed from spec', item)
+  }
+
+  let dlType = DlTracker.typeMap[p.type]
+  if (!dlType)
+    return BB.reject(new RangeError('Cannot download package of type ' + p.type))
+
+  const result = { spec: p.rawSpec }
+  if (p.name) result.name = p.name
+
+  // when p.rawSpec is '', p.type gets set to 'tag' and p.fetchSpec gets set to 'latest' by npa
+  if ((p.type === 'tag' && p.fetchSpec === 'latest') ||
+      (p.type === 'range' && p.fetchSpec === '*')) {
+    // TODO: this *might* be something we'll want to absorb into DlTracker - think about it.
+    dlType = 'semver'
+    if (latest[p.name]) {
+      result.duplicate = true
+      return BB.resolve([ result ])
     }
   }
-  catch (err) {
-    return cb(err)
+  else {
+    if (npm.dlTracker.contains(dlType, p.name, p.rawSpec)) {
+      result.duplicate = true
+      return BB.resolve([ result ])
+    }
   }
-  log.silly('download', 'parsed spec', p)
 
-  target.name = p.name
-  target.spec = p.rawSpec
-  if (wrap) target.wrap = wrap
-  cb = afterDl(cb, target)
+  const dlData = {}
 
-  switch (p.type) {
-    case 'local':
-      return cb(new Error('Cannot download a local module'))
+  const fetchKey1 = `${p.name}:${p.fetchSpec}`
+  if (inflight[fetchKey1]) {
+    result.duplicate = true
+    return BB.resolve([ result ])
+  }
+  inflight[fetchKey1] = true
 
-    case 'remote':
-      target.type = 'url'
-      if (npm.dlTracker.contains('url', p.name, p.rawSpec))
-        return cb(null, { name: p.name, spec: p.rawSpec, _duplicate: true })
-
-      // get auth, if possible
-      mapToRegistry(p.raw, npm.config, function (err, uri, auth) {
-        if (err) return cb(err)
-
-        fetchRemoteTarball({
-          name: p.name,
-          url: p.spec, // because this is what cache.js uses
-          auth: auth
-        }, cb)
+  let fetchKey2
+  let processSpecificType
+  if (dlType === 'semver' || dlType === 'tag')
+    processSpecificType = processNpmRegistryItem
+  else if (dlType === 'git')
+    processSpecificType = processGitRepoItem
+  else
+    processSpecificType = processOtherRemoteItem
+  
+  return processSpecificType()
+  .then(manifest => processDependencies(manifest, opts)
+  )
+  .then(results => {
+    //return dlTracker_addAsync(dlType, dlData)
+    // I don't care if the Bluebird author calls this an anti-pattern.
+    // I believe it's fully justified in this case.
+    // Anyway, eventually I will rewrite the callback-style functions in the
+    // DownloadTracker to return promises, and then this will get simplified.
+    return new Promise((resolve, reject) => {
+      npm.dlTracker.add(dlType, dlData, function(err) {
+        err ? reject(err) : resolve(null)
       })
-      break
-    case 'git':
-    case 'hosted':
-      target.type = 'git'
-      if (npm.dlTracker.contains('git', p.name, p.rawSpec))
-        return cb(null, { name: p.name, spec: p.rawSpec, _duplicate: true })
+    })
+    .then(() => {
+      delete inflight[fetchKey2]
+      delete inflight[fetchKey1]
+      results.push(result)
+      return xformResult(results)
+    })
+  })
+  .catch(DuplicateSpecError, function(er) {
+    delete inflight[fetchKey1]
+    result.duplicate = true
+    return [ result ]
+  })
 
-      fetchRemoteGit(p.rawSpec, cb)
-      break
-    default:
-      if (p.name)
-        // It's tempting to send the 'target' object as 1st arg here, but
-        // we must not, because the spec field is likely to get changed in its
-        // travels through fetch-named.js, and that could cause confusion
-        // in afterDl().
-        return fetchNamed({ name: p.name, spec: p.spec }, null, cb)
+/*
+References: item, p, latest, result, dlData, dlType, fetchKey2, inflight
+*/
+  function processNpmRegistryItem() {
+    // Get the manifest first, then use that data to configure the download
+    return pacote.manifest(item, makeOpts())
+    .then(mani => {
+      if ((p.type === 'tag' && p.fetchSpec === 'latest') ||
+          (p.type === 'range' && p.fetchSpec === '*')) {
+        latest[p.name] = mani.version
+      }
+      result.name = mani.name
+      fetchKey2 = `${p.name}:${mani.version}:tarball`
+      if (inflight[fetchKey2] ||
+          npm.dlTracker.contains('semver', mani.name, mani.version)) {
+        throw new DuplicateSpecError(item)
+      }
+      inflight[fetchKey2] = true
 
-      cb(new Error("couldn't figure out how to download " + spec))
+      // Ensure that we never pass a bad value to url.parse or path.basename
+      if (!mani._resolved)
+        throw new Error(`No _resolved value in manifest for ${item}`)
+      if (typeof mani._resolved !== 'string')
+        throw new Error(`Invalid _resolved value in manifest for ${item}`)
+      const parsedPath = url.parse(mani._resolved).path
+      if (typeof parsedPath !== 'string' || parsedPath.trim() === '')
+        throw new Error(`Unable to parse a path from _resolved field for ${item}`)
+
+      dlData.name = mani.name
+      dlData.version = mani.version
+      dlData.filename = npf.makeTarballName({
+        type: 'semver', name: mani.name, version: mani.version
+      })
+      dlData._resolved = mani._resolved
+      dlData._integrity = mani._integrity
+      // TODO: find out if _shasum is really needed
+
+      if (dlType === 'tag') dlData.spec = p.rawSpec
+
+      const filePath = path.join(npm.dlTracker.path, dlData.filename)
+      return pacote.tarball.toFile(
+        item, filePath, makeOpts({ resolved: dlData._resolved })
+      )
+      .then(() => mani)
+    })
+  }
+
+/*
+References: item, dlData, result, fetchKey2, inflight
+*/
+  function processGitRepoItem() {
+    return gitManifest(item, makeOpts({ multipleRefs: true }))
+    .then(mani => {
+//console.log("FINALIZED git manifest._ref:", mani._ref, '\n')
+      // If the resolved URL is the same as the requested spec,
+      // it would be redundant in the DlTracker data
+      if (mani._resolved != item)
+        dlData._resolved = mani._resolved
+      if (mani._integrity)
+        dlData._integrity = mani._integrity
+//console.log("git manifest._resolved", mani._resolved)
+//console.log("git manifest._integrity", mani._integrity)
+
+      result.spec = item
+      fetchKey2 = npf.makeTarballName({
+        type: 'git',
+        domain: p.hosted.domain, path: p.hosted.path(), commit: mani._ref.sha
+      })
+
+      const repo = `${p.hosted.domain}/${p.hosted.path()}`
+      if (inflight[fetchKey2] ||
+          npm.dlTracker.contains('git', repo, mani._ref.sha)) {
+        throw new DuplicateSpecError(item)
+      }
+      inflight[fetchKey2] = true
+
+      dlData.filename = fetchKey2
+      dlData.repo = repo
+      dlData.commit = mani._ref.sha
+      dlData.refs = mani._ref.allRefs
+
+      const filePath = path.join(npm.dlTracker.path, dlData.filename)
+      return pacote.tarball.toFile(
+        dlData._resolved, filePath,
+        makeOpts({
+          //resolved: dlData._resolved, // This causes a cache miss, despite the data being cached from the manifest call
+          integrity: dlData._integrity
+        })
+      )
+      .then(() => mani)
+    })
+  }
+
+/*
+References: item, dlData, result, fetchKey2, inflight
+*/
+  function processOtherRemoteItem() {
+    return pacote.manifest(item, makeOpts())
+    .then(mani => {
+      // If the resolved URL is the same as the requested spec,
+      // it would be redundant in the DlTracker data
+      if (mani._resolved != item)
+        dlData._resolved = mani._resolved
+      // TODO: _integrity seems to cause us trouble when we pass it to pacote.tarball.toFile.
+      // If it persists in causing trouble, there's no point in saving it in the data.
+      //if (mani._integrity) dlData._integrity = mani._integrity
+
+      result.spec = dlData.spec = item
+      dlData.filename = npf.makeTarballName({
+        type: 'url', url: item
+      })
+
+      fetchKey2 = dlData.filename
+      if (inflight[fetchKey2] || npm.dlTracker.contains('url', null, item)) {
+        throw new DuplicateSpecError(item)
+      }
+      inflight[fetchKey2] = true
+
+      const filePath = path.join(npm.dlTracker.path, dlData.filename)
+      //if (dlData._integrity) opts.integrity = dlData._integrity
+      return pacote.tarball.toFile(
+        item, filePath, makeOpts({ resolved: dlData._resolved || item })
+      )
+      .then(() => mani)
+    })
   }
 }
 
-// In args below:
-// target.name will not exist if root package specified by, e.g., URL on cmdline;
-// target.spec is always npa.parse(origSpec).rawSpec;
-// target.type is 'url' if npa.parse(origSpec).type==='remote',
-//                'git' if npa.parse(origSpec).type==='git' or 'hosted';
-// target.wrap set to inherited shrinkwrap data, if any.
-// dlResult fields potentially set in fetch-remote-tarball:
-//   name, version, tag, filename, anomaly, _from, _resolved, _shasum
-// dlResult fields set in fetch-remote-git:
-//   from, cloneURL, treeish, repoID, resolvedTreeish
-// dlResult fields potentially set in download_ (above) or in fetch-named:
-//   name, version, _duplicate, _from (= name + '@' + spec)
-// (NOTE that the _from value will *overwrite* what got set on that by fetch-remote-tarball)
-// 
-function afterDl (cb, target) { return function (er, dlResult, pkgData, wrapData) {
-
-  if (er) return cb(er, dlResult)
-
-  // REGARDING dlResult._duplicate:
-  // Two things we know: returning here (a) avoids redundant adding to the
-  // dlTracker, and (b) avoids recursing again into the dependencies (which
-  // we assume we already have, if we already have this package)
-  //
-  // TODO: Potential problem, to be traced and verified: What if we already got
-  // the target by a semver version spec, but this time it was specified by a
-  // tag, other than 'latest'? Or even a URL? We would need to get that other
-  // spec into the appropriate map through the tracker, even if not downloaded...
-  if (dlResult._duplicate) return cb(null, dlResult)
-
-  // TODO: This might be a case worth more attention: no error, but no package.json,
-  // so "nothing is wrong, but something's not right"
-  if (!pkgData) return cb(null, dlResult)
-
-  log.silly('download', 'afterDl result:', dlResult)
-
-  var fname = target.type === 'git' ?
-      path.join(gitAux.remotesDirName(), dlResult.repoID) : dlResult.filename
-  var fpath = path.resolve(npm.dlTracker.path, fname)
-  var done = inflight(fpath, cb)
-  if (!done) return log.verbose('afterDl', fpath, 'already in flight; not adding')
-
-  log.verbose('afterDl', fpath, 'not in flight; adding')
-
-  if (!dlResult.name) dlResult.name = target.name || pkgData.name
-  if (!dlResult.spec) dlResult.spec = target.spec
-  if (dlResult.tag && dlResult.tag !== 'latest') {
-    target.type = 'tag'
-    dlResult.spec = dlResult.tag
+function makeOpts(extra) {
+  const opts = {
+    annotate: true,
+    hashAlgorithm: 'sha1',
+    cache: tempCache,
+    log: log
+    //memoize: CACHE //???
   }
-  npm.dlTracker.add(target.type || 'semver', dlResult, function (addErr) {
-    if (addErr) return done(addErr)
-    fetchDependencies(target, pkgData, wrapData, done)
+  if (extra) Object.assign(opts, extra)
+  return opts
+}
+
+// Adapted from pacote/manifest.js
+function gitManifest(spec, opts) {
+  spec = npa(spec, opts.where)
+
+  const startTime = Date.now()
+  return gitAux.fetchManifest(spec, opts)
+  .then(rawManifest => {
+    // finalizeManifest removes _ref from the manifest, but we need that here
+    const refData = rawManifest._ref
+    return finalizeManifest(rawManifest, spec, opts)
+    .then(manifest => {
+      manifest._ref = refData
+      return manifest
+    })
   })
-}}
-
-function fetchDependencies(target, pkgData, wrapData, cb)
-{
-  var opts = { dev: npm.config.get('dev') }
-  if (npm.config.get('optional')) opts.optional = true
-
-  var useShrinkwrap = npm.config.get('shrinkwrap')
-  if (typeof useShrinkwrap == 'boolean') opts.useShrinkwrap = useShrinkwrap
-  if (target.wrap) opts.wrap = target.wrap
-  else if (useShrinkwrap && wrapData) opts.newwrap = wrapData
-
-  resolveDeps(pkgData, opts, function (er, resolved, wrap) {
-    if (er) { return cb(er) }
-
-    // TODO: add some code to make use of resolved.optionalDependencies!
-    // resolveDeps does not add them to dependencies, but we can observe
-    // opts.optional here...
-    var deps = resolved.dependencies || {}
-    var depErrors = null
-
-    asyncMap(Object.keys(deps),
-      function (k, mapCb) {
-        // Recurse!
-        // the only use of wrap
-        download_(k + '@' + deps[k], wrap, function (er, depData) {
-          if (er) {
-            if (!depErrors) { depErrors = [] }
-            depErrors.push(er.message + ' (' + k + '@' + deps[k] + ')')
-            // TODO:
-            // Check all the cb() chain before this: is the error already logged in all cases?
-            // If so, don't need to do this here:
-            log.error('download', er.message)
-
-            return mapCb(er)
-          }
-          if (!depData._duplicate) {
-            log.verbose('download', 'Complete: %s@%s, dependency of %s@%s',
-              depData.name, depData.version, target.name, target.spec
-            )
-          } else {
-            log.silly(
-              'download', 'We already had %s@%s', depData.name, depData.version
-            )
-          }
-          mapCb(null, depData)
-        })
-      },
-      function(er, mapData) { // finally...
-        if (er) {
-          var id = target.name + '@' + target.spec
-          if (!npm.dlTracker.errors) npm.dlTracker.errors == {}
-          npm.dlTracker.errors[id] = depErrors
-          er = new Error('Failure(s) while fetching dependencies of ' + id)
-        }
-        cb(er, target)
-      }
-    ) // end asyncMap call
-  }) // end callback for resolveDeps
-} // end function fetchDependencies
-
+  .then(manifest => {
+    if (opts.annotate) {
+      manifest._from = spec.saveSpec || spec.raw
+      manifest._requested = spec
+      manifest._spec = spec.raw
+    }
+    const elapsedTime = Date.now() - startTime
+    log.silly(
+      'gitManifest',
+      `${spec.type} manifest for ${spec.name}@${spec.saveSpec || spec.fetchSpec} fetched in ${elapsedTime}ms`
+    )
+    return manifest
+  })
+}

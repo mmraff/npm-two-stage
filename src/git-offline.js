@@ -1,308 +1,212 @@
-// The offline complement to fetch-remote-git
-// Based on an extract from cache/add-remote-git.js
+const path = require('path')
 
-var fs = require('graceful-fs')
-var path = require('path')
-var url = require('url')
+const BB = require('bluebird')
+const execFileAsync = BB.promisify(require('child_process').execFile, {
+  multiArgs: true
+})
+const log = require('npmlog')
+const mkdirp = BB.promisify(require('mkdirp'))
+const npa = require('npm-package-arg')
+const packlist = require('npm-packlist')
+const readJson = BB.promisify(require('read-package-json'))
+const statAsync = BB.promisify(require('graceful-fs').stat)
+const tar = require('tar')
 
-var chownr = require('chownr')
-var hostedFromURL = require('hosted-git-info').fromUrl
-var inflight = require('inflight')
-var log = require('npmlog')
-var mkdir = require('mkdirp')
-var realizePackageSpecifier = require('realize-package-specifier')
-var fstr = require('fstream')
-var rm_rf = require('rimraf')
+const DlTracker = require('./download/dltracker')
+const gitAux = require('./download/git-aux')
+const gitContext = require('./download/git-context')
+const npm = require('./npm')
+const prepRawModule = require('./prepare-raw-module')
+const lifecycle = BB.promisify(require('./utils/lifecycle'))
+const getContents = require('./pack').getContents
 
-var git = require('./utils/git.js')
-var gitAux = require('./download/git-aux.js')
-var npm = require('./npm.js')
-var addLocal = require('./cache/add-local.js')
-var tempFilename = require('./utils/temp-filename.js')
+/*
+OPTS of interest here ------------------
+---------------------
+* uid, gid (mkOpts)
+* log
+* git
+* dirPacker?
+*/
 
-module.exports = add
-function add (gitData, next, done) {
-  // gitData contains fields {from, cloneURL, repoID, treeish, resolvedTreeish}.
-  // 'next' is a function factory that takes a callback, perhaps 'done', and
-  // returns function(er, cb) that eventually leads to a call of that callback.
-  // 'done' is intended to be the penultimate callback.
-  //
-  done = inflight(gitData.repoID, done)
-  if (!done) {
-    return log.verbose('gitOffline', gitData.repoID, 'already in flight; waiting')
+module.exports = gitOffline
+// There is only one use-case for this: a local filesystem git repo cloned from
+// a remote by the legacy version (fetch-git).
+// The goal is to produce a clean tarball of a specific commit from the repo,
+// so the new version of offliner can treat it the same as a product of the
+// new version of download.js.
+function gitOffline(spec, dlData, opts, next) {
+  const GITPATH = opts.git || gitContext.gitPath
+  if (!GITPATH) {
+    const err = new Error('No git binary found in $PATH')
+    err.code = 'ENOGIT'
+    return next(err)
   }
-  log.verbose('tryClone', gitData.repoID, 'not in flight; caching')
 
-  gitAux.getGitDir(npm.cache, function (er, cs) {
-    if (er) {
-      log.error('gitOffline', gitData.from, 'could not get cache stat')
-      return done(er)
-    }
-
-    var cachedRemote = path.join(npm.cache, gitAux.remotesDirName(), gitData.repoID)
-    fs.stat(cachedRemote, function (er, s) {
-      if (er || !s.isDirectory())
-        return copyRemote(gitData, cachedRemote, cs, next, done)
-
-      validateExistingRemote(gitData, cachedRemote, cs, next, done)
-    })
-  })
-}
-
-function copyRemote (gitData, cachedRemote, cStats, next, done) {
-  log.info('copyRemote', 'copying to', cachedRemote, 'for', gitData.from)
-
-  rm_rf(cachedRemote, { disableGlob: true }, function (rmErr) {
-    if (rmErr) return done(rmErr) // No error if cachedRemote does not exist
-
-    var remotesDirName = gitAux.remotesDirName()
-    // Source:
-    var clonedRemote = path.join(npm.dlTracker.path, remotesDirName, gitData.repoID)
-    fstr.Reader(clonedRemote)
-      .on('error', function(readErr) {
-        log.error('copyRemote', 'fstream.Reader(' + clonedRemote + ')')
-        done(readErr)
-      })
-      .pipe(fstr.Writer({ path: cachedRemote, type: 'Directory' })
-        .on('error', function(copyErr) { // Writer error
-          log.error('copyRemote', 'fstream.Writer(' + cachedRemote + ')')
-          done(copyErr)
-        })
-        .on('close', function() { // Writer close
-          log.verbose('copyRemote', 'cached', gitData.repoID)
-          setPermissions(gitData, cachedRemote, cStats, next, done)
-        })
-      )
-  })
-}
-
-// reuse a cached remote when possible, but nuke it if it's in an
-// inconsistent state
-function validateExistingRemote (gitData, cachedRemote, cStats, next, done) {
-  git.whichAndExec(
-    ['config', '--get', 'remote.origin.url'],
-    { cwd: cachedRemote, env: gitAux.gitEnv() },
-    function (er, stdout, stderr) {
-      var originURL
-      if (stdout) {
-        originURL = stdout.trim()
-        log.silly('validateExistingRemote', gitData.from, 'remote.origin.url:', originURL)
-      }
-
-      if (stderr) stderr = stderr.trim()
-      if (stderr || er) {
-        log.warn('gitOffline', gitData.from, 'overwriting cached repo',
-                 cachedRemote, 'because of error:', stderr || er)
-        return copyRemote(gitData, cachedRemote, next, done)
-      } else if (gitData.cloneURL !== originURL) {
-        log.warn(
-          'gitOffline',
-          gitData.from,
-          'overwriting cached repo', cachedRemote, 'because it points to', originURL,
-          'and not', gitData.cloneURL
-        )
-        return copyRemote(gitData, cachedRemote, cStats, next, done)
-      }
-
-      log.verbose('validateExistingRemote', gitData.from, 'is cloning existing cached remote', cachedRemote)
-      cloneCachedRemote(gitData, cachedRemote, next, done)
-    }
+  const dlRepoDir = 'file://' + path.join(
+    npm.dlTracker.path, gitContext.dirNames.remotes, dlData.repoID
   )
+  const tmpDir = path.join(npm.tmp, gitContext.dirNames.offlineTemps, dlData.repoID)
+  gitAux.resolve(dlRepoDir, spec, spec.name, opts)
+  .then(ref => {
+    const tmpPkgDir = path.join(tmpDir, 'package')
+    mkdirp(tmpPkgDir).then(() => {
+      return shallowClone(dlRepoDir, ref.ref, tmpPkgDir, opts)
+      // NOTE: the above promise resolves to the HEAD sha, but we don't need it here
+      .then(() => {
+        return packGitDep(spec, tmpPkgDir)
+      })
+    }).catch(err => {
+      if (err.code == 'EEXIST') {
+        const tmpTarPath = path.join(tmpDir, 'package.tgz')
+        return statAsync(tmpTarPath).then(stat => {
+          if (!stat.isFile())
+            throw new Error("False package.tgz obstructing packaging of git repo")
+          return tmpTarPath
+        })
+      }
+      throw err
+    }).then(tmpTarPath => next(null, npa(tmpTarPath)))
+  })
+  .catch(err => next(err))
 }
 
-function setPermissions (gitData, cachedRemote, cs, next, done) {
+// Extracted from pacote/lib/util/git.js, with some expansion mods
+function shallowClone(repo, branch, target, opts) {
+  const gitTemplateDir = path.join(
+    npm.dlTracker.path, gitContext.dirNames.remotes, gitContext.dirNames.template
+  )
+  const gitArgs = [
+    'clone', '--depth=1', '-q', // the original arg set
+    '--no-hardlinks', `--template="${gitTemplateDir}"` // offliner additions
+    // TODO: with "file://" as the prefix of repo already, I don't think the
+    // '--no-hardlinks' option is needed anymore. TEST to verify.
+  ]
+  if (branch) {
+    gitArgs.push('-b', branch)
+  }
+  gitArgs.push(repo, target)
   if (process.platform === 'win32') {
-    log.verbose('setPermissions', gitData.from, 'skipping chownr on Windows')
-    resolveHead(gitData, cachedRemote, next, done)
+    gitArgs.push('--config', 'core.longpaths=true')
   }
-  else {
-    chownr(cachedRemote, cs.uid, cs.gid, function (er) {
-      if (er) {
-        log.error(
-          'setPermissions',
-          'Failed to change git repository ownership under npm cache for',
-          cachedRemote
-        )
-        return done(er)
-      }
-
-      log.verbose('setPermissions', gitData.from, 'set permissions on', cachedRemote)
-
-      // always set permissions on the cached remote
-      addModeRecursive(cachedRemote, npm.modes.file, function (er) {
-        if (er) return done(er)
-
-        cloneCachedRemote(gitData, cachedRemote, next, done)
-      })
+  return execGit(gitArgs, { cwd: target }, opts)
+  .then(() => {
+    //return updateSubmodules(target, opts)
+    const gitArgs = ['submodule', 'update', '-q', '--init', '--recursive']
+    return execGit(gitArgs, { cwd: target }, opts)
+  }).then(() => {
+    //call to headSha(target, opts) translates as...
+    const gitArgs = ['rev-parse', '--revs-only', 'HEAD']
+    return execGit(gitArgs, { cwd: target }, opts).spread(stdout => {
+      return stdout.trim()
     })
-  }
-}
-
-// make a clone from the mirrored cache so we have a temporary directory in
-// which we can check out the resolved treeish
-function cloneCachedRemote (gitData, cachedRemote, next, done) {
-  var thisFunc = 'cloneCachedRemote'
-  var resolvedURL = getResolved(gitData.cloneURL, gitData.resolvedTreeish)
-  if (!resolvedURL) {
-    return done(new Error(
-      'unable to clone ' + gitData.from + ' because git clone string ' +
-        gitData.cloneURL + ' is in a form npm can\'t handle'
-    ))
-  }
-  log.verbose(thisFunc, gitData.from, 'resolved Git URL:', resolvedURL)
-
-  // generate a unique filename
-  var tmpdir = path.join(tempFilename('git-cache'), gitData.resolvedTreeish)
-  log.silly(thisFunc, 'Creating git working directory:', tmpdir)
-
-  mkdir(tmpdir, function (er) {
-    if (er) return done(er)
-
-  // TODO: determine if it's alright to include '--no-checkout', given that we
-  // follow this op with a checkout (checkoutTreeish)
-    var args = ['clone', cachedRemote, tmpdir]
-    git.whichAndExec(
-      args,
-      { cwd: cachedRemote, env: gitAux.gitEnv() },
-      function (er, stdout, stderr) {
-        stdout = (stdout + '\n' + stderr).trim()
-        if (er) {
-          log.error('git ' + args.join(' ') + ':', stderr)
-          return done(er)
-        }
-        log.verbose(thisFunc, gitData.from, 'clone', stdout)
-
-        checkoutTreeish(gitData, resolvedURL, tmpdir, next, done)
-      }
-    )
   })
 }
 
-// there is no safe way to do a one-step clone to a treeish that isn't
-// guaranteed to be a branch, so explicitly check out the treeish once it's
-// cloned
-function checkoutTreeish (gitData, resolvedURL, tmpdir, next, done) {
-  var args = ['checkout', gitData.resolvedTreeish]
-  git.whichAndExec(
-    args,
-    { cwd: tmpdir, env: gitAux.gitEnv() },
-    function (er, stdout, stderr) {
-      stdout = (stdout + '\n' + stderr).trim()
-      if (er) {
-        log.error('git ' + args.join(' ') + ':', stderr)
-        return done(er)
-      }
-      log.verbose('checkoutTreeish', gitData.from, 'checkout', stdout)
-
-      // convince addLocal that the checkout is a local dependency
-      realizePackageSpecifier(tmpdir, function (er, specData) {
-        if (er) {
-          log.error('fetchRemoteGit', 'Failed to map', tmpdir, 'to a package specifier')
-          return done(er)
-        }
-
-        next(moreAfterAdd)(null, specData)
-      })
-    }
-  )
-  // ensure pack logic is applied
-  // https://github.com/npm/npm/issues/6400
-  // Get this to happen *after* offliner hands off to its callback
-  function moreAfterAdd (er, data) {
-    if (data) {
-      if (npm.config.get('save-exact')) {
-        log.verbose('fetchRemoteGit', 'data._from:', resolvedURL, '(save-exact)')
-        data._from = resolvedURL
-      } else {
-        log.verbose('fetchRemoteGit', 'data._from:', gitData.from)
-        data._from = gitData.from
-      }
-
-      log.verbose('fetchRemoteGit', 'data._resolved:', resolvedURL)
-      data._resolved = resolvedURL
-    }
-    // NOTE: the source for above (add-remote-git.js) has this function as the
-    // callback for addLocal(), so it's adding properties _from and _resolved
-    // to whatever data addLocal is sending back.
-
-    done(er, data)
-  }
-
-}
-// NOTES:
-// * realizePackageSpecifier immediately calls npa() on its arg, and sends back
-//   an error if npa finds that the arg is not a string.
-// * Else npa returns an object, result of parsing the arg
-// * realizePackageSpecifier modifies the object and sends it through the callback;
-//   therefore 'spec' here is an object, not a string.
-// * addLocal() 1st arg *must* be an object, but only required field is 'spec'
-// * addLocal() 2nd arg is an optional object 'pkgData';
-//   addLocal() passes this as 2nd arg to addLocalTarball or addLocalDirectory.
-// * addLocalDirectory only verifies other data against pkgData.
-// * add-local ultimately calls addLocalTarball, no matter if type is 'local'
-//   or 'directory'; it does *not* pass pkgData, but the result of readJson().
-// * In add-local-tarball, ultimately pkgData must be the entire contents of
-//   package.json, because that's what gets done with it.
-
-function getResolved (uri, fullTreeish) {
-  // normalize hosted-git-info clone URLs back into regular URLs
-  // this will only work on URLs that hosted-git-info recognizes
-  // https://github.com/npm/npm/issues/7961
-  var rehydrated = hostedFromURL(uri)
-  if (rehydrated) uri = rehydrated.toString()
-
-  var parsed = url.parse(uri)
-
-  // Checks for known protocols:
-  // http:, https:, ssh:, and git:, with optional git+ prefix.
-  if (!parsed.protocol ||
-      !parsed.protocol.match(/^(((git\+)?(https?|ssh|file))|git|file):$/)) {
-    uri = 'git+ssh://' + uri
-  }
-
-  if (!/^git[+:]/.test(uri)) {
-    uri = 'git+' + uri
-  }
-
-  // Not all URIs are actually URIs, so use regex for the treeish.
-  return uri.replace(/(?:#.*)?$/, '#' + fullTreeish)
+function execGit(gitArgs, gitOpts, opts) {
+  return BB.resolve(opts.git || gitContext.gitPath).then(gitPath => {
+    return execFileAsync(gitPath, gitArgs, gitContext.mkOpts(gitOpts, opts))
+  })
 }
 
-// similar to chmodr except it adds permissions rather than overwriting them
-// adapted from https://github.com/isaacs/chmodr/blob/master/chmodr.js
-function addModeRecursive (cachedRemote, mode, cb) {
-  fs.readdir(cachedRemote, function (er, children) {
-    // Any error other than ENOTDIR means it's not readable, or doesn't exist.
-    // Give up.
-    if (er && er.code !== 'ENOTDIR') return cb(er)
-    if (er || !children.length) return addMode(cachedRemote, mode, cb)
-
-    var len = children.length
-    var errState = null
-    children.forEach(function (child) {
-      addModeRecursive(path.resolve(cachedRemote, child), mode, then)
+// Extracted from npm/lib/pack.js:
+function packGitDep(spec, dir) {
+  // Stream removed in this copy of the function.
+  // Tarball path will be passed to pacote.manifest in fetchMetadata.
+  let pkgJson
+  return readJson(path.join(dir, 'package.json')).then((pkg) => {
+    pkgJson = pkg
+    if (pkgJson.scripts && pkgJson.scripts.prepare) {
+      if (checkRepoDevDeps(pkgJson)) {
+        return prepRawModule(pkgJson, dir, spec)
+      }
+    }
+  }).then(() => {
+    // Put the tarball next to the directory it archives
+    const tmpTar = path.join(path.dirname(dir), 'package.tgz')
+    return packDirectory(pkgJson, dir, tmpTar).then(() => {
+      return tmpTar
     })
+  })
+}
 
-    function then (er) {
-      if (errState) return undefined
-      if (er) return cb(errState = er)
-      if (--len === 0) return addMode(cachedRemote, dirMode(mode), cb)
+function checkRepoDevDeps(pkgJson) {
+  const thisFuncName = 'checkRepoDevDeps'
+  const devDeps = pkgJson.devDependencies
+  let problems = 0
+  for (let pkgName in devDeps) {
+    const specStr = `${pkgName}@${devDeps[pkgName]}`
+    let dep, dlTrackerType
+    try {
+      dep = npa(pkgName, devDeps[pkgName])
+    } catch (er) {
+      ++problems
+      log.warn(
+        thisFuncName,
+        `could not parse devDependency ${specStr}`
+      )
+      continue
     }
+    dlTrackerType = DlTracker.typeMap[dep.type]
+    if (!dlTrackerType) {
+      ++problems
+      log.warn(
+        thisFuncName,
+        `don't recognize type '${dep.type}' of devDependency ${specStr}`
+      )
+      continue
+    }
+
+    if (!npm.dlTracker.contains(dlTrackerType, pkgName, devDeps[pkgName])) {
+      ++problems
+      log.warn(thisFuncName, `devDependency ${specStr} not present`)
+    }
+  }
+  if (problems) {
+    const warnMsg = [
+      `The package ${pkgJson.name}@${pkgJson.version} has a 'prepare' script `,
+      'which indicates that it must be processed before installation; however, ',
+      'there ',
+      problems < 2 ? 'was a problem with one' : 'were problems with some',
+      ' of its devDependencies, so the script was not run.\n',
+      'The referenced package will be installed anyway, but it is possible ',
+      'that your application will be unusable until you address the problems ',
+      'and then run the prepare script manually.'
+    ].join('')
+    log.warn(thisFuncName, warnMsg)
+  }
+  return !!problems
+}
+
+// Here, target is full path of package.tgz.
+// Note that original packGitDep does not pass anything for filename.
+function packDirectory(pkgJson, dir, target, filename) {
+  return lifecycle(pkgJson, 'prepack', dir)
+  .then(() => {
+    const tarOpt = {
+      file: target,
+      cwd: dir,
+      prefix: 'package/',
+      portable: true,
+      // Provide a specific date in the 1980s for the benefit of zip,
+      // which is confounded by files dated at the Unix epoch 0.
+      mtime: new Date('1985-10-26T08:15:00.000Z'),
+      gzip: true
+    }
+
+    return BB.resolve(packlist({ path: dir }))
+    // NOTE: node-tar does some Magic Stuff depending on prefixes for files
+    //       specifically with @ signs, so we just neutralize that one
+    //       and any such future "features" by prepending `./`
+      .then((files) => tar.create(tarOpt, files.map((f) => `./${f}`)))
+      // <MMR> The following innocuous-looking call actually does something
+      // critical and not-at-all obvious from the function name: it verifies
+      // that (a) each item in the tarball corresponds to an existing file in
+      // the directory it was made from, and (b) the sha checksum matches.
+      // Note: pack.js packGitDep does nothing with the resolve() value here.
+      .then(() => getContents(pkgJson, target, filename))
+      // thread the content info through
+      .tap(() => lifecycle(pkgJson, 'postpack', dir))
   })
 }
 
-function addMode (cachedRemote, mode, cb) {
-  fs.stat(cachedRemote, function (er, stats) {
-    if (er) return cb(er)
-    mode = stats.mode | mode
-    fs.chmod(cachedRemote, mode, cb)
-  })
-}
-
-// taken from https://github.com/isaacs/chmodr/blob/master/chmodr.js
-function dirMode (mode) {
-  if (mode & parseInt('0400', 8)) mode |= parseInt('0100', 8)
-  if (mode & parseInt('040', 8)) mode |= parseInt('010', 8)
-  if (mode & parseInt('04', 8)) mode |= parseInt('01', 8)
-  return mode
-}

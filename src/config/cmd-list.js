@@ -1,13 +1,13 @@
-var extend = Object.assign || require('util')._extend
-
 // short names for common things
 var shorthands = {
   'un': 'uninstall',
   'rb': 'rebuild',
   'list': 'ls',
   'ln': 'link',
+  'create': 'init',
   'i': 'install',
   'it': 'install-test',
+  'cit': 'install-ci-test',
   'up': 'update',
   'c': 'config',
   's': 'search',
@@ -18,6 +18,8 @@ var shorthands = {
   'ddp': 'dedupe',
   'v': 'view',
   'run': 'run-script',
+  'clean-install': 'ci',
+  'clean-install-test': 'cit',
   'dl': 'download'
 }
 
@@ -25,11 +27,16 @@ var affordances = {
   'la': 'ls',
   'll': 'ls',
   'verison': 'version',
+  'ic': 'ci',
+  'innit': 'init',
   'isntall': 'install',
+  'install-clean': 'ci',
+  'isntall-clean': 'ci',
   'dist-tags': 'dist-tag',
   'apihelp': 'help',
   'find-dupes': 'dedupe',
   'upgrade': 'update',
+  'udpate': 'update',
   'login': 'adduser',
   'add-user': 'adduser',
   'author': 'owner',
@@ -38,14 +45,21 @@ var affordances = {
   'info': 'view',
   'show': 'view',
   'find': 'search',
+  'add': 'install',
   'unlink': 'uninstall',
   'remove': 'uninstall',
   'rm': 'uninstall',
-  'r': 'uninstall'
+  'r': 'uninstall',
+  'rum': 'run-script',
+  'sit': 'cit',
+  'urn': 'run-script',
+  'ogr': 'org'
 }
 
 // these are filenames in .
 var cmdList = [
+  'ci',
+  'install-ci-test',
   'install',
   'install-test',
   'uninstall',
@@ -59,6 +73,7 @@ var cmdList = [
   'pack',
   'dedupe',
   'download',
+  'hook',
 
   'rebuild',
   'link',
@@ -75,6 +90,11 @@ var cmdList = [
   'team',
   'deprecate',
   'shrinkwrap',
+  'token',
+  'profile',
+  'audit',
+  'fund',
+  'org',
 
   'help',
   'help-search',
@@ -111,7 +131,7 @@ var plumbing = [
   'substack',
   'visnup'
 ]
-module.exports.aliases = extend(extend({}, shorthands), affordances)
+module.exports.aliases = Object.assign({}, shorthands, affordances)
 module.exports.shorthands = shorthands
 module.exports.affordances = affordances
 module.exports.cmdList = cmdList

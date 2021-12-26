@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WARNING: The files referenced in this script are specific to npm 3.x & 4.x
+# WARNING: The files referenced in this script are specific to npm 6.x
 
 if [ ! -f ./target-ver.txt ]
 then
@@ -33,8 +33,8 @@ then
   exit -3
 fi
 
-CHANGED_FILES="cache fetch-package-metadata install config/cmd-list"
-ADDED_FILES="download git-offline offliner"
+CHANGED_FILES="fetch-package-metadata install config/cmd-list install/action/refresh-package-json"
+ADDED_FILES="download git-offline offliner prepare-raw-module"
 ADDED_DIRS="download"
 
 trap "echo Failed to execute a filesystem command - aborting uninstall; exit -4" ERR
@@ -70,4 +70,3 @@ done
 echo ""
 echo "  Uninstallation of npm-two-stage was successful."
 echo ""
-
