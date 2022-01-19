@@ -1,28 +1,3 @@
-/*
-TODO:
-* A problem has come to my attention: if `npm download [pkg]` has been run,
-  whatever the prod/dev config, the existence of the top-level package [pkg]
-  in the package map will cause any future run of `npm download pkg` to refuse
-  to fetch anything, even if the new prod/dev config would have fetched
-  (dev)dependencies that were not fetched in the 1st run. I think I should fix this.
-  Approach:
-    if it's a top-level package (named on the command line)
-      if the dltracker has the package already
-        process the dependencies as if we've just downloaded it;
-        the dependencies that are found will be skipped, as we want.
-
-* Consider handling the case of `npm download` with no packages specified,
-  where there is a package.json in the current directory.
-  Could also add an option, e.g., --spec=path/to/package.json
-  The reason why I'm on the fence about this is that I think it's questionable
-  to be transporting the package.json of an offline project to a machine that
-  is internet-connected, whether in its project directory or not.
-  Meanwhile, there's no denying that there are cases for which it could lend convenience.
-  And then there's the case where the user wants the devDependencies of the package(s)
-  he would otherwise have to name on the command line. Is that a realistic case?
-  Yes, it is: I've already experienced this with my own packages.
-*/
-
 'use strict'
 
 module.exports = download
@@ -74,6 +49,7 @@ download.usage = usage(
 const fs = require('fs')
 const path = require('path')
 const url = require('url')
+const util = require('util')
 
 // external dependencies
 const BB = require('bluebird')
@@ -137,7 +113,7 @@ function download (args, cb) {
   log.silly('download', 'args:', args)
 
   cmdOpts.dlDir = npm.config.get('dl-dir')
-  cmdOpts.phantom = npm.config.get('dl-phantom')
+  cmdOpts.phantom = npm.config.get('dl-phantom') // this is still unimplemented
   cmdOpts.noOptional = npm.config.get('no-optional')
   cmdOpts.noShrinkwrap = npm.config.get('no-shrinkwrap')
   cmdOpts.include = new Set()
@@ -166,13 +142,12 @@ function download (args, cb) {
   cmdOpts.packageJson = typeof optPj == 'boolean' ? './' : optPj
 
   if (!(cmdOpts.packageJson || (args && args.length > 0))) {
-    return cb(new SyntaxError('no packages named for download'))
+    return cb(new SyntaxError([
+      'No packages named for download.',
+      'Maybe you want to use the package-json option?',
+      'Try: npm download -h'
+    ].join('\n')))
   }
-
-log.warn('download', `config option 'only' is ${optOnly}`)
-log.warn('download', `config option 'also' is ${optAlso}`)
-log.warn('download', `config option 'include' is ${optInclude}`)
-log.warn('download', `config option 'package-json' is ${cmdOpts.packageJson}`)
 
   /*
   include dev   only dev    only prod
@@ -204,10 +179,15 @@ log.warn('download', `config option 'package-json' is ${cmdOpts.packageJson}`)
       // TODO: devise a way to switch to the npm.cache instead of bailing? See makeOpts.
     .then(() => {
       npm.dlTracker = newTracker
+      let statsMsgs = ''
       const pjPromise = !cmdOpts.packageJson ? BB.resolve([]) :
         pacote.manifest(cmdOpts.packageJson).then(mani => {
           return processDependencies(mani, { topLevel: true })
-          .then(pjResults => reportItemResultsStats('package.json', pjResults))
+          .then(results => {
+            const pjResults = xformResult(results)
+            statsMsgs = getItemResultsStats('package.json', pjResults)
+            return pjResults
+          })
         })
 
       pjPromise.then(pjResults => {
@@ -215,23 +195,28 @@ log.warn('download', `config option 'package-json' is ${cmdOpts.packageJson}`)
           BB.map(args, function (item) {
             return processItem(item, { topLevel: true })
             .then(results => {
-              reportItemResultsStats(item, results)
-              if (pjResults.length) results.unshift(pjResults)
+              statsMsgs += getItemResultsStats(item, results)
               return results
             })
+          })
+          .then(results => {
+            if (pjResults.length) results = pjResults.concat(results)
+            return results
           })
           :
           pjResults
       })
       .then(results => {
-        // Note: results is an array of arrays, 1 for each package on the command line.
+        // results is an array of arrays, 1 for each spec on the command line.
         rimraf(tempCache, function(rimrafErr) {
           if (rimrafErr)
             log.warn('download', 'failed to delete the temp dir ' + tempCache)
 
           newTracker.serialize(function(serializeErr) {
-            console.info('\ndownload', 'finished.')
+            // The console call follows the callback call here because when
+            // placed before, it causes a stutter in the npm log output.
             cb(serializeErr, results)
+            console.info(statsMsgs, '\n\ndownload', 'finished.')
           })
         })
       })
@@ -240,7 +225,6 @@ log.warn('download', `config option 'package-json' is ${cmdOpts.packageJson}`)
   })
 }
 
-// NOTE: be sure to use opts.topLevel = true at the right place!
 function processDependencies(manifest, opts) {
   // opts.shrinkwrap==true indicates that this processing is for a dependency
   // listed in a shrinkwrap file, where the entire tree of dependencies is
@@ -287,7 +271,7 @@ function processDependencies(manifest, opts) {
       })
     })
   }
-  else {
+  else { // either no shrinkwrap in this manifest, or no-shrinkwrap option was given
     if (opts.topLevel && !cmdOpts.IGNORE_DEV_DEPS) {
       const devDeps = manifest.devDependencies || {}
       for (let name in devDeps) {
@@ -306,6 +290,10 @@ function processDependencies(manifest, opts) {
           }
         }
       }
+    }
+    // Ensure we get regular deps of devDeps if --only=dev,
+    // as well as regular deps of everything if *not* --only=dev
+    if (!opts.topLevel || !cmdOpts.onlyDev) {
       const regDeps = manifest.dependencies || {}
       for (let name in regDeps) {
         if (!bundleDeps[name])
@@ -325,23 +313,35 @@ function processDependencies(manifest, opts) {
   }
 }
 
-function reportItemResultsStats(item, results) {
+function getItemResultsStats(item, results) {
+  const stats = []
   let filtered = results.filter(res => !res.duplicate)
   const dupCount = results.length - filtered.length
   filtered = filtered.filter(res => !res.failedOptional)
   const failedOptCount = (results.length - filtered.length) - dupCount
-  if (filtered.length)
-    console.info(
-      '\ndownloaded tarballs to satisfy', item,
-      `and ${filtered.length - 1} dependenc${filtered.length == 2 ? 'y' : 'ies'}`
-    )
+  if (filtered.length) {
+    if (item == 'package.json')
+      stats.push(util.format(
+        '\nDownloaded tarballs to satisfy %i dependenc%s derived from %s',
+        filtered.length, filtered.length == 1 ? 'y' : 'ies', item
+      ))
+    else
+      stats.push(util.format(
+        '\nDownloaded tarballs to satisfy %s and %i dependenc%s',
+        item, filtered.length - 1, filtered.length == 2 ? 'y' : 'ies'
+      ))
+  }
   else
-    console.info('\nNothing new to download for', item)
+    stats.push(util.format('\nNothing new to download for', item))
   if (failedOptCount)
-    console.info(`(failed to fetch ${failedOptCount} optional packages)`)
+    stats.push(util.format(
+      '(failed to fetch %i optional packages)', failedOptCount
+    ))
   if (dupCount)
-    console.info(`(${dupCount} duplicate spec${dupCount > 1 ? 's' : ''} skipped)`)
-  return results
+    stats.push(util.format(
+      '(%i duplicate spec%s skipped)', dupCount, dupCount > 1 ? 's' : ''
+    ))
+  return stats.join('\n')
 }
 
 function processItem(item, opts) {
@@ -474,15 +474,12 @@ References: item, dlData, result, fetchKey2, inflight
   function processGitRepoItem() {
     return gitManifest(item, makeOpts({ multipleRefs: true }))
     .then(mani => {
-//console.log("FINALIZED git manifest._ref:", mani._ref, '\n')
       // If the resolved URL is the same as the requested spec,
       // it would be redundant in the DlTracker data
       if (mani._resolved != item)
         dlData._resolved = mani._resolved
       if (mani._integrity)
         dlData._integrity = mani._integrity
-//console.log("git manifest._resolved", mani._resolved)
-//console.log("git manifest._integrity", mani._integrity)
 
       result.spec = item
       fetchKey2 = npf.makeTarballName({
