@@ -91,7 +91,7 @@ _________________________
 _________________________
 
 ## Usage
-<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1 "Aliases are not yet supported. File and directory package specs are meaningless in this context, of course.") that is valid to npm in an install context...
+<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1 "Aliases are not yet supported in `npm download`. File and directory package specs are meaningless in this context, of course.") that is valid to npm in an install context...
 
 ### Download Phase
 ```sh
@@ -160,9 +160,9 @@ listed there.
 
 _________________________
 ## Footnotes
-<a id="fn1" href="#src1"><sup>1</sup></a> Aliases are not yet supported. File and directory package specs are meaningless in this context, of course.
+<a id="fn1" href="#src1"><sup>1</sup></a> Aliases are not yet supported in `npm download`. File and directory package specs are meaningless in this context, of course.
 
-`npm download -h` will show the supported forms as follows:
+`npm download --help` will show the supported forms as follows:
 ```sh
   npm download [<@scope>/]<name>
   npm download [<@scope>/]<name>@<tag>
