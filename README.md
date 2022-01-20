@@ -1,5 +1,5 @@
 # npm-two-stage
-#### Code for splitting `npm install` into download and offline-install stages
+#### Code for dividing `npm install` into download and offline-install stages
 
 _________________________
 
@@ -24,8 +24,10 @@ with a proper installation of the server-side JavaScript engine
 [The official documentation of npm is here](https://docs.npmjs.com/).  
 When used to install a package, the default behavior of npm is to fetch the
 package and all of its dependencies from one or more remote servers, typically
-the **[npm registry](https://docs.npmjs.com/misc/registry)**. This works fine
-for all users except, e.g., those in the use cases above.  
+the **[npm registry](https://docs.npmjs.com/misc/registry)**, and to install to
+the current platform. This works fine for all users except, e.g., those in the
+use cases above.  
+
 Theoretically, one could manually install some kinds of packages and their trees
 of dependencies by repeating this sequence however many times needed:
 ```sh
@@ -33,19 +35,14 @@ mkdir node_modules && cd node_modules
 tar xzf path/to/module-name-version.tar.gz
 mv package module-name && cd module-name
 ```
-but for a non-trivial package heirarchy, that would be insane; and it would not
-work for every kind of package.  
-
-Although the people of the [npm project](https://github.com/npm/npm/) team have
-discussed the addition of an offline package install feature, as of the time of
-this writing they have yet to implement one. _(I'm not faulting them for that -
-I understand that their plates are ever full, and they have to prioritize.)_  
+but for a non-trivial package heirarchy, not only would that be impractical,
+it also would not work for every kind of package.  
 
 With **npm-two-stage** installed over (say) a portable npm installation on a USB
-drive, you simply let npm collect the desired packages and all their dependencies
-into a folder on the USB drive. Then you take the USB drive to the target system
-which also has npm-two-stage installed, and run the offline install command line
-(see below).  
+drive, you simply have `npm download` collect the desired packages and all their
+dependencies into a folder on the USB drive. Then you take the USB drive to the
+target system which also has npm-two-stage installed, and run the offline install
+command line (see below).  
 _Note that your npm installations modified by npm-two-stage will behave exactly
 the same as unmodified npm if you don't use the `--offline` option._
 _________________________
@@ -56,7 +53,7 @@ _________________________
   ...)
 * Ensure your **npm** installation is one of the versions targeted by this
  project, and ensure you are downloading the correct release of this project for
- your version of npm. **You are currently viewing the branch for npm 4.x.**
+ your version of npm. **You are currently viewing the branch for npm 6.x.**
 * Note that backup copies of the original files modified by this project are
  created in the same location. If you ever want to use the uninstall script,
  it's best if you leave the backup files where they are.
@@ -94,7 +91,7 @@ _________________________
 _________________________
 
 ## Usage
-Where `PACKAGE_SPEC` can have any form that is valid to npm in an install context...
+<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1 "Aliases are not yet supported. File and directory package specs are meaningless in this context, of course.") that is valid to npm in an install context...
 
 ### Download Phase
 ```sh
@@ -107,26 +104,77 @@ npm download PACKAGE_SPEC --dl-dir=path/to/put/tarballs
 will fetch the version of the package that best matches the specification, plus
 all the packages in its dependency tree, as gzipped tar archives, with no
 redundant downloads.  
+* Shorthand `dl` may be substituted for `download`.  
+* Any number of package specifiers can be given on a single command line.  
+* Without the `--dl-dir` option, downloads will go to the current directory.  
 
-Note that the '=' is required for the `--dl-dir` option.  
-Shorthand `dl` may be substituted for `download`.  
-Without the `--dl-dir` option, downloads will go to the current directory.  
+Alternatively (or additionally), the option `--package-json`, optionally followed
+by the path of a directory that contains a package.json file, may be given to
+tell `npm download` to refer to the dependencies listed there. If a path is not
+specified, the current directory is assumed.
+* `--pj` is a convenient abbreviation for `--package-json`.
+* `-J` is equivalent to `--package-json` with no path given, where the
+package.json is expected to be in the current directory.  
 
-A file named `dltracker.json` will be created in the same directory as the
+```sh
+npm download --package-json=../path/to/packageJson/dir
+```
+will fetch the dependencies listed in the package.json found at the given path
+(and all transitive dependencies), saving them to the current directory.
+```sh
+npm download -J --dl-dir=../path/to/put/tarballs
+```
+will fetch the dependencies listed in the package.json found in the current
+directory (and all transitive dependencies), saving them to the given path.
+
+Note that the `=` is required for the `--dl-dir` option, and for the
+`--package-json` | `--pj` option when supplying a path.  
+
+The command lines examples given above will fetch regular and optional dependencies,
+and shrinkwraps will be honored.
+Options are available for changing how dependencies are fetched:
+```sh
+  --only=dev[elopment]
+  --also=dev[elopment]      ***deprecated***
+  --include=dev[elopment]
+  --no-optional
+  --no-shrinkwrap
+```
+
+A file named dltracker.json will be created in the same directory as the
 downloads. This file contains metadata that will be used in the next phase, and
 so it must travel with the package files.  
-If another `npm download` targets the same directory, the new metadata is merged
-into the `dltracker.json` file. This can be done an arbitrary number of times.
+
+If `npm download` is used again to target the same directory, the new metadata
+is merged into the dltracker.json file. This can be done any number of times.  
 
 ### Install Phase
 ```sh
 npm install --offline --offline-dir=path/to/find/tarballs PACKAGE_SPEC
 ```
 
-Note that the '=' is required for the `--offline-dir` option.  
+Note that the `=` is required for the `--offline-dir` option.  
 If `PACKAGE_SPEC` is omitted, will do the reasonable thing: look for
-`package.json` in the current directory, and try to install the dependencies/
-devDependencies listed there.  
+package.json in the current directory, and try to install the dependencies
+listed there.
+
+_________________________
+## Footnotes
+<a id="fn1" href="#src1"><sup>1</sup></a> Aliases are not yet supported. File and directory package specs are meaningless in this context, of course.
+
+`npm download -h` will show the supported forms as follows:
+```sh
+  npm download [<@scope>/]<name>
+  npm download [<@scope>/]<name>@<tag>
+  npm download [<@scope>/]<name>@<version>
+  npm download [<@scope>/]<name>@<version range>
+  npm download <git-host>:<git-user>/<repo-name>
+  npm download <github username>/<github project>
+  npm download <git repo url>
+  npm download <tarball url>
+```        
+
+        
 _________________________
 
 License: MIT
