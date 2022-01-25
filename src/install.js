@@ -233,9 +233,6 @@ function install (where, args, cb) {
 }
 
 function Installer (where, dryrun, args, opts) {
-//<MMR>
-if (opts) log.warn('Installer', 'opts passed in!')
-
   validate('SBA|SBAO', arguments)
   if (!opts) opts = {}
   this.where = where
@@ -262,7 +259,6 @@ if (opts) log.warn('Installer', 'opts passed in!')
   const prod = npm.config.get('production')
   this.dev = opts.dev != null ? opts.dev : dev || (!onlyProd && !prod) || onlyDev
   this.prod = opts.prod != null ? opts.prod : !onlyDev
-console.log('@@@@@@ install.js gets opts.prod =', opts.prod)
 
   this.packageLockOnly = opts.packageLockOnly != null
     ? opts.packageLockOnly : npm.config.get('package-lock-only')

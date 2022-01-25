@@ -1,4 +1,7 @@
-// These functions are used by both fetch-remote-git and offliner.
+/*
+  These functions are used by both fetch-remote-git and offliner.
+  Borrowed and adapted from pacote/lib/util/git.js.
+*/
 
 exports.gitEnv = gitEnv
 exports.mkOpts = mkOpts
@@ -70,31 +73,20 @@ function mkOpts(_gitOpts, opts) {
   return gitOpts
 }
 
-// Returns a Promise
-// NOTE: since this has the side effect of creating the remotes directory
-// if it doesn't exist, it's really only useful in the download stage, and
-// inappropriate for the offline stage.
-// TODO: see if it can be modified to be useful in the offline stage!
 function getGitRepoDir(basePath) {
   if (basePath === undefined || basePath === null || basePath === '')
-    throw new SyntaxError('Must give location for git repos')
+    return BB.reject(new SyntaxError('Must give location for git repos'))
   if (typeof basePath !== 'string')
-    throw new TypeError('Location for git repos must be given as a string')
+    return BB.reject(new TypeError('Location for git repos must be given as a string'))
 
   basePath = path.resolve(basePath)
   let remotes = path.join(basePath, dirNames.remotes)
   let templates = path.join(remotes, dirNames.template)
 
   // Require that basePath already exists
-  return fs_access(basePath).then(() => {
-    // We don't test whether the last component is a directory here,
-    // because if it's not, mkdirp throws the correct error.
-
-    // When passed a non-existent path that is creatable, mkdirp returns the
-    // root of the created part of the path
-    // When passed an existing path, mkdirp returns null.
-    return mkdirp(templates)
-  })
-  .then(res => remotes)
+  return fs_access(basePath)
+  // We don't test whether the last component is a directory here,
+  // because if it's not, mkdirp throws the correct error.
+  .then(() => mkdirp(templates)).then(res => remotes)
 }
 

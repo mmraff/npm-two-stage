@@ -20,14 +20,6 @@ const prepRawModule = require('./prepare-raw-module')
 const lifecycle = BB.promisify(require('./utils/lifecycle'))
 const getContents = require('./pack').getContents
 
-/*
-OPTS of interest here ------------------
----------------------
-* uid, gid (mkOpts)
-* log
-* git
-* dirPacker?
-*/
 
 module.exports = gitOffline
 // There is only one use-case for this: a local filesystem git repo cloned from
@@ -79,8 +71,6 @@ function shallowClone(repo, branch, target, opts) {
   const gitArgs = [
     'clone', '--depth=1', '-q', // the original arg set
     '--no-hardlinks', `--template="${gitTemplateDir}"` // offliner additions
-    // TODO: with "file://" as the prefix of repo already, I don't think the
-    // '--no-hardlinks' option is needed anymore. TEST to verify.
   ]
   if (branch) {
     gitArgs.push('-b', branch)
@@ -103,10 +93,11 @@ function shallowClone(repo, branch, target, opts) {
   })
 }
 
+// Adapted from pacote/lib/util/git.js.
+// No need to worry about retries here, because the context is the local filesystem.
 function execGit(gitArgs, gitOpts, opts) {
-  return BB.resolve(opts.git || gitContext.gitPath).then(gitPath => {
-    return execFileAsync(gitPath, gitArgs, gitContext.mkOpts(gitOpts, opts))
-  })
+  return BB.resolve(opts.git || gitContext.gitPath)
+  .then(gitPath => execFileAsync(gitPath, gitArgs, gitContext.mkOpts(gitOpts, opts)))
 }
 
 // Extracted from npm/lib/pack.js:
