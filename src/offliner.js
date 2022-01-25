@@ -7,6 +7,7 @@ const log = require('npmlog')
 const npa = require('npm-package-arg')
 
 const DlTracker = require('./download/dltracker')
+const gitAux = require('./download/git-aux')
 const gitOffline = require('./git-offline')
 const npm = require('./npm')
 
@@ -43,30 +44,23 @@ module.exports = function offliner(dep, opts, next) {
     }
   }
   else {
-    //log.verbose('offliner', 'What npa thinks of a git spec:', dep)
-    dlData = npm.dlTracker.getData('git', null, dep.rawSpec)
+    const trackerKeys = gitAux.trackerKeys(dep)
+    dlData = npm.dlTracker.getData('git', trackerKeys.repo, trackerKeys.spec)
+    if (!dlData) // There still may be a legacy entry...
+      dlData = npm.dlTracker.getData('git', null, dep.rawSpec)
     if (dlData) {
-      log.verbose('offliner', `Found git repo ${dlData.from}`)
-      if (dlData.filename) {
+      log.verbose('offliner', `Found git repo ${dlData.repo || dlData.from}`)
+      if (dlData.filename)
         dep2 = npa(path.join(npm.dlTracker.path, dlData.filename))
-      }
       else {
         // In 1st version of dlTracker, type 'git' dlData has no filename
         // property; instead, we're working with a subdirectory.
         return gitOffline(dep, dlData, opts, next)
-        //
-        // LATER DISCOVERY: In answer to "why bother with the cache?", we have
-        // this from pacote/extract.js:
-        //   if (spec.type === 'git' && !opts.cache) {
-        //     throw new TypeError('Extracting git packages requires a cache folder')
-        //   }
-        // So it looks like we will have to dodge pacote.extract, and write a
-        // modified version of that code that uses a tmp dir.
       }
     }
   }
   if (!dlData)
-    return next(new Error('DLTracker knows nothing about ' + dep.raw))
+    return next(new Error(`Download Tracker knows nothing about ${dep.raw}`))
 
   next(null, dep2)
 }

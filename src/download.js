@@ -20,21 +20,15 @@ download.usage = usage(
     'Multiple items can be named as above on the same command line.',
     'Alternatively, dependencies can be drawn from a package.json file:',
     '',
-    '  npm download --package-json[=<path-to-package.json>]',
-    '  npm download --pj[=<path-to-package.json>]',
+    '  npm download --package-json[=<path-with-a-package.json>]',
+    '  npm download --pj[=<path-with-a-package.json>]',
     '  npm download -J',
     '',
-    'If <path-to-package.json> is not given, the package.json file is',
+    'If <path-with-a-package.json> is not given, the package.json file is',
     'expected to be in the current directory.',
     'The last form assumes this.'
   ].join('\n'),
   [
-    /*
-    TODO: arguably, not all of these are "common options".
-    This arg gets automatically labeled that way on output.
-    Probably should remove everything except dl-dir ***AFTER copying these to the README***
-    See output of `npm install --help` for reference.
-    */
     '',
     '  --dl-dir=<path>',
     '  --only=dev[elopment]',
@@ -94,8 +88,6 @@ function isDevDep(name, vSpec, manifest) {
     result = semver.satisfies(vSpec, devDeps[name])
   }
   else {
-    // Last resort. I'm skeptical that this covers all non-semver cases.
-    // TODO: change this log level to 'silly' after reviewing this case.
     log.warn('download isDevDep', `non-semver case: ${vSpec} vs. ${devDeps[name]}`)
     result = vSpec.indexOf(devDeps[name]) !== -1
   }
@@ -139,7 +131,11 @@ function download (args, cb) {
   // According to npmjs doc for `npm install`, --include overrides --omit.
   // Make it also override the implied omit of --only.
   const optPj = npm.config.get('package-json') || npm.config.get('pj') || npm.config.get('J')
-  cmdOpts.packageJson = typeof optPj == 'boolean' ? './' : optPj
+  if (optPj) {
+    cmdOpts.packageJson = typeof optPj == 'boolean' ? './' : optPj
+    cmdOpts.packageJson.replace(/package\.json$/, '')
+    if (!cmdOpts.packageJson) cmdOpts.packageJson = './'
+  }
 
   if (!(cmdOpts.packageJson || (args && args.length > 0))) {
     return cb(new SyntaxError([
@@ -175,8 +171,6 @@ function download (args, cb) {
     log.info('download', 'established download path:', newTracker.path)
 
      mkdirpAsync(tempCache)
-    //.catch(mdErr => cb(mdErr))
-      // TODO: devise a way to switch to the npm.cache instead of bailing? See makeOpts.
     .then(() => {
       npm.dlTracker = newTracker
       let statsMsgs = ''
@@ -348,21 +342,18 @@ function processItem(item, opts) {
   if (!opts) opts = {}
 
   const p = npa(item)
-  if (!p.name) {
-    log.warn('download', 'No package name parsed from spec', item)
-  }
 
   let dlType = DlTracker.typeMap[p.type]
   if (!dlType)
     return BB.reject(new RangeError('Cannot download package of type ' + p.type))
 
-  const result = { spec: p.rawSpec }
-  if (p.name) result.name = p.name
+  const trackerKeys = { name: p.name, spec: p.rawSpec }
+  const result = { spec: item }
+  if (p.name) result.name = p.name  // TODO: evaluate if we really need this
 
   // when p.rawSpec is '', p.type gets set to 'tag' and p.fetchSpec gets set to 'latest' by npa
   if ((p.type === 'tag' && p.fetchSpec === 'latest') ||
       (p.type === 'range' && p.fetchSpec === '*')) {
-    // TODO: this *might* be something we'll want to absorb into DlTracker - think about it.
     dlType = 'semver'
     if (latest[p.name]) {
       result.duplicate = true
@@ -370,7 +361,12 @@ function processItem(item, opts) {
     }
   }
   else {
-    if (npm.dlTracker.contains(dlType, p.name, p.rawSpec)) {
+    if (p.type === 'git') {
+      const gitKeys = gitAux.trackerKeys(p)
+      trackerKeys.name = gitKeys.repo
+      trackerKeys.spec = gitKeys.spec
+    }      
+    if (npm.dlTracker.contains(dlType, trackerKeys.name, trackerKeys.spec)) {
       result.duplicate = true
       return BB.resolve([ result ])
     }
@@ -378,7 +374,8 @@ function processItem(item, opts) {
 
   const dlData = {}
 
-  const fetchKey1 = `${p.name}:${p.fetchSpec}`
+  const fetchKey1 = trackerKeys.name ?
+    `${trackerKeys.name}:${trackerKeys.spec}` : trackerKeys.spec
   if (inflight[fetchKey1]) {
     result.duplicate = true
     return BB.resolve([ result ])
@@ -456,7 +453,6 @@ References: item, p, latest, result, dlData, dlType, fetchKey2, inflight
       })
       dlData._resolved = mani._resolved
       dlData._integrity = mani._integrity
-      // TODO: find out if _shasum is really needed
 
       if (dlType === 'tag') dlData.spec = p.rawSpec
 
@@ -469,15 +465,12 @@ References: item, p, latest, result, dlData, dlType, fetchKey2, inflight
   }
 
 /*
-References: item, dlData, result, fetchKey2, inflight
+References: item, p, dlData, result, fetchKey2, inflight, trackerKeys
 */
   function processGitRepoItem() {
     return gitManifest(item, makeOpts({ multipleRefs: true }))
     .then(mani => {
-      // If the resolved URL is the same as the requested spec,
-      // it would be redundant in the DlTracker data
-      if (mani._resolved != item)
-        dlData._resolved = mani._resolved
+      dlData._resolved = mani._resolved
       if (mani._integrity)
         dlData._integrity = mani._integrity
 
@@ -487,15 +480,14 @@ References: item, dlData, result, fetchKey2, inflight
         domain: p.hosted.domain, path: p.hosted.path(), commit: mani._ref.sha
       })
 
-      const repo = `${p.hosted.domain}/${p.hosted.path()}`
       if (inflight[fetchKey2] ||
-          npm.dlTracker.contains('git', repo, mani._ref.sha)) {
+        npm.dlTracker.contains('git', trackerKeys.name, mani._ref.sha)) {
         throw new DuplicateSpecError(item)
       }
       inflight[fetchKey2] = true
 
       dlData.filename = fetchKey2
-      dlData.repo = repo
+      dlData.repo = trackerKeys.name
       dlData.commit = mani._ref.sha
       dlData.refs = mani._ref.allRefs
 

@@ -1,68 +1,103 @@
 'use strict'
 
+const URL = require('url').URL
+
 const BB = require('bluebird')
 const pickManifest = require('npm-pick-manifest')
 const utilGit = require('pacote/lib/util/git')
 
+module.exports.trackerKeys = trackerKeys
 module.exports.fetchManifest = fetchManifest
 module.exports.resolve = resolve
 
+const RE_GIT_REPO_SUFFIX = /\.git$/
+const RE_HASH_PREFIX = /^#/
+
+function expectNpaGitResult(obj) {
+  if (obj === undefined || obj == null)
+    throw new SyntaxError('No argument given')
+  if (typeof obj != 'object')
+    throw new TypeError('Given argument is not an object')
+  if (obj.type != 'git')
+    throw new TypeError(`Expected type field value 'git'; given type value: ${obj.type}`)
+}
+
+function trackerKeys(npaSpec) {
+  expectNpaGitResult(npaSpec)
+
+  const result = {}
+  if (!npaSpec.hosted) {
+    try {
+      const parsed = new URL(npaSpec.rawSpec)
+      result.repo = parsed.host + parsed.pathname.replace(RE_GIT_REPO_SUFFIX, '')
+      result.spec = parsed.hash.replace(RE_HASH_PREFIX, '')
+    }
+    catch (err) {
+      return null
+    }
+  }
+  else {
+    result.repo = `${npaSpec.hosted.domain}/${npaSpec.hosted.path()}`
+    result.spec = npaSpec.hosted.committish || ''
+  }
+  return result
+}
+
 // fetchManifest: Borrowed from pacote/lib/fetchers/git.js
 // as combination of manifest() and hostedManifest()
-function fetchManifest(spec, opts) {
-  if (spec.hosted && spec.hosted.getDefaultRepresentation() === 'shortcut') {
+function fetchManifest(npaSpec, opts) {
+  if (npaSpec.hosted && npaSpec.hosted.getDefaultRepresentation() === 'shortcut') {
     return BB.resolve(null).then(() => {
-      if (!spec.hosted.git()) {
-        throw new Error(`No git url for ${spec}`)
+      if (!npaSpec.hosted.git()) {
+        throw new Error(`No git url for ${npaSpec.raw}`)
       }
-      return plainManifest(spec.hosted.git(), spec, opts)
+      return plainManifest(npaSpec.hosted.git(), npaSpec, opts)
     }).catch(err => {
-      if (!spec.hosted.https()) {
+      if (!npaSpec.hosted.https()) {
         throw err
       }
-      return plainManifest(spec.hosted.https(), spec, opts)
+      return plainManifest(npaSpec.hosted.https(), npaSpec, opts)
     }).catch(err => {
-      if (!spec.hosted.sshurl()) {
+      if (!npaSpec.hosted.sshurl()) {
         throw err
       }
-      return plainManifest(spec.hosted.sshurl(), spec, opts)
+      return plainManifest(npaSpec.hosted.sshurl(), npaSpec, opts)
     })
   }
   else {
     // If it's not a shortcut, don't do fallbacks.
-    return plainManifest(spec.fetchSpec, spec, opts)
+    return plainManifest(npaSpec.fetchSpec, npaSpec, opts)
   }
 }
 
-const RE_CMT_TAIL = /(?:#.*)?$/
+const RE_COMMIT_TAIL = /(?:#.*)?$/
 const RE_HEX40CH = /^[a-f0-9]{40}$/
 
 // plainManifest: Borrowed from pacote/lib/fetchers/git.js
-function plainManifest (repo, spec, opts) {
-  const rawRef = spec.gitCommittish || spec.gitRange
+function plainManifest (repo, npaSpec, opts) {
+  const rawRef = npaSpec.gitCommittish || npaSpec.gitRange
   return resolve(
-    repo, spec, spec.name, opts
+    repo, npaSpec, npaSpec.name, opts
   ).then(ref => {
     if (ref) {
-      const resolved = spec.saveSpec.replace(RE_CMT_TAIL, `#${ref.sha}`)
+      const resolved = npaSpec.saveSpec.replace(RE_COMMIT_TAIL, `#${ref.sha}`)
       return {
         _repo: repo,
         _resolved: resolved,
-        _spec: spec,
+        _spec: npaSpec,
         _ref: ref,
-        _rawRef: spec.gitCommittish || spec.gitRange,
+        _rawRef: npaSpec.gitCommittish || npaSpec.gitRange,
         _uniqueResolved: resolved,
         _integrity: false,
         _shasum: false
       }
     }
     else {
-console.log("**** git-aux.js plainManifest: SOL, need a full clone for", spec.rawSpec)
       // We're SOL and need a full clone :(
       //
       // If we're confident enough that `rawRef` is a commit SHA,
       // then we can at least get `finalize-manifest` to cache its result.
-      const resolved = spec.saveSpec.replace(RE_CMT_TAIL, rawRef ? `#${rawRef}` : '')
+      const resolved = npaSpec.saveSpec.replace(RE_COMMIT_TAIL, rawRef ? `#${rawRef}` : '')
       return {
         _repo: repo,
         _rawRef: rawRef,
@@ -91,8 +126,8 @@ Cases where there is no 'master' ref:
 Also, added option to get all the tags bound to the resolved commit.
 In this case, a new property is added to the result: allRefs.
 */
-function resolve(url, spec, name, opts) {
-  const isSemver = !!spec.gitRange
+function resolve(url, npaSpec, name, opts) {
+  const isSemver = !!npaSpec.gitRange
   return utilGit.revs(url, opts).then(remoteRefs => {
     let result = null
     if (isSemver) {
@@ -102,11 +137,11 @@ function resolve(url, spec, name, opts) {
           'dist-tags': remoteRefs['dist-tags'],
           name: name
         },
-        spec.gitRange, opts
+        npaSpec.gitRange, opts
       )
     }
     else if (remoteRefs) {
-      let committish = spec.gitCommittish
+      let committish = npaSpec.gitCommittish
       if (!committish) {
         committish = 'master'
         if (!(committish in remoteRefs.refs)) {

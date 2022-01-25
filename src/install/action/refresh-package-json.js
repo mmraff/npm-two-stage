@@ -5,6 +5,7 @@ const Bluebird = require('bluebird')
 const checkPlatform = Bluebird.promisify(require('npm-install-checks').checkPlatform)
 const DlTracker = require('../../download/dltracker')
 const getRequested = require('../get-requested.js')
+const gitAux = require('../../download/git-aux')
 const npm = require('../../npm.js')
 const path = require('path')
 const readJson = Bluebird.promisify(require('read-package-json'))
@@ -38,14 +39,11 @@ module.exports = function (staging, pkg, log) {
         pkg.package._spec = requested.raw
         const dlType = DlTracker.typeMap[requested.type]
         if (!dlType) {
-          throw new Error(`Requested type ${requested.type} not recognized (package ${requested.raw}). HOW DID WE GET HERE?!`)
-          // <MMR> Paradox: how did we get here if --offline?
-          // Maybe we're guaranteed there's no need for this;
-          // still, keep it for dev testing for now.
-          // ANSWER: I have seen this come up when there's a package-lock.json
-          // in the install dir, because, up until now, that records the local
-          // file URL as the dependency spec.
-          // BUT it seems that I solved that by changing the saveSpec below!
+          throw new Error([
+            'Requested type ', requested.type,
+            ' not recognized (package ', requested.raw,
+            '). HOW DID WE GET HERE?!'
+          ].join(''))
         }
         if (dlType != 'git') {
           const dlData = npm.dlTracker.getData(
@@ -55,9 +53,13 @@ module.exports = function (staging, pkg, log) {
           pkg.saveSpec = requested.rawSpec
         }
         else {
-          const dlData = npm.dlTracker.getData('git', null, requested.rawSpec)
-          pkg.package._resolved =
-            requested.saveSpec.replace(/(?:#.*)?$/, `#${dlData.resolvedTreeish}`)
+          const trackerKeys = gitAux.trackerKeys(requested)
+          const dlData =
+            npm.dlTracker.getData('git', trackerKeys.repo, trackerKeys.spec) ||
+            npm.dlTracker.getData('git', null, requested.rawSpec) // legacy
+          pkg.package._resolved = requested.saveSpec.replace(
+            /(?:#.*)?$/, `#${dlData.commit || dlData.resolvedTreeish}`
+          )
         }
       }
       return updatePackageJson(pkg, pkg.path)
