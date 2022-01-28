@@ -1,3 +1,7 @@
+/*
+  Sourced from package npm-package-dl-tracker v1.1.1.
+  The only change is the location from which npm-package-filename is require()d.
+*/
 const fs = require('graceful-fs')
 const npf = require('./npm-package-filename') // CHANGE
 
