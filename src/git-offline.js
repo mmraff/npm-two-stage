@@ -11,14 +11,15 @@ const packlist = require('npm-packlist')
 const readJson = BB.promisify(require('read-package-json'))
 const statAsync = BB.promisify(require('graceful-fs').stat)
 const tar = require('tar')
+const pacoteUtilGit = require('pacote/lib/util/git')
 
 const DlTracker = require('./download/dltracker')
+const getContents = require('./pack').getContents
 const gitAux = require('./download/git-aux')
 const gitContext = require('./download/git-context')
+const lifecycle = BB.promisify(require('./utils/lifecycle'))
 const npm = require('./npm')
 const prepRawModule = require('./prepare-raw-module')
-const lifecycle = BB.promisify(require('./utils/lifecycle'))
-const getContents = require('./pack').getContents
 
 
 module.exports = gitOffline
@@ -96,7 +97,10 @@ function shallowClone(repo, branch, target, opts) {
 // Adapted from pacote/lib/util/git.js.
 // No need to worry about retries here, because the context is the local filesystem.
 function execGit(gitArgs, gitOpts, opts) {
-  return BB.resolve(opts.git || gitContext.gitPath)
+  // _cwdOwner() potentially makes changes to uid & gid properties of gitOpts;
+  // does nothing with opts; resolves to nothing.
+  return pacoteUtilGit._cwdOwner(gitOpts, opts)
+  .then(() => opts.git || gitContext.gitPath)
   .then(gitPath => execFileAsync(gitPath, gitArgs, gitContext.mkOpts(gitOpts, opts)))
 }
 
