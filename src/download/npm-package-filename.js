@@ -1,7 +1,3 @@
-/*
-  Sourced from package npm-package-filename v1.0.0.
-  No changes.
-*/
 module.exports = {
   makeTarballName: makeTarballName,
   parse: parseFilename,

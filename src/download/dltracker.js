@@ -1,17 +1,18 @@
-/*
-  Sourced from package npm-package-dl-tracker v1.1.1.
-  The only change is the location from which npm-package-filename is require()d.
-*/
 // built-ins
 const path = require('path')
 const url = require('url')
+const promisify = require('util').promisify
 
 // 3rd party dependencies
 const fs = require('graceful-fs')
 const semver = require('semver')
-const npf = require('./npm-package-filename') // CHANGE
+const npf = require('./npm-package-filename') // CHANGED from '@offliner/npm-package-filename'
 
 const reconstructMap = require('./reconstruct-map')
+
+const lstatAsync = promisify(fs.lstat)
+const readFileAsync = promisify(fs.readFile)
+const writeFileAsync = promisify(fs.writeFile)
 
 const dummyFunc = () => {}
 const dummyLog = {
@@ -36,7 +37,6 @@ const KEYFIELDS = new Set([ // internal
   'type', 'name', 'version', 'spec', 'repo', 'commit'
 ])
 
-const GIT_REMOTES_LEGACY_DIR = '_git-remotes'
 const RE_HEX40 = /^[a-f0-9]{40}$/ // git commit hash pattern
 const MAPFILE_NAME = 'dltracker.json'
 const MAPFILE_DESC_FIELD = [
@@ -48,35 +48,16 @@ const MAPFILE_DESC_FIELD = [
   '**npm install --offline** and have verified a good installation.'
 ].join('')
 
-function auditOne(type, data, dir, cb)
-{
+function auditOne(type, data, dir) {
   let fileSpec = data.filename
   if (!fileSpec) {
-    if (type === 'git') {
-      // In the legacy version of dltracker, it's not a tarball that gets saved,
-      // but a cloned repo with an ad-hoc directory name (--> repoID).
-      if (!data.repoID) {
-        const err = new Error('No filename or repoID in data')
-        err.code = 'ENODATA'
-        return cb(err)
-      }
-      fileSpec = path.join(GIT_REMOTES_LEGACY_DIR, data.repoID)
-      return fs.lstat(path.join(dir, fileSpec), function (err, stats) {
-        if (err) return cb(err, data.repoID)
-        if (!stats.isDirectory()) {
-          err = new Error('Git repo path exists but is not a directory')
-          err.code = 'ENOTDIR'
-        }
-        cb(err, data.repoID)
-      })
-    } // else,
     const err = new Error('No filename in data')
     err.code = 'ENODATA'
-    return cb(err)
+    return Promise.reject(err)
   }
   const filePath = path.resolve(dir, fileSpec)
-  fs.lstat(filePath, function (err, stats) {
-    if (err) return cb(err, fileSpec)
+  return lstatAsync(filePath).then(stats => {
+    let err
     if (!stats.isFile()) {
       err = new Error('Not a regular file')
       err.code = 'EFNOTREG'
@@ -92,17 +73,11 @@ function auditOne(type, data, dir, cb)
       err.code = 'EFNAME'
       err.path = filePath
     }
-    cb(err, fileSpec)
+    if (err) throw err
   })
 }
 
 // Argument validation
-function expectCallback(arg) {
-  if (arg === undefined || arg === null)
-    throw new SyntaxError('callback required')
-  if (typeof arg !== 'function')
-    throw new TypeError('argument must be a function')
-}
 
 function expectNonemptyString(val, valName) {
   if (val === undefined || val === null || val === '')
@@ -170,8 +145,9 @@ function expectPackageData(type, data) {
       if ('refs' in data) {
         if (!(data.refs instanceof Array))
           throw new TypeError("git-type metadata property 'refs' must be an array")
-        if (!data.refs.length)
+        if (!data.refs.length) {
           throw new SyntaxError("git-type metadata refs must contain at least one tag")
+        }
         for (let refIdx = 0; refIdx < data.refs.length; ++refIdx) {
           if (typeof data.refs[refIdx] != 'string')
             throw new TypeError("git ref must be a string")
@@ -193,37 +169,38 @@ function expectPackageData(type, data) {
 
 // Factory
 // Can be called in any of the following forms:
-//   create(undefined||null||''||where, cb)
-//   create(undefined||null||''||where, undefined||null||opts, cb)
-function create(where, opts, cb)
-{
-  if (!cb) {
-    cb = opts
-    opts = null
-  }
-  if (where !== undefined && where !== null) {
-    if (typeof where !== 'string')
-      if (Object.getPrototypeOf(where) !== Object.getPrototypeOf(new String()))
-        throw new TypeError('path must be given as a string')
-  }
-  if (opts !== undefined && opts !== null) {
-    if (typeof opts !== 'object')
-      throw new TypeError('options must be given as an object')
-    if (Object.getPrototypeOf(opts) !== Object.getPrototypeOf({}))
-      throw new TypeError('options must be given as a plain object')
-    if (opts.log) {
-      if (typeof opts.log !== 'object')
-        throw new TypeError('logger option value must be an object')
-      for (let prop in dummyLog) {
-        if (!(prop in opts.log))
-          throw new Error(`logger must have a '${prop}' method`)
-        if (typeof opts.log[prop] != 'function')
-          throw new TypeError(`logger '${prop}' property is not a function`)
+//   create()
+//   create(undefined) || create(null) || create('')
+//   create(where)
+//   create(<undefined||null||''||where>, undefined)
+//   create(<undefined||null||''||where>, null)
+//   create(<undefined||null||''||where>, opts)
+function create(where, opts) {
+  try {
+    if (where !== undefined && where !== null) {
+      if (typeof where !== 'string')
+        if (Object.getPrototypeOf(where) !== Object.getPrototypeOf(new String()))
+          throw new TypeError('path must be given as a string')
+    }
+    if (opts !== undefined && opts !== null) {
+      if (typeof opts !== 'object')
+        throw new TypeError('options must be given as an object')
+      if (Object.getPrototypeOf(opts) !== Object.getPrototypeOf({}))
+        throw new TypeError('options must be given as a plain object')
+      if (opts.log) {
+        if (typeof opts.log !== 'object')
+          throw new TypeError('logger option value must be an object')
+        for (let prop in dummyLog) {
+          if (!(prop in opts.log))
+            throw new TypeError(`logger must have a '${prop}' method`)
+          if (typeof opts.log[prop] != 'function')
+            throw new TypeError(`logger '${prop}' property is not a function`)
+        }
       }
     }
+    else opts = {}
   }
-  else opts = {}
-  expectCallback(cb)
+  catch (err) { return Promise.reject(err) }
 
   const tables = { semver: {}, tag: {}, url: {}, git: {} }
   const oldInfo = {}
@@ -232,10 +209,12 @@ function create(where, opts, cb)
   // where.toString() covers the (unlikely) case of (where instanceof String)
   const pkgDir = (where) ? path.resolve(where.toString()) : path.resolve()
 
-  fs.stat(pkgDir, function (err, stats) {
-    if (err) return cb(err)
+  return lstatAsync(pkgDir).then(stats => {
     if (!stats.isDirectory()) {
-      return cb(new Error('Given path is not a directory: ' + where))
+      const errNotDir = new Error('Given path is not a directory')
+      errNotDir.path = pkgDir
+      errNotDir.code = 'ENOTDIR'
+      throw errNotDir
     }
 
     const publicSelf = {
@@ -249,27 +228,14 @@ function create(where, opts, cb)
     Object.freeze(publicSelf)
 
     const mapFilepath = path.join(pkgDir, MAPFILE_NAME)
-    fs.readFile(mapFilepath, 'utf8', function (fsErr, str) {
-      if (fsErr) {
-        if (fsErr.code !== 'ENOENT') {
-          log.error('DownloadTracker', `Unusable map file, error code ${fsErr.code}`)
-          return cb(fsErr)
-        }
-        log.warn('DownloadTracker', 'Could not find a map file; trying to reconstruct...')
-        return reconstructMap(pkgDir, log, function(err, map) {
-          if (err) return cb(err)
-          Object.assign(tables, map)
-          cb(null, publicSelf)
-        })
-      }
-
+    return readFileAsync(mapFilepath, 'utf8').then(str => {
       let map
       // Strip BOM, if any
       if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1)
       try { map = JSON.parse(str) }
       catch (parseErr) {
         log.error('DownloadTracker', 'Failed to parse map file')
-        return cb(parseErr)
+        throw parseErr
       }
       for (let p in map) {
         if (DLT_TYPES.has(p)) tables[p] = map[p]
@@ -277,13 +243,22 @@ function create(where, opts, cb)
       if (map.created)
         oldInfo.created = map.created
 
-      cb(null, publicSelf)
+      return publicSelf
+    })
+    .catch(err => {
+      if (err.code !== 'ENOENT') {
+        log.error('DownloadTracker', `Unusable map file, error code ${err.code}`)
+        throw err
+      }
+      log.warn('DownloadTracker', 'Could not find a map file; trying to reconstruct...')
+      return reconstructMap(pkgDir, log).then(map => {
+        Object.assign(tables, map)
+        return publicSelf
+      })
     })
   })
 
   function auditAll(cb) {
-    expectCallback(cb)
-
     let pkgs
     let pkgKeys
     let pkgKeyIndex = 0
@@ -291,32 +266,30 @@ function create(where, opts, cb)
     let versionKeys
     const errors = []
 
-    function nextVersion(i, done) {
-      if (i >= versionKeys.length) return done()
+    function nextVersion(i) {
+      if (i >= versionKeys.length) return Promise.resolve(null)
 
       const name = pkgKeys[pkgKeyIndex]
       const ver = versionKeys[i]
       const data = versions[ver] 
-      auditOne(
-        'semver', data, pkgDir,
-        function(err) {
-          if (err) errors.push({
-            data: preparedData('semver', name, ver),
-            error: err
-          })
-          nextVersion(++i, done)
-        }
-      )
+      return auditOne('semver', data, pkgDir)
+      .catch(err => {
+        errors.push({
+          data: preparedData('semver', name, ver),
+          error: err
+        })
+      })
+      .then(() => nextVersion(i+1))
     }
 
-    function nextSemverPkg(done) {
-      if (pkgKeyIndex >= pkgKeys.length) return done()
+    function iterateSemverPkgs() {
+      if (pkgKeyIndex >= pkgKeys.length) return Promise.resolve(null)
 
       versions = pkgs[pkgKeys[pkgKeyIndex]]
       versionKeys = Object.keys(versions)
-      nextVersion(0, function() {
+      return nextVersion(0).then(() => {
         ++pkgKeyIndex
-        nextSemverPkg(done)
+        return iterateSemverPkgs()
       })
     }
 
@@ -347,8 +320,8 @@ function create(where, opts, cb)
       }
     }
 
-    function nextCommit(i, done) {
-      if (i >= versionKeys.length) return done()
+    function nextCommit(i) {
+      if (i >= versionKeys.length) return Promise.resolve(null)
 
       let err
       const repo = pkgKeys[pkgKeyIndex]
@@ -364,7 +337,7 @@ function create(where, opts, cb)
             error: err
           })
         }
-        return nextCommit(++i, done)
+        return nextCommit(i+1)
       }
       if (!Object.keys(data).length) {
         err = new Error('No data in git record')
@@ -373,89 +346,83 @@ function create(where, opts, cb)
           data: preparedData('git', repo, commit),
           error: err
         })
-        return nextCommit(++i, done)
+        return nextCommit(i+1)
       }
-      auditOne(
-        'git', data, pkgDir,
-        function(err) {
-          if (err) errors.push({
-            data: preparedData('git', repo, commit),
-            error: err
-          })
-          nextCommit(++i, done)
-        }
-      )
+      return auditOne('git', data, pkgDir)
+      .catch(err => {
+        errors.push({
+          data: preparedData('git', repo, commit),
+          error: err
+        })
+      })
+      .then(() => nextCommit(i+1))
     }
 
-    function nextGitPkg(done) {
-      if (pkgKeyIndex >= pkgKeys.length) return done()
+    function iterateGitPkgs() {
+      if (pkgKeyIndex >= pkgKeys.length) return Promise.resolve(null)
 
       versions = pkgs[pkgKeys[pkgKeyIndex]]
       versionKeys = Object.keys(versions)
-      nextCommit(0, function() {
+      return nextCommit(0).then(() => {
         ++pkgKeyIndex
-        nextGitPkg(done)
+        return iterateGitPkgs()
       })
     }
 
-    function nextURLPkg(done) {
-      if (pkgKeyIndex >= pkgKeys.length) return done()
+    function iterateUrlPkgs() {
+      if (pkgKeyIndex >= pkgKeys.length) return Promise.resolve(null)
 
       const spec = pkgKeys[pkgKeyIndex]
       const data = pkgs[spec] 
-      auditOne(
-        'url', data, pkgDir,
-        function(err) {
-          if (err) errors.push({
-            data: preparedData('url', null, spec),
-            error: err
-          })
-          ++pkgKeyIndex
-          nextURLPkg(done)
-        }
-      )
+      return auditOne('url', data, pkgDir)
+      .catch(err => {
+        errors.push({
+          data: preparedData('url', null, spec),
+          error: err
+        })
+      })
+      .then(() => {
+        ++pkgKeyIndex
+        return iterateUrlPkgs()
+      })
     }
 
     pkgs = tables['semver']
     pkgKeys = Object.keys(pkgs)
-    nextSemverPkg(function() {
+    return iterateSemverPkgs()
+    .then(() => {
       pkgs = tables['tag']
       iterateTagPkgs()
+
       pkgs = tables['git']
       pkgKeys = Object.keys(pkgs)
       pkgKeyIndex = 0
-      nextGitPkg(function() {
-        pkgs = tables['url']
-        pkgKeys = Object.keys(pkgs)
-        pkgKeyIndex = 0
-        nextURLPkg(function() {
-          cb(null, errors)
-        })
-      })
+      return iterateGitPkgs()
     })
+    .then(() => {
+      pkgs = tables['url']
+      pkgKeys = Object.keys(pkgs)
+      pkgKeyIndex = 0
+      return iterateUrlPkgs()
+    })
+    .then(() => errors)
   }
 
-  function add(type, data, cb)
-  {
-    expectDLTType(type)
-    if (data === undefined || data === null)
-      throw new SyntaxError('package metadata required')
-    expectCallback(cb)
-    expectPackageData(type, data)
+  function add(type, data) {
+    try {
+      expectDLTType(type)
+      if (data === undefined || data === null)
+        throw new SyntaxError('package metadata required')
+      expectPackageData(type, data)
+    }
+    catch (err) { return Promise.reject(err) }
 
     if (type === 'tag' && (data.spec === '' || data.spec === 'latest'))
       type = 'semver'
 
     // First, need to verify existence of item in download directory.
-    auditOne(type, data, pkgDir, function(err) {
-      if (err) {
-        if (err.code == 'ENOENT') {
-          const parentDir = path.parse(err.path).dir
-          err = new Error(`Package ${data.filename} not found at ${parentDir}`)
-        }
-        return cb(err)
-      }
-
+    return auditOne(type, data, pkgDir)
+    .then(() => {
       const map = tables[type]
       const copy = {}
       for (let prop in data) {
@@ -498,8 +465,13 @@ function create(where, opts, cb)
         // no default currently necessary: it would never be visited
       }
       tables.dirty = true
-
-      cb()
+    })
+    .catch(err => {
+      if (err.code == 'ENOENT') {
+        const parentDir = path.parse(err.path).dir
+        err = new Error(`Package ${data.filename} not found at ${parentDir}`)
+      }
+      throw err
     })
   }
 
@@ -516,12 +488,10 @@ function create(where, opts, cb)
         expectNonemptyString(name, 'name')
         break
       case 'git':
-        // Allowable: empty name arg to retrieve legacy git data by spec alone;
-        // else it must be the name of the repo
-        if (name !== undefined && name !== null && typeof name !== 'string')
-          throw new TypeError('git repo name must be given as a string')
+        expectNonemptyString(name, 'git repo name')
         break
       case 'url':
+        // I'm on the fence about this. It's not used, so why should it matter?
         if (name !== undefined && name !== null && name !== '')
           throw new SyntaxError('name value must be empty for type url')
         break
@@ -573,41 +543,34 @@ function create(where, opts, cb)
   
     switch (type) {
       case 'git':
-        if (!name) {
-          data = tables.git[spec]
-          // legacy version data; only guaranteed field is repoID
-          if (data) result = { spec: spec }
+        versions = tables.git[name]
+        if (!versions) break
+        if (spec && spec != '*') {
+          ver = spec
+          if (spec.indexOf('semver:') === 0)
+            ver = getMaxSemverMatch(spec.slice(7), versions, {filter: true})
+          if (ver) data = versions[ver]
         }
-        else {
-          versions = tables.git[name]
-          if (!versions) break
-          if (spec && spec != '*') {
-            ver = spec
-            if (spec.indexOf('semver:') === 0)
-              ver = getMaxSemverMatch(spec.slice(7), versions, {filter: true})
-            if (ver) data = versions[ver]
+        // Given that the default branch of a git repo *can* be named
+        // arbitrarily, I'm uncomfortable with this:
+        else if (!(data = versions['master'] || versions['main'])) {
+          // If there's only one full record for the given repo, use that.
+          const fullRecords = []
+          for (let id in versions)
+            if (versions[id].filename) fullRecords.push(id)
+          if (fullRecords.length === 1) {
+            data = versions[fullRecords[0]]
+            result = { repo: name, commit: fullRecords[0] }
           }
-          // Given that the default branch of a git repo *can* be named
-          // arbitrarily, I'm uncomfortable with this:
-          else if (!(data = versions['master'] || versions['main'])) {
-            // If there's only one full record for the given repo, use that.
-            const fullRecords = []
-            for (let id in versions)
-              if (versions[id].filename) fullRecords.push(id)
-            if (fullRecords.length === 1) {
-              data = versions[fullRecords[0]]
-              result = { repo: name, commit: fullRecords[0] }
-            }
+        }
+        if (data && !result) {
+          result = { repo: name }
+          if (data.commit) { // fetched by tag or semver expr, maybe by '' or '*'
+            result.commit = data.commit
+            data = versions[data.commit]
+            if (spec && spec != '*') result.spec = spec
           }
-          if (data && !result) {
-            result = { repo: name }
-            if (data.commit) { // fetched by tag or semver expr, maybe by '' or '*'
-              result.commit = data.commit
-              data = versions[data.commit]
-              if (spec && spec != '*') result.spec = spec
-            }
-            else result.commit = spec
-          }
+          else result.commit = spec
         }
         if (data) {
           Object.assign(result, data)
@@ -651,14 +614,11 @@ function create(where, opts, cb)
     return result
   }
 
-  function serialize(cb)
-  {
-    expectCallback(cb)
-
+  function serialize() {
     // If tables are unchanged since init, abort.
     if (!tables.dirty) {
       log.verbose('DownloadTracker.serialize', 'Nothing new to write about')
-      return cb(false)
+      return Promise.resolve(false)
     }
 
     const map = {}
@@ -680,14 +640,15 @@ function create(where, opts, cb)
 
     const filepath = path.join(pkgDir, MAPFILE_NAME)
     log.verbose('DownloadTracker.serialize', 'writing to', filepath)
-    fs.writeFile(filepath, JSON.stringify(map), function(er) {
-      if (er)
-        log.warn('DownloadTracker.serialize', 'Failed to write map file')
-      else
-        log.verbose('DownloadTracker.serialize', 'Map file written successfully.')
+    return writeFileAsync(filepath, JSON.stringify(map))
+    .then(() => {
+      log.verbose('DownloadTracker.serialize', 'Map file written successfully.')
       delete tables.dirty
-      cb(er)
+      return true
+    })
+    .catch(err => {
+      log.warn('DownloadTracker.serialize', 'Failed to write map file')
+      throw err
     })
   }
 }
-

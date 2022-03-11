@@ -1,9 +1,6 @@
-/*
-  Sourced from package npm-package-dl-tracker v1.1.1.
-  The only change is the location from which npm-package-filename is require()d.
-*/
-const fs = require('graceful-fs')
-const npf = require('./npm-package-filename') // CHANGE
+const promisify = require('util').promisify
+const readdirAsync = promisify(require('graceful-fs').readdir)
+const npf = require('./npm-package-filename') // CHANGED from '@offliner/npm-package-filename'
 
 module.exports = reconstructMap
 
@@ -53,38 +50,31 @@ const dummyLog = {
   error: dummyFunc, warn: dummyFunc, info: dummyFunc, verbose: dummyFunc
 }
 
-function reconstructMap(dir, log, cb) {
-  if (dir === undefined || dir === null || dir === '')
-    throw new SyntaxError("No path given")
-  if (typeof dir != 'string')
-    throw new TypeError("First argument must be a non-empty string")
-  if (!cb) {
-    cb = log
-    log = null
-  }
-  if (cb == undefined || cb == null)
-    throw new SyntaxError("No callback given")
-  if (typeof cb != 'function')
-    throw new TypeError("Callback argument must be a function")
-  if (log) {
-    if (typeof log !== 'object')
-      throw new TypeError('logger must be an object')
-    for (let prop in dummyLog) {
-      if (!(prop in log))
-        throw new Error(`logger must have a '${prop}' method`)
-      if (typeof log[prop] != 'function')
-        throw new TypeError(`logger '${prop}' property is not a function`)
+function reconstructMap(dir, log) {
+  try {
+    if (dir === undefined || dir === null || dir === '')
+      throw new SyntaxError("No path given")
+    if (typeof dir != 'string')
+      throw new TypeError("First argument must be a non-empty string")
+    if (log) {
+      if (typeof log !== 'object')
+        throw new TypeError('logger must be an object')
+      for (let prop in dummyLog) {
+        if (!(prop in log))
+          throw new TypeError(`logger must have a '${prop}' method`)
+        if (typeof log[prop] != 'function')
+          throw new TypeError(`logger '${prop}' property is not a function`)
+      }
     }
+    else log = dummyLog
   }
-  else log = dummyLog
+  catch(err) { return Promise.reject(err) }
 
   // Recognize anything that looks like a package file in the
   // given directory, and table it
-  fs.readdir(dir, function(err, files) {
-    if (err) return cb(err)
-
+  return readdirAsync(dir).then(files => {
     const map = {}
     iterateAndAdd(files, map, log)
-    cb(null, map)
+    return map
   })
 }

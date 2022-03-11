@@ -53,7 +53,7 @@ _________________________
   ...)
 * Ensure your **npm** installation is one of the versions targeted by this
  project, and ensure you are downloading the correct release of this project for
- your version of npm. **You are currently viewing the branch for npm 6.x.**
+ your version of npm. **You are currently viewing the branch for npm 7.x.**
 * Note that backup copies of the original files modified by this project are
  created in the same location. If you ever want to use the uninstall script,
  it's best if you leave the backup files where they are.
@@ -93,7 +93,7 @@ _________________________
 ## Usage
 <a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1 "Aliases are not yet supported in `npm download`. File and directory package specs are meaningless in this context, of course.") that is valid to npm in an install context...
 
-### Download Phase
+### Download Stage
 ```sh
 npm download PACKAGE_SPEC
 ```
@@ -134,21 +134,20 @@ The command lines examples given above will fetch regular and optional dependenc
 and shrinkwraps will be honored.
 Options are available for changing how dependencies are fetched:
 ```sh
-  --only=dev[elopment]
+  --include=<dev|optional|peer>
+  --omit=<dev|optional|peer>
+  --only=prod[uction]       ***deprecated***
   --also=dev[elopment]      ***deprecated***
-  --include=dev[elopment]
-  --no-optional
-  --no-shrinkwrap
 ```
 
 A file named dltracker.json will be created in the same directory as the
-downloads. This file contains metadata that will be used in the next phase, and
+downloads. This file contains metadata that will be used in the next stage, and
 so it must travel with the package files.  
 
 If `npm download` is used again to target the same directory, the new metadata
 is merged into the dltracker.json file. This can be done any number of times.  
 
-### Install Phase
+### Installation Stage
 ```sh
 npm install --offline --offline-dir=path/to/find/tarballs PACKAGE_SPEC
 ```
@@ -164,13 +163,13 @@ _________________________
 
 `npm download --help` will show the supported forms as follows:
 ```sh
-  npm download [<@scope>/]<name>
-  npm download [<@scope>/]<name>@<tag>
-  npm download [<@scope>/]<name>@<version>
-  npm download [<@scope>/]<name>@<version range>
-  npm download <git-host>:<git-user>/<repo-name>
+  npm download [<@scope>/]<pkg>
+  npm download [<@scope>/]<pkg>@<tag>
+  npm download [<@scope>/]<pkg>@<version>
+  npm download [<@scope>/]<pkg>@<version range>
   npm download <github username>/<github project>
-  npm download <git repo url>
+  npm download <git-host>:<git-user>/<repo-name>
+  npm download <git:// url>
   npm download <tarball url>
 ```        
 

@@ -9,11 +9,14 @@ if (os.platform() !== 'win32') {
   process.exit(1)
 }
 
-// WARNING: the files referenced in this script are specific to npm 2.x
+CHANGED_FILES="install utils/cmd-list utils/config/definitions"
+ADDED_FILES="download"
+ADDED_DIRS="download offliner"
+// WARNING: the files referenced in this script are specific to npm 7.x
 var targets = {
-  CHANGED_FILES: [ 'fetch-package-metadata', 'install', 'config\\cmd-list', 'install\\action\\refresh-package-json' ],
-  ADDED_FILES: [ 'download', 'git-offline', 'offliner', 'prepare-raw-module' ],
-  ADDED_DIRS: [ 'download' ]
+  CHANGED_FILES: [ 'install', 'utils\\cmd-list', 'utils\\config\\definitions' ],
+  ADDED_FILES: [ 'download' ],
+  ADDED_DIRS: [ 'download', 'offliner' ]
 }
 module.exports.targets = targets
 

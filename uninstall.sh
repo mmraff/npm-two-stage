@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WARNING: The files referenced in this script are specific to npm 6.x
+# WARNING: The files referenced in this script are specific to npm 7.x
 
 if [ ! -f ./target-ver.txt ]
 then
@@ -33,9 +33,9 @@ then
   exit -3
 fi
 
-CHANGED_FILES="fetch-package-metadata install config/cmd-list install/action/refresh-package-json"
-ADDED_FILES="download git-offline offliner prepare-raw-module"
-ADDED_DIRS="download"
+CHANGED_FILES="install utils/cmd-list utils/config/definitions"
+ADDED_FILES="download"
+ADDED_DIRS="download offliner"
 
 trap "echo Failed to execute a filesystem command - aborting uninstall; exit -4" ERR
 for f in $CHANGED_FILES
