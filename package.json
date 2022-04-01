@@ -1,0 +1,49 @@
+{
+  "name": "npm-two-stage",
+  "version": "1.0.0",
+  "description": "Divide `npm install` into download and offline-install stages",
+  "author": "Matthew Rafferty <mmraff@gmail.com>",
+  "license": "Artistic-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmraff/npm-two-stage.git"
+  },
+  "homepage": "https://github.com/mmraff/npm-two-stage#readme",
+  "bugs": {
+    "url": "https://github.com/mmraff/npm-two-stage/issues"
+  },
+  "keywords": [
+    "npm",
+    "download",
+    "install",
+    "offline",
+    "package",
+    "air-gap",
+    "sneakernet"
+  ],
+  "engines": {
+    "node": ">=8.10.0"
+  },
+  "main": "npm2stage.js",
+  "directories": {
+    "lib": "lib",
+    "src": "src"
+  },
+  "bin": {
+    "npm2stage": "./npm2stage.js"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "dependencies": {
+    "commander": "^6.2.1"
+  },
+  "devDependencies": {
+    "chai": "^4.3.6",
+    "mocha": "^7.2.0",
+    "rimraf": "^3.0.2"
+  },
+  "bundleDependencies": [
+    "commander"
+  ]
+}
