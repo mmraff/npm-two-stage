@@ -11,10 +11,10 @@ const { version: pkgVersion, bin: pkgBin } = require('./package.json')
 const progName = (() => { for (let prop in pkgBin) return prop })()
 const ADVICE_TO_UNINSTALL = [
   '',
-  '  The remains of a previous installation of npm-two-stage were found.',
-  '  This complicates the current installation, so it will be aborted.',
-  `  The best action to take now is to run \`${progName} uninstall\` using the`,
-  '  same npm-two-stage version as when the previous installation was run.'
+  '   The remains of a previous installation of npm-two-stage were found.',
+  '   This complicates the current installation, so it will be aborted.',
+  `   The best action to take now is to run \`${progName} uninstall\` using the`,
+  '   same npm-two-stage version as when the previous installation was run.'
 ].join('\n')
 
 program
