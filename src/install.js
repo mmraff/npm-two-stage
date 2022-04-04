@@ -35,6 +35,8 @@ class Install extends ArboristWorkspaceCmd {
       'legacy-bundling',
       'strict-peer-deps',
       'package-lock',
+      'offline',          // npm-two-stage
+      'offline-dir',      // npm-two-stage
       'omit',
       'ignore-scripts',
       'audit',

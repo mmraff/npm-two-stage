@@ -1,4 +1,4 @@
-/* YADA */
+/* TODO: add --offline-dir option to install command; check --offline def */
 const definitions = {}
 module.exports = definitions
 
@@ -1263,6 +1263,16 @@ define('offline', {
   description: `
     Force offline mode: no network requests will be done during install. To allow
     the CLI to fill in missing cache data, see \`--prefer-offline\`.
+  `,
+  flatten,
+})
+
+define('offline-dir', {
+  default: null,
+  type: [null, String],
+  description: `
+    The location of package tarballs fetched by \`npm download\` for installing.
+    Must be given with \`--offline\` when \`npm-two-stage\` is in use.
   `,
   flatten,
 })
