@@ -2,7 +2,6 @@
 
 const URL = require('url').URL
 
-const BB = require('bluebird')
 const pickManifest = require('npm-pick-manifest')
 const utilGit = require('pacote/lib/util/git')
 
@@ -47,7 +46,7 @@ function trackerKeys(npaSpec) {
 // as combination of manifest() and hostedManifest()
 function fetchManifest(npaSpec, opts) {
   if (npaSpec.hosted && npaSpec.hosted.getDefaultRepresentation() === 'shortcut') {
-    return BB.resolve(null).then(() => {
+    return Promise.resolve().then(() => {
       if (!npaSpec.hosted.git()) {
         throw new Error(`No git url for ${npaSpec.raw}`)
       }
@@ -151,11 +150,9 @@ function resolve(url, npaSpec, name, opts) {
             committish = Object.keys(remoteRefs.refs)[0]
             // It's still possible that committish is undefined at this point
         }
-        //result = BB.resolve(remoteRefs.refs[committish]) // AFAIK, don't need BB.resolve for return val from a Promise
         result = remoteRefs.refs[committish]
       }
       else {
-        //result = BB.resolve( // AFAIK, don't need BB.resolve for return val from a Promise
         //result = remoteRefs.refs[committish] || remoteRefs.refs[remoteRefs.shas[committish]]
         // An interesting phenomenon in that 2nd expression:
         // * if exists, remoteRefs.shas[committish] is an Array
