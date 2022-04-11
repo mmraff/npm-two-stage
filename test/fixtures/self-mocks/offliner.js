@@ -13,6 +13,8 @@ module.exports = function(dep, opts, next) {
    */
   try {
     const filename = mockData.getFilename(dep)
+    if (!filename)
+      throw new Error(`Download Tracker knows nothing about ${dep.raw}`)
     const offlineDep = npa(path.join(mockData.path, filename))
     next(null, offlineDep)
   }
