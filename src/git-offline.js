@@ -1,3 +1,10 @@
+/*
+  NOTE
+  * We must keep BB here, because of use of the `tap` method
+    (see way down at the bottom)
+    ... unless we find a way to implement that, and attach it to Promise...
+*/
+
 const path = require('path')
 
 const BB = require('bluebird')
@@ -20,14 +27,44 @@ const prepRawModule = require('./prepare-raw-module')
 const lifecycle = BB.promisify(require('./utils/lifecycle'))
 const getContents = require('./pack').getContents
 
+function validateArgs(npaObj, dlData, opts, next) {
+  const npaObjMsg = 'First argument must be the result of a call to npm-package-arg'
+  const dlDataMsg = 'Second argument must be data object retrieved from a downloadtracker'
+  const cbMsg = 'Fourth argument must be a callback function'
+
+  if (npaObj === undefined || npaObj === null)
+    throw new SyntaxError(npaObjMsg)
+  if (typeof npaObj != 'object' || typeof npaObj.type != 'string')
+    throw new TypeError(npaObjMsg)
+  if (dlData === undefined || dlData === null)
+    throw new SyntaxError(npaObjMsg)
+  if (typeof dlData != 'object' || typeof dlData.type != 'string')
+    throw new TypeError(npaObjMsg)
+  if (dlData.type != 'git' || !dlData.repoID)
+    throw new TypeError('Invalid dlTracker data: this module only handles git packages that have been saved as repo clones by npm-two-stage <= v4')
+  if (opts !== undefined && opts !== null) {
+    if (typeof opts != 'object')
+      throw new TypeError('If given, third argument must be an options object')
+  }
+  if (next === undefined || next === null)
+    throw new SyntaxError(cbMsg)
+  if (typeof next != 'function')
+    throw new TypeError(cbMsg)
+}
 
 module.exports = gitOffline
-// There is only one use-case for this: a local filesystem git repo cloned from
-// a remote by the legacy version (fetch-git).
-// The goal is to produce a clean tarball of a specific commit from the repo,
-// so the new version of offliner can treat it the same as a product of the
-// new version of download.js.
-function gitOffline(spec, dlData, opts, next) {
+/*
+  There is only one use case for this: a local filesystem git repo cloned from
+  a remote by a legacy version of npm-two-stage (<= v4).
+  The goal is to produce a clean tarball of a specific commit from the repo,
+  so the new version of offliner can treat it the same as a product of the
+  new version of download.js.
+  The callback receives (error) or (null, tarballPath).
+*/
+function gitOffline(npaObj, dlData, opts, next) {
+  try { validateArgs(npaObj, dlData, opts, next) }
+  catch (err) { return next(err) }
+
   const GITPATH = opts.git || gitContext.gitPath
   if (!GITPATH) {
     const err = new Error('No git binary found in $PATH')
@@ -39,16 +76,14 @@ function gitOffline(spec, dlData, opts, next) {
     npm.dlTracker.path, gitContext.dirNames.remotes, dlData.repoID
   )
   const tmpDir = path.join(npm.tmp, gitContext.dirNames.offlineTemps, dlData.repoID)
-  gitAux.resolve(dlRepoDir, spec, spec.name, opts)
+  gitAux.resolve(dlRepoDir, npaObj, npaObj.name, opts)
   .then(ref => {
     const tmpPkgDir = path.join(tmpDir, 'package')
-    mkdirp(tmpPkgDir).then(() => {
-      return shallowClone(dlRepoDir, ref.ref, tmpPkgDir, opts)
+    return mkdirp(tmpPkgDir)
+    .then(() => shallowClone(dlRepoDir, ref.ref, tmpPkgDir, opts))
       // NOTE: the above promise resolves to the HEAD sha, but we don't need it here
-      .then(() => {
-        return packGitDep(spec, tmpPkgDir)
-      })
-    }).catch(err => {
+    .then(() => packGitDep(npaObj, tmpPkgDir))
+    .catch(err => {
       if (err.code == 'EEXIST') {
         const tmpTarPath = path.join(tmpDir, 'package.tgz')
         return statAsync(tmpTarPath).then(stat => {
@@ -58,7 +93,8 @@ function gitOffline(spec, dlData, opts, next) {
         })
       }
       throw err
-    }).then(tmpTarPath => next(null, npa(tmpTarPath)))
+    })
+    .then(tmpTarPath => next(null, npa(tmpTarPath)))
   })
   .catch(err => next(err))
 }
@@ -200,4 +236,3 @@ function packDirectory(pkgJson, dir, target, filename) {
       .tap(() => lifecycle(pkgJson, 'postpack', dir))
   })
 }
-

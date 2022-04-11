@@ -1,6 +1,5 @@
 'use strict'
 
-const assert = require('assert');
 const path = require('path')
 
 const log = require('npmlog')
@@ -11,15 +10,27 @@ const gitAux = require('./download/git-aux')
 const gitOffline = require('./git-offline')
 const npm = require('./npm')
 
+function validateArgs(dep, opts, next) {
+  const depMsg = 'First argument must be the result of a call to npm-package-arg'
+  const cbMsg = 'Third argument must be a callback function'
+
+  if (dep === undefined || dep === null)
+    throw new SyntaxError(depMsg)
+  if (typeof dep != 'object' || typeof dep.type != 'string')
+    throw new TypeError(depMsg)
+  if (opts !== undefined && opts !== null) {
+    if (typeof opts != 'object')
+      throw new TypeError('If given, second argument must be an object')
+  }
+  if (next === undefined || next === null)
+    throw new SyntaxError(cbMsg)
+  if (typeof next != 'function')
+    throw new TypeError(cbMsg)
+}
+
 module.exports = function offliner(dep, opts, next) {
-  assert(
-    dep && typeof dep == 'object' && !!dep.type,
-    'First argument should be the result of a call to npm-package-arg'
-  )
-  assert(
-    dep.type != 'file' && dep.type != 'directory',
-    `package type '${dep.type}' should not be passed to this`
-  )
+  validateArgs(dep, opts, next)
+
   if (dep.type === 'tag' && dep.fetchSpec === 'latest') {
     // Easier to work with:
     dep.fetchSpec = '*'
@@ -36,8 +47,10 @@ module.exports = function offliner(dep, opts, next) {
 
   let dlData, dep2
 
+  // NOTE: the try/catches will no longer be necessary in a Promise-based version
   if (dep.type != 'git') {
-    dlData = npm.dlTracker.getData(dlType, dep.name, dep.fetchSpec)
+    try { dlData = npm.dlTracker.getData(dlType, dep.name, dep.fetchSpec) }
+    catch (err) {}
     if (dlData) {
       log.verbose('offliner', 'Found %s', dlData.filename)
       dep2 = npa(path.join(npm.dlTracker.path, dlData.filename))
@@ -45,9 +58,12 @@ module.exports = function offliner(dep, opts, next) {
   }
   else {
     const trackerKeys = gitAux.trackerKeys(dep)
-    dlData = npm.dlTracker.getData('git', trackerKeys.repo, trackerKeys.spec)
-    if (!dlData) // There still may be a legacy entry...
-      dlData = npm.dlTracker.getData('git', null, dep.rawSpec)
+    try { dlData = npm.dlTracker.getData('git', trackerKeys.repo, trackerKeys.spec) }
+    catch (err) {}
+    if (!dlData) { // There still may be a legacy entry...
+      try { dlData = npm.dlTracker.getData('git', null, dep.rawSpec) }
+      catch (err) {}
+    }
     if (dlData) {
       log.verbose('offliner', `Found git repo ${dlData.repo || dlData.from}`)
       if (dlData.filename)
