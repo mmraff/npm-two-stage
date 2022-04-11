@@ -33,7 +33,7 @@
     "npm2stage": "./npm2stage.js"
   },
   "scripts": {
-    "test": "mocha"
+    "test": "mocha \"./test/[01]*.js\" && mocha \"./test/[2-9]*.js\""
   },
   "dependencies": {
     "commander": "^6.2.1"
