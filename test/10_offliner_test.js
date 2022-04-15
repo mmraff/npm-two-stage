@@ -1,18 +1,3 @@
-/*
-  TODO:
-  * Use a non-mocked dltracker, and npm-package-filename,
-    because those are already fully unit-tested as independent packages.
-    This test suite will function as a test of integration with them.
-  * dltracker requires graceful-fs (npm@6 uses 4.2.3), so we'll need to install that;
-    thankfully, no dependencies.
-  * also requires semver (npm@6 uses 5.7.1), but that's already present as a
-    result of devDependencies (e.g., npm-package-arg).
-  * Instantiate the dlTracker and set it on the npm object.
-  * The dlTracker will only be usable if we have some (mock) tarballs to add to it.
-
-  * Figure out if it makes sense to mock git-aux.
-*/
-
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
@@ -22,6 +7,7 @@ const writeFileAsync = promisify(fs.writeFile)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
+const rimrafAsync = promisify(require('rimraf')
 
 const ft = require('../lib/file-tools')
 const { copyFreshMockNpmDir } = require('./lib/tools')
@@ -53,7 +39,7 @@ function copyToTestDir(relPath, opts) {
 
 describe('offliner module', function() {
   before('set up test directory', function(done) {
-    ft.prune(assets.root)
+    rimrafAsync(assets.root)
     .catch(err => { if (err.code != 'ENOENT') throw err })
     .then(() => mkdirAsync(assets.root))
     .then(() => copyFreshMockNpmDir(assets.root))
@@ -108,7 +94,7 @@ describe('offliner module', function() {
   })
 
   after('remove temporary assets', function(done) {
-    ft.prune(assets.root).then(() => done())
+    rimrafAsync(assets.root).then(() => done())
     .catch(err => done(err))
   })
 
