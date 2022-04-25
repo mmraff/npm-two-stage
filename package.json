@@ -17,7 +17,9 @@
     "download",
     "install",
     "offline",
-    "package",
+    "modules",
+    "packages",
+    "package manager",
     "air-gap",
     "sneakernet"
   ],
@@ -33,7 +35,7 @@
     "npm2stage": "./npm2stage.js"
   },
   "scripts": {
-    "test": "mocha \"./test/[01]*.js\" && mocha \"./test/[2-9]*.js\""
+    "test": "bash test/batchtest.sh"
   },
   "dependencies": {
     "commander": "^6.2.1"
@@ -48,6 +50,7 @@
     "graceful-fs": "^4.2.3",
     "mocha": "^7.2.0",
     "npm-package-arg": "^6.1.1",
+    "nyc": "^14.1.1",
     "rimraf": "^2.6.3"
   }
 }
