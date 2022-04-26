@@ -192,14 +192,22 @@ describe('file-tools submodule', function() {
   })
 
   describe('removeFiles()', function() {
+    const messages = []
     before('create temporary test assets', function(done) {
+      testEmitter.on('msg', msg => messages.push(msg))
       makeRandomContentDirectory(assets.destDir)
       // TODO: walk the result dir and get list of paths, from which to choose
       // paths (make derived list), and then to verify a success
       .then(() => done())
       .catch(err => done(err))
     })
+
+    afterEach('per-item teardown', function() {
+      messages.splice(0, messages.length)
+    })
+
     after('clean up', function(done) {
+      testEmitter.removeAllListeners()
       rimrafAsync(assets.destDir).then(() => done()).catch(err => done(err))
     })
 
@@ -266,6 +274,22 @@ describe('file-tools submodule', function() {
         return ft.removeFiles(partial)
         .then(() => expectFilesRemoved(partial))
         .then(() => expectUnmatchedFilesExist(list, partial))
+      })
+      .then(() => done())
+      .catch(err => done(err))
+    })
+
+    it('should not reject because of files that do not exist', function(done) {
+      getAllFilepaths(assets.destDir)
+      .then(list => {
+        const noSuchFiles = [ 'noSuch1', 'noSuch2', 'noSuch3' ]
+        return ft.removeFiles(noSuchFiles)
+        .then(() => {
+          expect(messages).to.have.lengthOf(noSuchFiles.length)
+          for (let i = 0; i < messages.length; ++i)
+            expect(messages[i]).to.match(/^Could not find file/)
+          return expectUnmatchedFilesExist(list, noSuchFiles)
+        })
       })
       .then(() => done())
       .catch(err => done(err))
