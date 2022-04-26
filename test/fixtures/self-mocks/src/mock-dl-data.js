@@ -1,7 +1,8 @@
 const testSpecs = {
   git: {
-    'ghUser/ghProject': 'github.com%2FghUser%2FghProject%230123456789abcdef0123456789abcdef01234567.tar.gz',
-    'git://generic-githost.com/SomeUser/example.git#0123456789abcdef0123456789abcdef01234567': 'generic-githost.com%2FSomeUser%2Fexample%230123456789abcdef0123456789abcdef01234567.tar.gz'
+    'ghUser/ghProject#0123456789abcdef0123456789abcdef01234567': 'github.com%2FghUser%2FghProject%230123456789abcdef0123456789abcdef01234567.tar.gz',
+    'git://generic-githost.com/SomeUser/example.git#0123456789abcdef0123456789abcdef01234567': 'generic-githost.com%2FSomeUser%2Fexample%230123456789abcdef0123456789abcdef01234567.tar.gz',
+    'git://bitbucket.org/someuser/some-project.git#abcdef0123456789abcdef0123456789abcdef01': '/tmp/npm_234756/_git-offline/bitbucket_org_someuser_some-project_2d7e5f/package.tgz'
   },
   remote: {
     'https://example.com/someuser/example/archive/5559999.tgz': 'example.com%2Fsomeuser%2Fexample%2Farchive%2F5559999.tgz'

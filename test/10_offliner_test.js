@@ -1,3 +1,7 @@
+/*
+  TODO: while this is now passing with 100% coverage,
+  must rewrite it to use mock of DlTracker
+*/
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
@@ -7,16 +11,14 @@ const writeFileAsync = promisify(fs.writeFile)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
-const rimrafAsync = promisify(require('rimraf')
+const rimrafAsync = promisify(require('rimraf'))
 
 const ft = require('../lib/file-tools')
 const { copyFreshMockNpmDir } = require('./lib/tools')
 let offliner  // We will require() the dynamically-placed copy
 let npm       // ditto
 let DlTracker // ditto
-let addAsync  // ditto
 let mockData  // ditto
-let npf       // ditto
 const testSpec = {}
 
 const assets = {
@@ -24,14 +26,14 @@ const assets = {
 }
 assets.dest = path.join(assets.root, 'npm', 'lib')
 assets.trackerDir = path.join(assets.root, 'tarballs')
-const realSrcDir = path.join(__dirname, '..', 'src')
-const selfMocksDir = path.join(__dirname, 'fixtures', 'self-mocks')
+const realSrcDir = path.resolve(__dirname, '..', 'src')
+const mockSrcDir = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
 
 const dummyFn = function(){}
 
 function copyToTestDir(relPath, opts) {
   if (!opts) opts = {}
-  const srcPath = path.join(opts.mock ? selfMocksDir : realSrcDir, relPath)
+  const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
   const newFilePath = path.join(assets.dest, relPath)
   const p = copyFileAsync(srcPath, newFilePath)
   return opts.getModule ? p.then(() => require(newFilePath)) : p
@@ -39,9 +41,7 @@ function copyToTestDir(relPath, opts) {
 
 describe('offliner module', function() {
   before('set up test directory', function(done) {
-    rimrafAsync(assets.root)
-    .catch(err => { if (err.code != 'ENOENT') throw err })
-    .then(() => mkdirAsync(assets.root))
+    rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
     .then(() => copyFreshMockNpmDir(assets.root))
     .then(() => npm = require(path.join(assets.dest, 'npm')))
     .then(() => mkdirAsync(assets.trackerDir))
@@ -50,39 +50,23 @@ describe('offliner module', function() {
       copyToTestDir('mock-dl-data.js', { mock: true, getModule: true })
       .then(mod => {
         mockData = mod
-        testSpec.version = mockData.getSpec('version')
+        testSpec.byVersion = mockData.getSpec('version')
+        testSpec.byRange = mockData.getSpec('range')
+        testSpec.byTag = mockData.getSpec('tag')
+        testSpec.remote = mockData.getSpec('remote')
+        testSpec.git = mockData.getSpec('git')
       })
     )
     .then(() => // The real thing from our src directory
       ft.graft(path.join(realSrcDir, 'download'), assets.dest)
     )
-    .then(() => {
-      npf = require(path.join(assets.dest, 'download', 'npm-package-filename'))
-      DlTracker = require(path.join(assets.dest, 'download', 'dltracker'))
-      return promisify(DlTracker.create)(assets.trackerDir)
-    })
-    .then(tracker => {
-      addAsync = promisify(tracker.add)
-      npm.dlTracker = tracker
-    })
-    .then(() => {
-// TODO: I suspect that this sequence will get used more than once, and will justify an aux function.
-      const filename = mockData.getFilename(npa(testSpec.version))
-      const npfData = npf.parse(filename)
-      const pkgData = {
-        name: npfData.packageName,
-        version: npfData.versionComparable,
-        filename: filename
-      }
-      const tarballPath = path.join(assets.trackerDir, filename)
-      return writeFileAsync(tarballPath, 'DUMMY TEXT')
-      .then(() => addAsync(npfData.type, pkgData))
-    })
-    // Mock:
+    // Mocks:
+    .then(() =>
+      copyToTestDir(path.join('download', 'dltracker.js'), { mock: true })
+    )
     .then(() =>
       copyToTestDir(path.join('download', 'git-aux.js'), { mock: true })
     )
-    // Mock:
     .then(() => copyToTestDir('git-offline.js', { mock: true }))
     // Real thing:
     .then(() =>
@@ -177,19 +161,43 @@ describe('offliner module', function() {
     })
   })
 
-  it('should send back the expected npa parse result for a tarball if package is known by dlTracker', function(done) {
-    const filename = mockData.getFilename(npa(testSpec.version))
-    const expectedPath = path.join(npm.dlTracker.path, filename)
-    const expectedNpaObj = npa(expectedPath)
-    offliner(npa(testSpec.version), {}, function(err, newDep) {
-      expect(newDep).to.deep.equal(expectedNpaObj)
+  it('should send back an error given a git repo spec unknown to the dlTracker', function(done) {
+    offliner(npa('gitlab:myusr/myproj#semver:^5.0'), {}, function(err, newDep) {
+      expect(err).to.be.an('error').that.matches(/knows nothing about/)
       done()
     })
   })
-  /*
-    TODO (not here, but in git-aux_test.js):
-    * git-aux requires
-      - npm-pick-manifest, which requires goddamn figgy-pudding (which has no deps, at least)
-      - pacote/lib/util/git, which might be tricky to mock, but even worse to make pacote a devDep, so...
-  */
+
+  describe('expected: npa parse result for a tarball spec if package is known by dlTracker', function() {
+    it('should succeed given a non-git package spec', function(done) {
+      const filename = mockData.getFilename(npa(testSpec.byVersion))
+      const expectedPath = path.join(npm.dlTracker.path, filename)
+      const expectedNpaObj = npa(expectedPath)
+      offliner(npa(testSpec.byVersion), {}, function(err, newDep) {
+        expect(newDep).to.deep.equal(expectedNpaObj)
+        done()
+      })
+    })
+
+    it('should succeed given a git repo spec', function(done) {
+      const filename = mockData.getFilename(npa(testSpec.git))
+      const expectedPath = path.join(npm.dlTracker.path, filename)
+      const expectedNpaObj = npa(expectedPath)
+      offliner(npa(testSpec.git), {}, function(err, newDep) {
+        expect(newDep).to.deep.equal(expectedNpaObj)
+        done()
+      })
+    })
+    it('should succeed given spec for a git repo that was saved legacy-style (npm-two-stage v<=4)', function(done) {
+      const legacyGitSpec = mockData.getSpec('git', 2)
+      const expectedPath = mockData.getFilename(npa(legacyGitSpec))
+      const expectedNpaObj = npa(expectedPath)
+      offliner(npa(legacyGitSpec), {}, function(err, newDep) {
+        expect(newDep).to.deep.equal(expectedNpaObj)
+        done()
+      })
+      .catch(err => done(err))
+    })
+
+  })
 })
