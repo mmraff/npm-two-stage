@@ -1,3 +1,5 @@
+/* istanbul ignore file */
+
 const cfg = {
   prune: { throwIt: false },
   removeFiles: { throwIt: false },
@@ -19,6 +21,10 @@ module.exports = {
   removeFiles: () => dummyMaybeThrow('removeFiles'),
   graft: () => dummyMaybeThrow('graft'),
   setErrorState: (fnName, state, errCode) => {
+    if (!cfg[fnName])
+      throw new Error(`Unrecognized export "${fnName}", can't setErrorState`)
+    // removeFiles *never* throws ENOENT!
+    if (fnName == 'removeFiles' && errCode == 'ENOENT') return
     cfg[fnName].throwIt = state
     cfg[fnName].code = errCode
   }
