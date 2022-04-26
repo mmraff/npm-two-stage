@@ -16,8 +16,8 @@ const {
 } = require('../../lib/constants')
 
 module.exports.copyFreshMockNpmDir = function(where) {
-  relativePath = path.join(__dirname, '..', 'fixtures', 'mock-npm')
-  return ft.graft(relativePath, where)
+  const sourcePath = path.resolve(__dirname, '..', 'fixtures', 'mock-npm')
+  return ft.graft(sourcePath, where)
   .then(() => {
     const startDir = process.cwd()
     process.chdir(where)
