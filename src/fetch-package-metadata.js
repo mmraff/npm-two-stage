@@ -104,6 +104,7 @@ function fetchPackageMetadata (spec, where, opts, done) {
 }
 
 module.exports.addBundled = addBundled
+/* istanbul ignore next: because this is untouched, identical to the original */
 function addBundled (pkg, next) {
   validate('OF', arguments)
   if (pkg._bundled !== undefined) return next(null, pkg)

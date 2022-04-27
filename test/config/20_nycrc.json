@@ -1,0 +1,8 @@
+{
+  "exclude": [
+    "test/",
+    "!test/tempAssets/npm/lib/fetch-package-metadata.js",
+    "lib/",
+    "src/"
+  ]
+}

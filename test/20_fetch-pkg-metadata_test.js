@@ -42,11 +42,20 @@ let mockData // ditto
 let npm // ditto
 let pacote // ditto
 
-const testSpec = {}
+const testSpec = {
+  winPath: path.win32.join(
+    /^[a-zA-Z]:/.test(__dirname) ? '' : 'C:',
+    __dirname, 'fixtures', 'dummy'
+  )
+}
+console.log(testSpec.winPath)
 
 const assets = {
   root: path.join(__dirname, 'tempAssets')
 }
+assets.tempNpmLib = path.join(assets.root, 'npm', 'lib')
+assets.isWindows = path.join(assets.tempNpmLib, 'utils', 'is-windows.js')
+
 const dummyFn = function(){}
 
 describe('fetch-package-metadata replacement module', function() {
@@ -56,34 +65,37 @@ describe('fetch-package-metadata replacement module', function() {
     .then(() => mkdirAsync(assets.root))
     .then(() => copyFreshMockNpmDir(assets.root))
     .then(() => {
-      const destPath = path.join(assets.root, 'npm', 'lib')
       // We get this so that we can toggle offline mode:
-      npm = require(path.join(destPath, 'npm'))
+      npm = require(path.join(assets.tempNpmLib, 'npm'))
       // We get this so that we can make some packages appear to be available
       // and prevent mock-pacote.manifest from erroring:
       pacote = require(path.join(assets.root, 'npm', 'node_modules', 'pacote'))
 
-      const selfMocksPath = path.join(__dirname, 'fixtures', 'self-mocks')
+      const selfMocksPath = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
       const filename = 'offliner.js'
       return copyFileAsync( // Mock
-        path.join(selfMocksPath, filename), path.join(destPath, filename)
+        path.join(selfMocksPath, filename),
+        path.join(assets.tempNpmLib, filename)
       )
       .then(() => { // Helper for tests; no counterpart in actual installation
         const filename = 'mock-dl-data.js'
-        const newFilePath = path.join(destPath, filename)
+        const newFilePath = path.join(assets.tempNpmLib, filename)
         return copyFileAsync(
           path.join(selfMocksPath, filename), newFilePath
         )
         .then(() => {
           mockData = require(newFilePath)
-          testSpec.version = mockData.getSpec('version')
-          pacote.addTestSpec(testSpec.version)
+          testSpec.byVersion = mockData.getSpec('version')
+          pacote.addTestSpec(testSpec.byVersion)
+          pacote.addTestSpec(testSpec.winPath)
+          testSpec.byTag = mockData.getSpec('tag', 1)
+          // but don't add that one
         })
       })
       .then(() => { // The real thing from our src directory
         const filename = 'fetch-package-metadata.js'
         const srcFilePath = path.join(__dirname, '..', 'src', filename)
-        const newFilePath = path.join(destPath, filename)
+        const newFilePath = path.join(assets.tempNpmLib, filename)
         return copyFileAsync(srcFilePath, newFilePath)
         .then(() => fetchPkgMetadata = require(newFilePath))
       })
@@ -127,7 +139,7 @@ describe('fetch-package-metadata replacement module', function() {
   it('should pass back an error if `where` argument is not a string', function(done) {
     function iterateBadWhereArgs(i, cb) {
       if (i >= notStringArgs.length) return cb()
-      fetchPkgMetadata(testSpec.version, notStringArgs[i], {}, function(err, data) {
+      fetchPkgMetadata(testSpec.byVersion, notStringArgs[i], {}, function(err, data) {
         expect(err).to.be.an('error')
         expect(data).to.not.exist
         iterateBadWhereArgs(i+1, cb)
@@ -140,7 +152,7 @@ describe('fetch-package-metadata replacement module', function() {
   it('should pass back an error if `opts` argument is not an object or function', function(done) {
     function iterateBadOptsArgs(i, cb) {
       if (i >= notOptsOrFn.length) return cb()
-      fetchPkgMetadata(testSpec.version, where, notOptsOrFn[i], function(err, data) {
+      fetchPkgMetadata(testSpec.byVersion, where, notOptsOrFn[i], function(err, data) {
         expect(err).to.be.an('error')
         expect(data).to.not.exist
         iterateBadOptsArgs(i+1, cb)
@@ -168,17 +180,90 @@ describe('fetch-package-metadata replacement module', function() {
     })
   })
 
-  if (process.platform != 'win32') {
-    it('should pass back an error on attempt to install from windows path on non-windows system', function(done) {
-      // The error is only raised if the target is a directory
-      const win32path = path.win32.join('C:', __dirname, 'fixtures', 'dummy')
-      fetchPkgMetadata(win32path, where, {}, function(err, data) {
+  function reloadFpmModule() {
+    const modPath = path.join(assets.tempNpmLib, 'fetch-package-metadata.js')
+    delete require.cache[modPath]
+    delete require.cache[assets.isWindows]
+    fetchPkgMetadata = require(modPath)
+  }
+
+  it('should pass back an error on attempt to install from windows path on non-windows system', function(done) {
+    const startDir = process.cwd()
+    process.chdir(path.join(assets.tempNpmLib, 'utils'))
+    copyFileAsync('not-is-windows.js', 'is-windows.js')
+    .then(() => {
+      process.chdir(startDir)
+      reloadFpmModule()
+      // The error is only raised if the target is an absolute path to a directory
+      fetchPkgMetadata(testSpec.winPath, where, {}, function(err, data) {
         expect(err).to.be.an('error').that.matches(/non-windows system/)
         expect(data).to.not.exist
         done()
       })
     })
-  }
+  })
+
+  it('should not error when given a windows path on a windows system', function(done) {
+    const startDir = process.cwd()
+    process.chdir(path.join(assets.tempNpmLib, 'utils'))
+    copyFileAsync('yes-is-windows.js', 'is-windows.js')
+    .then(() => {
+      process.chdir(startDir)
+      reloadFpmModule()
+      fetchPkgMetadata(testSpec.winPath, where, {}, function(err, data) {
+        expect(err).to.not.exist
+        expect(data).to.be.an('object')
+        done()
+      })
+    })
+  })
+
+  it('should pass back any error from pacote related to a directory spec', function(done) {
+    const opts = { tracker: { finish: () => {} } } // Needed for coverage
+    // To get full coverage, must use a spec that gets interpreted as a directory:
+    const dummySpec = 'does/not/matter'
+
+    // In arg lists of calls in the following, 'nullStack':
+    // The unmodified fetch-package-metadata code branches on whether the error
+    // from manifest() has a stack. This causes our coverage test to say that the
+    // line in question is uncovered because the error is found to have a stack.
+    // AFAIK, an Error instance *always* has a stack - it's automatically
+    // generated at the point of creation.
+    // Luckily, error.stack is mutable, so it can be set to null, which is
+    // not something a sensible coder would ordinarily do; but here we must
+    // do it for coverage, so that feature is implemented in the pacote mock.
+
+    function tryNotDir(nullStack) {
+      pacote.setErrorState('manifest', true, 'ENOTDIR', nullStack)
+      fetchPkgMetadata(dummySpec, where, opts, function(err, data) {
+        expect(err).to.be.an('error').that.matches(/is not a directory and is not a file/)
+        expect(err.code).to.equal('ENOLOCAL')
+        expect(data).to.not.exist
+        tryNoPkgJson(nullStack)
+      })
+    }
+    function tryNoPkgJson(nullStack) {
+      pacote.setErrorState('manifest', true, 'ENOPACKAGEJSON', nullStack)
+      fetchPkgMetadata(dummySpec, where, {}, function(err, data) {
+        expect(err).to.be.an('error').that.matches(/does not contain a package\.json file/)
+        expect(err.code).to.equal('ENOLOCAL')
+        expect(data).to.not.exist
+        if (nullStack) tryOtherError()
+        else tryNotDir(true)
+      })
+    }
+    function tryOtherError() {
+      pacote.setErrorState('manifest', true, 'EWHATEVER')
+      fetchPkgMetadata(dummySpec, where, {}, function(err, data) {
+        expect(err).to.be.an('error').that.matches(/Dummy error from pacote mock/)
+        expect(err.code).to.equal('EWHATEVER')
+        expect(data).to.not.exist
+        pacote.setErrorState('manifest', false)
+        done()
+      })
+    }
+    tryNotDir()
+  })
 
 /*
   // Conceptually, '' is an invalid spec, and no doubt it would cause an error
@@ -199,13 +284,13 @@ describe('fetch-package-metadata replacement module', function() {
 
     before('Ensure the offline switch is off', function() {
       npm.config.set('offline', false)
-      npaRegResult = npa(testSpec.version)
+      npaRegResult = npa(testSpec.byVersion)
     })
 
     describe('Given a string spec of a known package, yields a manifest, with certain properties added', function() {
       it('should have the `_requested` property set as pacote.manifest returns it, as the npa parse of given spec', function(done) {
-        const npaResult = npa(testSpec.version)
-        fetchPkgMetadata(testSpec.version, where, {}, function(err, data) {
+        const npaResult = npa(testSpec.byVersion)
+        fetchPkgMetadata(testSpec.byVersion, where, {}, function(err, data) {
           expect(err).to.not.exist
           expect(data).to.be.an('object')
             .that.has.all.keys('_from', '_requested', '_spec', '_where')
@@ -223,11 +308,19 @@ describe('fetch-package-metadata replacement module', function() {
         expect(manifest._from).to.equal(npaRegResult.saveSpec || npaRegResult.raw)
         expect(manifest._spec).to.equal(npaRegResult.raw)
       })
+
+      it('should succeed for same spec if opts object is omitted', function(done) {
+        fetchPkgMetadata(testSpec.byVersion, where, function(err, data) {
+          expect(err).to.not.exist
+          expect(data).to.deep.equal(manifest)
+          done()
+        })
+      })
     })
 
     describe('Given an npa parse of a valid spec of a known package, yields a manifest, with certain properties added', function() {
       it('should have the `_requested` property set as pacote.manifest returns it, as the given npa object', function(done) {
-        const npaResult = npa(testSpec.version)
+        const npaResult = npa(testSpec.byVersion)
         fetchPkgMetadata(npaResult, where, {}, function(err, data) {
           expect(err).to.not.exist
           expect(data).to.be.an('object')
@@ -256,7 +349,7 @@ describe('fetch-package-metadata replacement module', function() {
 
     before('Set the offline switch', function() {
       npm.config.set('offline', true)
-      npaRegResult = npa(testSpec.version)
+      npaRegResult = npa(testSpec.byVersion)
       const tarballFilename = mockData.getFilename(npaRegResult)
       npaFileResult = npa(path.join(mockData.path, tarballFilename))
     })
@@ -266,7 +359,7 @@ describe('fetch-package-metadata replacement module', function() {
 
     describe('Given a string spec of a known package, yields a manifest, with certain properties added', function() {
       it('should have the `_requested` property set to the npa parse of given spec', function(done) {
-        fetchPkgMetadata(testSpec.version, where, {}, function(err, data) {
+        fetchPkgMetadata(testSpec.byVersion, where, {}, function(err, data) {
           expect(err).to.not.exist
           expect(data).to.be.an('object')
             .that.has.all.keys('_from', '_requested', '_spec', '_where')
