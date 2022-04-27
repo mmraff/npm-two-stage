@@ -1,7 +1,3 @@
-/*
-  TODO: while this is now passing with 100% coverage,
-  must rewrite it to use mock of DlTracker
-*/
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
