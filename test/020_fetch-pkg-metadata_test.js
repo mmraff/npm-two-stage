@@ -1,29 +1,3 @@
-/*
-  TODO
-  * Other things that fpm raises an error for:
-    - offliner sends back an error
-    - theoretically, any of those things in the pacote.manifest reject handler
-
-  * When (!isOffline), check that result is the same as for unmodified npm -
-    that is to say, the _requested field is (likely to be) an npa result object
-    where the field values match the corresponding values in the manifest.
-
-  * Use tap for a *later* version of this.
-    tap@latest (16.0.1 at this time) requires nodejs >= 12
-    (even tap@13 has dependencies that require nodejs 10, despite what the
-    "engines" section says in the tap@13 package.json)
-
-  * When offliner_test is run after this suite, it fails several tests. ???
-    Workaround in place: use number prefixes to force a certain order.
-    But the 2 suites should be independent, and so unaffected by order...
-    Find out what the hitch is.
-    *** I KNOW WHAT IT IS *****************************************
-    Despite the fact that we tear down the mock npm installation at the end
-    of one test, then recreate it and re-require modules,
-    WE ARE STILL IN THE SAME NODE.JS SESSION, SO THE MODULE STATES ARE RETAINED!
-    This will affect the tests negatively wherever we have a mock module for
-    one test and the real thing for another. !!!!!! SUPER-SUCK!!!!!!!!!!!!!!!
-*/
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
