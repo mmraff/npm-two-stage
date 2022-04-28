@@ -10,6 +10,7 @@ function dummyMaybeThrow(fnName) {
   if (cfg[fnName].throwIt) {
     const err = new Error('Dummy error from shared.js mock')
     if (cfg[fnName].code) err.code = cfg[fnName].code
+    if (cfg[fnName].exitcode) err.exitcode = cfg[fnName].exitcode
     return Promise.reject(err)
   }
   return Promise.resolve()
@@ -26,9 +27,10 @@ module.exports.removeAddedItems =
 module.exports.restoreBackups =
   () => dummyMaybeThrow('restoreBackups')
 
-module.exports.setErrorState = (fnName, state, errCode) => {
+module.exports.setErrorState = (fnName, state, errCode, exitcode) => {
   if (!cfg[fnName])
     throw new Error(`Unrecognized export "${fnName}", can't setErrorState`)
   cfg[fnName].throwIt = state
   cfg[fnName].code = errCode
+  cfg[fnName].exitcode = exitcode
 }
