@@ -16,7 +16,6 @@ const { graft } = require('../lib/file-tools')
 const testTools = require('./lib/tools')
 
 const {
-  //targetVersion: EXPECTED_NPM_VER,
   targets: TGTS,
   backupFlag: BAKFLAG,
   errorCodes: ERRS
@@ -97,7 +96,7 @@ describe('`uninstall` module', function() {
     expect(targetMod).to.have.property('uninstall').that.is.a('function')
   })
 
-  describe('`install` function', function() {
+  describe('`uninstall` function', function() {
     const messages = []
 
     before('setup for all `uninstall` tests', function() {
@@ -125,12 +124,72 @@ describe('`uninstall` module', function() {
       .catch(err => done(err))
     })
 
+    /*
+      This is risky, because in the (unlikely) event that the uninstall code is wrong,
+      and the running process just happens to have admin privileges, the call could
+      succeed, and unintentionally remove npm-two-stage from the global npm
+      (if it's there).
+    */
     it('should reject if global npm is the target and has wrong version', function(done) {
       mock.shared.setErrorState('expectCorrectNpmVersion', true)
       targetMod.uninstall().then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('expectCorrectNpmVersion', false)
         expectStandardMessages(messages, 1)
+        done()
+      })
+      .catch(err => done(err))
+    })
+
+    it('should reject if base directory "lib" is missing from npm installation at given path', function(done) {
+      copyFileAsync(
+        path.join(assets.npmDir, 'package.json'),
+        path.join(assets.wrongDir, 'package.json')
+      )
+      // Here there's a package.json to check, but not a lib dir to chdir into
+      .then(() => targetMod.uninstall(assets.wrongDir))
+      .then(() => { throw getDidNotReject() })
+      .catch(err => {
+        expect(err.exitcode).to.equal(ERRS.BAD_NPM_INST)
+        expectStandardMessages(messages, 2)
+        done()
+      })
+      .catch(err => done(err))
+    })
+
+    it('should reject if shared.removeAddedItems() rejects', function(done) {
+      mock.shared.setErrorState('removeAddedItems', true, 'EACCES')
+      // Pick up where we left off with the incomplete mock npm installation
+      mkdirAsync(path.join(assets.wrongDir, 'lib'))
+      // Now at least uninstall() can chdir into lib...
+      .then(() => targetMod.uninstall(assets.wrongDir))
+      .then(() => { throw getDidNotReject() })
+      .catch(err => {
+        mock.shared.setErrorState('removeAddedItems', false)
+        //expect(err.exitcode).to.equal(ERRS.FS_ACTION_FAIL) // not from the mock
+        expectStandardMessages(messages, 3)
+        done()
+      })
+      .catch(err => done(err))
+    })
+
+    it('should reject if shared.restoreBackups() rejects', function(done) {
+      mock.shared.setErrorState('restoreBackups', true, 'ENOENT')
+      targetMod.uninstall(assets.wrongDir)
+      .then(() => { throw getDidNotReject() })
+      .catch(err => {
+        mock.shared.setErrorState('restoreBackups', false)
+        //expect(err.exitcode).to.equal(ERRS.FS_ACTION_FAIL) // not from the mock
+        expectStandardMessages(messages, 4)
+        done()
+      })
+      .catch(err => done(err))
+    })
+
+    it('should succeed given expected conditions at the target', function(done) {
+      targetMod.uninstall(assets.wrongDir)
+      .then(() => {
+        expectStandardMessages(messages, 4)
         done()
       })
       .catch(err => done(err))
