@@ -16,7 +16,6 @@ const { graft } = require('../lib/file-tools')
 const testTools = require('./lib/tools')
 
 const {
-  //targetVersion: EXPECTED_NPM_VER,
   targets: TGTS,
   backupFlag: BAKFLAG,
   errorCodes: ERRS
@@ -167,7 +166,7 @@ describe('`install` module', function() {
         expectStandardMessages(messages, 2)
         messages.splice(0, messages.length) // clear it for the following test
       })
-      .then(() => mkdirAsync(path.join(assets.wrongDir, 'lib')))
+      .then(() => mkdirAsync(tempLibPath))
       // Now at least install() can chdir into lib...
       .then(() => n2sInstaller.install(assets.wrongDir))
       .then(() => { throw getDidNotReject() })
@@ -176,7 +175,7 @@ describe('`install` module', function() {
         expectStandardMessages(messages, 2)
         messages.splice(0, messages.length) // clear it for the following test
       })
-      .then(() => createRequiredLibDirs(0, path.join(assets.wrongDir, 'lib')))
+      .then(() => createRequiredLibDirs(0, tempLibPath))
       // But we're still missing js files
       .then(() => n2sInstaller.install(assets.wrongDir))
       .then(() => { throw getDidNotReject() })
@@ -191,7 +190,7 @@ describe('`install` module', function() {
         // way, not only do we get a BAD_NPM_INST exitcode, but restoreOldFiles
         // is triggered (we need this for coverage)
         const expectedFile = TGTS.CHANGED_FILES[0] + '.js'
-        const expectedPath = path.join(assets.wrongDir, 'lib', expectedFile)
+        const expectedPath = path.join(tempLibPath, expectedFile)
         return writeFileAsync(expectedPath, 'zzz')
         .then(() => n2sInstaller.install(assets.wrongDir))
       })
@@ -204,12 +203,6 @@ describe('`install` module', function() {
       .catch(err => done(err))
     })
 
-    /*
-      TODO:
-      * Add a top-level new file or directory, expect a LEFTOVERS rejection (needed for coverage)
-      * Add a "deep new file", expect a LEFTOVERS rejection (needed for coverage)
-      * Start with a fresh mock npm dir, but add a backup file (no added dirs/files)
-    */
     it ('should reject if any previously added npm-two-stage files are present', function(done) {
       const topNewFiles = TGTS.ADDED_FILES.filter(f => !f.includes('/'))
       // A 'deep new file' is a file added from npm-two-stage to a subdirectory of npm/lib.
