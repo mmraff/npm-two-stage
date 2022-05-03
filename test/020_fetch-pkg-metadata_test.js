@@ -8,8 +8,8 @@ const unlinkAsync = promisify(fs.unlink)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
+const rimrafAsync = promisify(require('rimraf'))
 
-const ft = require('../lib/file-tools')
 const { copyFreshMockNpmDir } = require('./lib/tools')
 let fetchPkgMetadata // We will require() the dynamically-placed copy
 let mockData // ditto
@@ -22,7 +22,6 @@ const testSpec = {
     __dirname, 'fixtures', 'dummy'
   )
 }
-console.log(testSpec.winPath)
 
 const assets = {
   root: path.join(__dirname, 'tempAssets')
@@ -34,7 +33,7 @@ const dummyFn = function(){}
 
 describe('fetch-package-metadata replacement module', function() {
   before('set up test directory', function(done) {
-    ft.prune(assets.root)
+    rimrafAsync(assets.root)
     .catch(err => { if (err.code != 'ENOENT') throw err })
     .then(() => mkdirAsync(assets.root))
     .then(() => copyFreshMockNpmDir(assets.root))
@@ -79,7 +78,7 @@ describe('fetch-package-metadata replacement module', function() {
   })
 
   after('remove temporary assets', function(done) {
-    ft.prune(assets.root).then(() => done())
+    rimrafAsync(assets.root).then(() => done())
     .catch(err => done(err))
   })
 
