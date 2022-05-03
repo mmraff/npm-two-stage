@@ -1,12 +1,13 @@
-// Extracted from actual script:
-// The bare minimum needed to support offliner.js
-'use strict'
-
 const URL = require('url').URL
 
 const RE_GIT_REPO_SUFFIX = /\.git$/
 const RE_HASH_PREFIX = /^#/
 
+module.exports.trackerKeys = trackerKeys
+module.exports.fetchManifest = fetchManifest
+module.exports.resolve = resolve
+
+// TODO: should be able to drop this? Check to see if offliner test depends on an error
 function expectNpaGitResult(obj) {
   if (obj === undefined || obj == null)
     throw new SyntaxError('No argument given')
@@ -15,8 +16,6 @@ function expectNpaGitResult(obj) {
   if (obj.type != 'git')
     throw new TypeError(`Expected type field value 'git'; given type value: ${obj.type}`)
 }
-
-module.exports.trackerKeys = trackerKeys
 
 function trackerKeys(npaSpec) {
   expectNpaGitResult(npaSpec)
@@ -39,3 +38,60 @@ function trackerKeys(npaSpec) {
   return result
 }
 
+function mockCommitHash() {
+  const min = 'A'.charCodeAt(0)
+  const max = 'f'.charCodeAt(0)
+  const zeroCharVal = '0'.charCodeAt(0)
+  const seq = []
+  for (let i = 0; i < 40; ++i) {
+    let v = Math.floor(Math.random() * (max - min + 1)) + min
+    if (v > min + 5) {
+      if (v < max - 5) v = v % 10 + zeroCharVal
+    }
+    else v += 32 // distance between 'A' and 'a'
+    seq.push(String.fromCharCode(v))
+  }
+  return seq.join('')
+}
+
+// To ensure we give a consistent answer if the same spec is
+// used for another query, fetchManifest() or resolve()
+const hashCache = {}
+
+function fetchManifest(npaSpec, opts) {
+  const hosted = npaSpec.hosted
+  const repo = hosted.git() || hosted.https() || npaSpec.hosted.sshurl()
+  let resolved = npaSpec.saveSpec
+  if (!(/^[a-f0-9]{40}$/.test(resolved))) {
+    if (!(npaSpec.raw in hashCache))
+      hashCache[npaSpec.raw] = mockCommitHash()
+    const sha = hashCache[npaSpec.raw]
+    resolved = resolved.replace(/(?:#.*)?$/, `#${sha}`)
+  }
+
+  const result = {
+    _repo: repo,
+    _resolved: resolved,
+    _spec: npaSpec,
+    _ref: { sha: sha, ref: 'master', type: 'branch' },
+    _rawRef: npaSpec.gitCommittish || npaSpec.gitRange,
+    _uniqueResolved: resolved,
+    _integrity: false,
+    _shasum: false
+  }
+  if (opts.multipleRefs)
+    result._ref.allRefs = [ 'master', 'megatron', result._ref.sha ]
+
+  return Promise.resolve(result)
+}
+
+function resolve(url, npaSpec, name, opts) {
+  if (!(npaSpec.raw in hashCache))
+    hashCache[npaSpec.raw] = mockCommitHash()
+  const sha = hashCache[npaSpec.raw]
+  const result = { sha: sha, ref: 'master', type: 'branch' }
+  if (opts.multipleRefs)
+    result.allRefs = [ 'master', 'optimus', result.sha ]
+
+  return Promise.resolve(result)
+}
