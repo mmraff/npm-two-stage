@@ -7,9 +7,9 @@ exports.gitEnv = gitEnv
 exports.mkOpts = mkOpts
 exports.getGitRepoDir = getGitRepoDir
 
-const BB = require('bluebird')
-const fs_access = BB.promisify(require('graceful-fs').access)
-const mkdirp = BB.promisify(require('mkdirp'))
+const { promisify } = require('util')
+const accessAsync = promisify(require('fs').access)
+const mkdirpAsync = promisify(require('mkdirp'))
 const path = require('path')
 const which_sync = require('which').sync
 
@@ -84,9 +84,9 @@ function getGitRepoDir(basePath) {
   let templates = path.join(remotes, dirNames.template)
 
   // Require that basePath already exists
-  return fs_access(basePath)
+  return accessAsync(basePath)
   // We don't test whether the last component is a directory here,
   // because if it's not, mkdirp throws the correct error.
-  .then(() => mkdirp(templates)).then(res => remotes)
+  .then(() => mkdirpAsync(templates)).then(res => remotes)
 }
 
