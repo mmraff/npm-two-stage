@@ -3,7 +3,6 @@ const path = require('path')
 const { promisify } = require('util')
 const copyFileAsync = promisify(fs.copyFile)
 const mkdirAsync = promisify(fs.mkdir)
-const writeFileAsync = promisify(fs.writeFile)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
@@ -12,9 +11,9 @@ const rimrafAsync = promisify(require('rimraf'))
 const ft = require('../lib/file-tools')
 const { copyFreshMockNpmDir } = require('./lib/tools')
 let offliner  // We will require() the dynamically-placed copy
-let npm       // ditto
-let DlTracker // ditto
-let mockData  // ditto
+let npf       // ""
+let npm       // ""
+let mockData  // ""
 const testSpec = {}
 
 const assets = {
@@ -56,6 +55,9 @@ describe('offliner module', function() {
     .then(() => // The real thing from our src directory
       ft.graft(path.join(realSrcDir, 'download'), assets.dest)
     )
+    .then(() => 
+      npf = require(path.join(assets.dest, 'download', 'npm-package-filename'))
+    )
     // Mocks:
     .then(() =>
       copyToTestDir(path.join('download', 'dltracker.js'), { mock: true })
@@ -74,6 +76,7 @@ describe('offliner module', function() {
   })
 
   after('remove temporary assets', function(done) {
+    npm.dlTracker.purge()
     rimrafAsync(assets.root).then(() => done())
     .catch(err => done(err))
   })
@@ -166,29 +169,55 @@ describe('offliner module', function() {
 
   describe('expected: npa parse result for a tarball spec if package is known by dlTracker', function() {
     it('should succeed given a non-git package spec', function(done) {
-      const filename = mockData.getFilename(npa(testSpec.byVersion))
-      const expectedPath = path.join(npm.dlTracker.path, filename)
-      const expectedNpaObj = npa(expectedPath)
-      offliner(npa(testSpec.byVersion), {}, function(err, newDep) {
-        expect(newDep).to.deep.equal(expectedNpaObj)
-        done()
+      const npaData = npa(testSpec.byVersion)
+      const filename = mockData.getFilename(npaData)
+      const npfData = npf.parse(filename)
+      const dlData = {
+        name: npaData.name,
+        version: npfData.versionComparable,
+        filename
+      }
+      npm.dlTracker.add('semver', dlData, function(err) {
+        if (err) return done(err)
+        const expectedPath = path.join(npm.dlTracker.path, filename)
+        const expectedNpaObj = npa(expectedPath)
+        offliner(npaData, {}, function(err, newDep) {
+          if (err) return done(err)
+          expect(newDep).to.deep.equal(expectedNpaObj)
+          done()
+        })
       })
     })
 
     it('should succeed given a git repo spec', function(done) {
-      const filename = mockData.getFilename(npa(testSpec.git))
-      const expectedPath = path.join(npm.dlTracker.path, filename)
-      const expectedNpaObj = npa(expectedPath)
-      offliner(npa(testSpec.git), {}, function(err, newDep) {
-        expect(newDep).to.deep.equal(expectedNpaObj)
-        done()
+      const npaData = npa(testSpec.git)
+      const filename = mockData.getFilename(npaData)
+      const npfData = npf.parse(filename)
+      const dlData = {
+        repo: npfData.repo,
+        commit: npfData.commit,
+        filename
+      }
+      npm.dlTracker.add('git', dlData, function(err) {
+        if (err) return done(err)
+        const expectedPath = path.join(npm.dlTracker.path, filename)
+        const expectedNpaObj = npa(expectedPath)
+        offliner(npaData, {}, function(err, newDep) {
+          if (err) return done(err)
+          expect(newDep).to.deep.equal(expectedNpaObj)
+          done()
+        })
       })
     })
+
     it('should succeed given spec for a git repo that was saved legacy-style (npm-two-stage v<=4)', function(done) {
       const legacyGitSpec = mockData.getSpec('git', 2)
-      const expectedPath = mockData.getFilename(npa(legacyGitSpec))
+      const npaData = npa(legacyGitSpec)
+      const repoID = 'In the test case, repoID does not matter'
+      npm.dlTracker.addLegacyGit(legacyGitSpec, repoID)
+      const expectedPath = mockData.getFilename(npaData)
       const expectedNpaObj = npa(expectedPath)
-      offliner(npa(legacyGitSpec), {}, function(err, newDep) {
+      offliner(npaData, {}, function(err, newDep) {
         expect(newDep).to.deep.equal(expectedNpaObj)
         done()
       })
