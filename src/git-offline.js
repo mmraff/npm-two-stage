@@ -1,22 +1,13 @@
-/*
-  NOTE
-  * We must keep BB here, because of use of the `tap` method
-    (see way down at the bottom)
-    ... unless we find a way to implement that, and attach it to Promise...
-*/
-
 const path = require('path')
+const { promisify } = require('util')
+const execFileAsync = promisify(require('child_process').execFile)
 
-const BB = require('bluebird')
-const execFileAsync = BB.promisify(require('child_process').execFile, {
-  multiArgs: true
-})
 const log = require('npmlog')
-const mkdirp = BB.promisify(require('mkdirp'))
+const mkdirpAsync = promisify(require('mkdirp'))
 const npa = require('npm-package-arg')
 const packlist = require('npm-packlist')
-const readJson = BB.promisify(require('read-package-json'))
-const statAsync = BB.promisify(require('graceful-fs').stat)
+const readJson = promisify(require('read-package-json'))
+const statAsync = promisify(require('graceful-fs').stat)
 const tar = require('tar')
 
 const DlTracker = require('./download/dltracker')
@@ -24,7 +15,7 @@ const gitAux = require('./download/git-aux')
 const gitContext = require('./download/git-context')
 const npm = require('./npm')
 const prepRawModule = require('./prepare-raw-module')
-const lifecycle = BB.promisify(require('./utils/lifecycle'))
+const lifecycle = promisify(require('./utils/lifecycle'))
 const getContents = require('./pack').getContents
 
 function validateArgs(npaObj, dlData, opts, next) {
@@ -37,9 +28,9 @@ function validateArgs(npaObj, dlData, opts, next) {
   if (typeof npaObj != 'object' || typeof npaObj.type != 'string')
     throw new TypeError(npaObjMsg)
   if (dlData === undefined || dlData === null)
-    throw new SyntaxError(npaObjMsg)
+    throw new SyntaxError(dlDataMsg)
   if (typeof dlData != 'object' || typeof dlData.type != 'string')
-    throw new TypeError(npaObjMsg)
+    throw new TypeError(dlDataMsg)
   if (dlData.type != 'git' || !dlData.repoID)
     throw new TypeError('Invalid dlTracker data: this module only handles git packages that have been saved as repo clones by npm-two-stage <= v4')
   if (opts !== undefined && opts !== null) {
@@ -60,6 +51,9 @@ module.exports = gitOffline
   so the new version of offliner can treat it the same as a product of the
   new version of download.js.
   The callback receives (error) or (null, tarballPath).
+  Note that the required argument 'dlData' implies that the download tracker
+  knows about the target package (though it might not know about any of its
+  dependencies, especially devDependencies).
 */
 function gitOffline(npaObj, dlData, opts, next) {
   try { validateArgs(npaObj, dlData, opts, next) }
@@ -79,18 +73,14 @@ function gitOffline(npaObj, dlData, opts, next) {
   gitAux.resolve(dlRepoDir, npaObj, npaObj.name, opts)
   .then(ref => {
     const tmpPkgDir = path.join(tmpDir, 'package')
-    return mkdirp(tmpPkgDir)
+    return mkdirpAsync(tmpPkgDir)
     .then(() => shallowClone(dlRepoDir, ref.ref, tmpPkgDir, opts))
       // NOTE: the above promise resolves to the HEAD sha, but we don't need it here
     .then(() => packGitDep(npaObj, tmpPkgDir))
     .catch(err => {
-      if (err.code == 'EEXIST') {
-        const tmpTarPath = path.join(tmpDir, 'package.tgz')
-        return statAsync(tmpTarPath).then(stat => {
-          if (!stat.isFile())
-            throw new Error("False package.tgz obstructing packaging of git repo")
-          return tmpTarPath
-        })
+      /* istanbul ignore next: we are mocking the error anyway! */
+      if (err.code == 'EISDIR') {
+        err.message = '"package.tgz" directory obstructing packaging of git repo'
       }
       throw err
     })
@@ -108,10 +98,12 @@ function shallowClone(repo, branch, target, opts) {
     'clone', '--depth=1', '-q', // the original arg set
     '--no-hardlinks', `--template="${gitTemplateDir}"` // offliner additions
   ]
+  /* istanbul ignore next */
   if (branch) {
     gitArgs.push('-b', branch)
   }
   gitArgs.push(repo, target)
+  /* istanbul ignore next */
   if (process.platform === 'win32') {
     gitArgs.push('--config', 'core.longpaths=true')
   }
@@ -123,16 +115,15 @@ function shallowClone(repo, branch, target, opts) {
   }).then(() => {
     //call to headSha(target, opts) translates as...
     const gitArgs = ['rev-parse', '--revs-only', 'HEAD']
-    return execGit(gitArgs, { cwd: target }, opts).spread(stdout => {
-      return stdout.trim()
-    })
+    return execGit(gitArgs, { cwd: target }, opts)
+    .then(outputs => outputs.stdout.trim())
   })
 }
 
 // Adapted from pacote/lib/util/git.js.
 // No need to worry about retries here, because the context is the local filesystem.
 function execGit(gitArgs, gitOpts, opts) {
-  return BB.resolve(opts.git || gitContext.gitPath)
+  return Promise.resolve(opts.git || gitContext.gitPath)
   .then(gitPath => execFileAsync(gitPath, gitArgs, gitContext.mkOpts(gitOpts, opts)))
 }
 
@@ -143,6 +134,7 @@ function packGitDep(spec, dir) {
   let pkgJson
   return readJson(path.join(dir, 'package.json')).then((pkg) => {
     pkgJson = pkg
+    delete pkgJson.readme
     if (pkgJson.scripts && pkgJson.scripts.prepare) {
       if (checkRepoDevDeps(pkgJson)) {
         return prepRawModule(pkgJson, dir, spec)
@@ -151,9 +143,7 @@ function packGitDep(spec, dir) {
   }).then(() => {
     // Put the tarball next to the directory it archives
     const tmpTar = path.join(path.dirname(dir), 'package.tgz')
-    return packDirectory(pkgJson, dir, tmpTar).then(() => {
-      return tmpTar
-    })
+    return packDirectory(pkgJson, dir, tmpTar).then(() => tmpTar)
   })
 }
 
@@ -165,7 +155,7 @@ function checkRepoDevDeps(pkgJson) {
     const specStr = `${pkgName}@${devDeps[pkgName]}`
     let dep, dlTrackerType
     try {
-      dep = npa(pkgName, devDeps[pkgName])
+      dep = npa(specStr)
     } catch (er) {
       ++problems
       log.warn(
@@ -179,11 +169,10 @@ function checkRepoDevDeps(pkgJson) {
       ++problems
       log.warn(
         thisFuncName,
-        `don't recognize type '${dep.type}' of devDependency ${specStr}`
+        `unrecognized type '${dep.type}' of devDependency ${specStr}`
       )
       continue
     }
-
     if (!npm.dlTracker.contains(dlTrackerType, pkgName, devDeps[pkgName])) {
       ++problems
       log.warn(thisFuncName, `devDependency ${specStr} not present`)
@@ -194,7 +183,8 @@ function checkRepoDevDeps(pkgJson) {
       `The package ${pkgJson.name}@${pkgJson.version} has a 'prepare' script `,
       'which indicates that it must be processed before installation; however, ',
       'there ',
-      problems < 2 ? 'was a problem with one' : 'were problems with some',
+      problems < 2 ?
+      'was a problem with one' : /* istanbul ignore next */ 'were problems with some',
       ' of its devDependencies, so the script was not run.\n',
       'The referenced package will be installed anyway, but it is possible ',
       'that your application will be unusable until you address the problems ',
@@ -221,7 +211,7 @@ function packDirectory(pkgJson, dir, target, filename) {
       gzip: true
     }
 
-    return BB.resolve(packlist({ path: dir }))
+    return Promise.resolve(packlist({ path: dir }))
     // NOTE: node-tar does some Magic Stuff depending on prefixes for files
     //       specifically with @ signs, so we just neutralize that one
     //       and any such future "features" by prepending `./`
@@ -230,9 +220,18 @@ function packDirectory(pkgJson, dir, target, filename) {
       // critical and not-at-all obvious from the function name: it verifies
       // that (a) each item in the tarball corresponds to an existing file in
       // the directory it was made from, and (b) the sha checksum matches.
-      // Note: pack.js packGitDep does nothing with the resolve() value here.
+      // Note: pack.js packGitDep does nothing with the resolve() value here,
+      // so we do nothing with it where it's used in this script either.
       .then(() => getContents(pkgJson, target, filename))
       // thread the content info through
-      .tap(() => lifecycle(pkgJson, 'postpack', dir))
+      //.tap(() => lifecycle(pkgJson, 'postpack', dir))
+      // <MMR> TODO: this supposed replacement for the tap call must get tested!
+      .then(contents => {
+        // although this util lib/module calls the node module 'lifecycle' which
+        // returns something, lib/utils/lifecycle does not return anything!
+        // *But* if the node module rejects, this call will reject:
+        lifecycle(pkgJson, 'postpack', dir)
+        return contents
+      })
   })
 }

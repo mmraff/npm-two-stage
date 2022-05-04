@@ -76,6 +76,9 @@ npm.dlTracker = {
     }
     return data
   },
+  contains: function(type, name, spec) {
+    return this.getData(type, name, spec) ? true : false
+  },
   serialize(cb) {
     if (!hasChanges) cb(false)
     else {

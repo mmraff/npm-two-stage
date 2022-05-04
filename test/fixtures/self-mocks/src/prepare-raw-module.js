@@ -1,2 +1,2 @@
-module.exports = function(pkgJson, dir, spec) {}
+module.exports = (pkgJson, dir, spec) => Promise.resolve()
 // git-offline does nothing with the return value
