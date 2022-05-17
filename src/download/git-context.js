@@ -75,9 +75,9 @@ function mkOpts(_gitOpts, opts) {
 
 function getGitRepoDir(basePath) {
   if (basePath === undefined || basePath === null || basePath === '')
-    return BB.reject(new SyntaxError('Must give location for git repos'))
+    return Promise.reject(new SyntaxError('Must give location for git repos'))
   if (typeof basePath !== 'string')
-    return BB.reject(new TypeError('Location for git repos must be given as a string'))
+    return Promise.reject(new TypeError('Location for git repos must be given as a string'))
 
   basePath = path.resolve(basePath)
   let remotes = path.join(basePath, dirNames.remotes)
