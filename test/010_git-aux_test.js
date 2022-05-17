@@ -3,14 +3,11 @@
   git-offline.js calls resolve (strictly for a *local* git repo).
   offliner.js calls trackerKeys.
 */
-// TODO: identify what's not needed here
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
 const copyFileAsync = promisify(fs.copyFile)
 const mkdirAsync = promisify(fs.mkdir)
-//const rmdirAsync = promisify(fs.rmdir)
-//const unlinkAsync = promisify(fs.unlink)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
@@ -18,7 +15,6 @@ const rimrafAsync = promisify(require('rimraf'))
 
 const { copyFreshMockNpmDir } = require('./lib/tools')
 const mockCommitHash = require('./lib/mock-commit-hash')
-//const { graft } = require('../lib/file-tools')
 
 // The repo URLs are broken up to prevent conversion to active links
 // in advanced text editors - too easy to click unintentionally.
@@ -172,15 +168,6 @@ describe('git-aux module', function() {
   })
 
   describe('resolve', function() {
-/*
-  // Where dlData is the dlTracker data retrieved for a git repo saved lagacy-style,
-  // git-offline does this:
-  const dlRepoDir = 'file://' + path.join(
-    npm.dlTracker.path, gitContext.dirNames.remotes, dlData.repoID
-  )
-  gitAux.resolve(dlRepoDir, npaObj, npaObj.name, opts)
-  // and then it uses only the 'ref' property of the resolved Promise.
-*/
     it('should yield expected metadata for a git spec with no commit or version Id', function(done) {
       const npaSpec = npa('git+ssh:/' + '/gittar.com/gtuser/gtproject.git')
       const name = 'test1'
