@@ -1,4 +1,5 @@
 const URL = require('url').URL
+const mockCommitHash = require('../../../../lib/mock-commit-hash')
 
 const RE_GIT_REPO_SUFFIX = /\.git$/
 const RE_HASH_PREFIX = /^#/
@@ -36,22 +37,6 @@ function trackerKeys(npaSpec) {
     result.spec = npaSpec.hosted.committish || ''
   }
   return result
-}
-
-function mockCommitHash() {
-  const min = 'A'.charCodeAt(0)
-  const max = 'f'.charCodeAt(0)
-  const zeroCharVal = '0'.charCodeAt(0)
-  const seq = []
-  for (let i = 0; i < 40; ++i) {
-    let v = Math.floor(Math.random() * (max - min + 1)) + min
-    if (v > min + 5) {
-      if (v < max - 5) v = v % 10 + zeroCharVal
-    }
-    else v += 32 // distance between 'A' and 'a'
-    seq.push(String.fromCharCode(v))
-  }
-  return seq.join('')
 }
 
 // To ensure we give a consistent answer if the same spec is
