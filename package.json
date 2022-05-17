@@ -35,7 +35,8 @@
     "npm2stage": "./npm2stage.js"
   },
   "scripts": {
-    "test": "bash test/batchtest.sh"
+    "test": "bash test/batchtest.sh",
+    "backup": "tar czf ../npm2stage-6_backup.tgz --exclude-from=archive-excludes.txt --transform=\"s/^/project\\//\" *"
   },
   "dependencies": {
     "commander": "^6.2.1"
