@@ -9,9 +9,6 @@ module.exports.trackerKeys = trackerKeys
 module.exports.fetchManifest = fetchManifest
 module.exports.resolve = resolve
 
-const RE_GIT_REPO_SUFFIX = /\.git$/
-const RE_HASH_PREFIX = /^#/
-
 function expectNpaGitResult(obj) {
   if (obj === undefined || obj == null)
     throw new SyntaxError('No argument given')
@@ -28,8 +25,11 @@ function trackerKeys(npaSpec) {
   if (!npaSpec.hosted) {
     try {
       const parsed = new URL(npaSpec.rawSpec)
-      result.repo = parsed.host + parsed.pathname.replace(RE_GIT_REPO_SUFFIX, '')
-      result.spec = parsed.hash.replace(RE_HASH_PREFIX, '')
+      result.repo = parsed.host + parsed.pathname.replace(/\.git$/, '')
+      // A semver version expression after the hashmark will get URI-encoded
+      // by the URL constructor, so we apply decoding regardless of the kind
+      // of value of the hash expression ("committish")
+      result.spec = decodeURIComponent(parsed.hash.replace(/^#/, ''))
     }
     catch (err) {
       return null
@@ -96,12 +96,14 @@ function plainManifest (repo, npaSpec, opts) {
       //
       // If we're confident enough that `rawRef` is a commit SHA,
       // then we can at least get `finalize-manifest` to cache its result.
-      const resolved = npaSpec.saveSpec.replace(RE_COMMIT_TAIL, rawRef ? `#${rawRef}` : '')
+      const resolved = npaSpec.saveSpec.replace(
+        RE_COMMIT_TAIL, /*istanbul ignore next */ rawRef ? `#${rawRef}` : ''
+      )
       return {
         _repo: repo,
         _rawRef: rawRef,
-        _resolved: rawRef && rawRef.match(RE_HEX40CH) && resolved,
-        _uniqueResolved: rawRef && rawRef.match(RE_HEX40CH) && resolved,
+        _resolved: /*istanbul ignore next */ rawRef && rawRef.match(RE_HEX40CH) && resolved,
+        _uniqueResolved: /*istanbul ignore next */ rawRef && rawRef.match(RE_HEX40CH) && resolved,
         _integrity: false,
         _shasum: false
       }
@@ -109,22 +111,9 @@ function plainManifest (repo, npaSpec, opts) {
   })
 }
 
-// resolve: Borrowed from pacote/lib/fetchers/git.js; improved
-/*----------------------------------------------------------------------------
-There's a problem with the line in the above file that uses spec.gitCommittish:
-If the package spec did not have a gitCommittish (the tail following #), then
-that line causes the function to disregard potentially usable results.
-In particular, there's usually a 'master' ref (it is/was the git default).
-Cases where there is no 'master' ref:
-- The repository has no commits yet
-- The user has supplied the option to set a different initial branch name
-  [-b | --initial-branch]
-- The user has configured a different default (init.defaultBranch)
-- There once was a 'master' ref, but the user removed it
-
-Also, added option to get all the tags bound to the resolved commit.
-In this case, a new property is added to the result: allRefs.
-*/
+// resolve: Borrowed from pacote/lib/fetchers/git.js, with mods
+// Added option to get all the tags bound to the resolved commit.
+// In this case, a new property is added to the result: allRefs.
 function resolve(url, npaSpec, name, opts) {
   const isSemver = !!npaSpec.gitRange
   return utilGit.revs(url, opts).then(remoteRefs => {
@@ -145,6 +134,7 @@ function resolve(url, npaSpec, name, opts) {
         committish = 'master'
         if (!(committish in remoteRefs.refs)) {
           committish = 'main'
+          /* istanbul ignore else: similar enough to above that it's not worth the extra test code */
           if (!(committish in remoteRefs.refs))
             // Whatever! Take the first available, hope for the best
             committish = Object.keys(remoteRefs.refs)[0]
@@ -154,19 +144,23 @@ function resolve(url, npaSpec, name, opts) {
       }
       else {
         //result = remoteRefs.refs[committish] || remoteRefs.refs[remoteRefs.shas[committish]]
-        // An interesting phenomenon in that 2nd expression:
+        // The above line is taken directly from the pacote code.
+        // There is a problem in returning the result of that 2nd expression:
         // * if exists, remoteRefs.shas[committish] is an Array
         // * if remoteRefs.shas[committish] has only one element, it evaluates to that one element
-        //   when used as a key (remoteRefs.refs[remoteRefs.shas[committish]])
+        //   when used as a key (e.g., remoteRefs.refs[remoteRefs.shas[committish]])
         // * but if it has multiple elements, using it as a key into remoteRefs.refs gets you nothing.
 
         result = remoteRefs.refs[committish] ||
                  (remoteRefs.shas[committish] && remoteRefs.refs[remoteRefs.shas[committish][0]])
       }
+      /* istanbul ignore else: we always want all refs here, right? */
       if (result && opts.multipleRefs) {
         result.allRefs = remoteRefs.shas[result.sha]
       }
     }
+    /* Invisible else case:  I don't believe git.revs EVER returns nothing */
+
     return result
   })
 }
