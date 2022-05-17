@@ -166,7 +166,7 @@ describe('git-aux module', function() {
     })
 
     it('should return null for git spec at arbitrary host that cannot be URL-parsed', function() {
-      const npaSpec = npa('git://#!%&*!#$)!')
+      const npaSpec = npa('git:/' + '/#!%&*!#$)!')
       expect(gitAux.trackerKeys(npaSpec)).to.be.null
     })
   })
@@ -182,7 +182,7 @@ describe('git-aux module', function() {
   // and then it uses only the 'ref' property of the resolved Promise.
 */
     it('should yield expected metadata for a git spec with no commit or version Id', function(done) {
-      const npaSpec = npa('git+ssh://gittar.com/gtuser/gtproject.git')
+      const npaSpec = npa('git+ssh:/' + '/gittar.com/gtuser/gtproject.git')
       const name = 'test1'
       const chosenRef = 'master'
       const refAssoc = gitRefDocs[0]
@@ -197,7 +197,7 @@ describe('git-aux module', function() {
     })
 
     it('as above, where the repo default branch has an unconventional name', function(done) {
-      const npaSpec = npa('git+ssh://gittar.com/gtuser/gtproject.git')
+      const npaSpec = npa('git+ssh:/' + '/gittar.com/gtuser/gtproject.git')
       const name = 'test2'
       const chosenRef = 'alternative'
       const refAssoc = gitRefDocs[1]
@@ -213,7 +213,7 @@ describe('git-aux module', function() {
 
     it('should yield expected metadata for a git spec with a semver range', function(done) {
       // This is the only case where pickManifest gets called.
-      const npaSpec = npa('git+ssh://gittar.com/gtuser/gtproject.git#semver:>4.2')
+      const npaSpec = npa('git+ssh:/' + '/gittar.com/gtuser/gtproject.git#semver:>4.2')
       const name = 'test3'
       const chosenVer = '4.5.6'
       const refAssoc = gitRefDocs[0]
@@ -234,7 +234,7 @@ describe('git-aux module', function() {
       const name = 'test4'
       const refAssoc = gitRefDocs[0]
       const chosenSha = Object.keys(refAssoc.refDoc.shas)[1]
-      const npaSpec = npa(`git+ssh://gittar.com/gtuser/gtproject.git#${chosenSha}`)
+      const npaSpec = npa('git+ssh:/' + '/gittar.com/gtuser/gtproject.git#' + chosenSha)
       const ref = refAssoc.refDoc.shas[chosenSha][0]
       const expectedData = refAssoc.refDoc.refs[ref]
       utilGit.setTestConfig({ [refAssoc.repoUrl]: refAssoc.refDoc })
@@ -328,8 +328,7 @@ function expectManifest(actualData, npaSpec, revDoc, protocol) {
     })
 
     it('should yield expected manifest for git repo on arbitrary host', function(done) {
-      const npaSpec = npa('git://gittar.com/gtuser/gtproject.git')
-      //const chosenVer = '4.5.6'
+      const npaSpec = npa('git:/' + '/gittar.com/gtuser/gtproject.git')
       const refAssoc = gitRefDocs[0]
       const expectedRefData = refAssoc.refDoc.refs['master']
       utilGit.setTestConfig({ [npaSpec.fetchSpec]: refAssoc.refDoc })
@@ -355,7 +354,8 @@ function expectManifest(actualData, npaSpec, revDoc, protocol) {
     it('should yield expected manifest when commit cannot be determined', function(done) {
       // This uses a hack in mock pickManifest to get resolve() to return
       // nothing for ref, so that the 'else' branch can be visited.
-      const npaSpec = npa('git+ssh://gittar.com/gtuser/gtproject.git#0123456789')
+      const committish = '0123456789'
+      const npaSpec = npa('git+ssh:/' + '/gittar.com/gtuser/gtproject.git#' + committish)
       const refAssoc = gitRefDocs[0]
       utilGit.setTestConfig({ [npaSpec.fetchSpec]: null })
       pickManifest.setTestConfig(null)
@@ -363,7 +363,7 @@ function expectManifest(actualData, npaSpec, revDoc, protocol) {
       .then(result => {
         const expectedResult = {
           _repo: npaSpec.fetchSpec,
-          _rawRef: '0123456789',
+          _rawRef: committish,
           _resolved: null,
           _uniqueResolved: null,
           _integrity: false,
