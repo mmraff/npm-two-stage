@@ -3,8 +3,6 @@
 
 module.exports = prepareRawModule
 
-const BB = require('bluebird')
-
 const cp = require('child_process')
 const log = require('npmlog')
 const npm = require('./npm')
@@ -33,7 +31,7 @@ const PASSTHROUGH_OPTS = [
 
 function prepareRawModule(pkgJson, dir, spec) {
   if (!pkgJson.scripts || !pkgJson.scripts.prepare) {
-    return BB.resolve(null)
+    return Promise.resolve(null)
   }
   log.verbose('prepareGitDep', `${spec.raw}: installing devDeps and running prepare script.`)
   const cliArgs = PASSTHROUGH_OPTS.reduce((acc, opt) => {
@@ -42,6 +40,7 @@ function prepareRawModule(pkgJson, dir, spec) {
     }
     return acc
   }, [])
+  /* istanbul ignore next: not worth it to muck with these process properties just for coverage */
   const child = cp.spawn(process.env.NODE || process.execPath, [
     require.resolve('../bin/npm-cli.js'),
     'install',
@@ -68,16 +67,17 @@ function prepareRawModule(pkgJson, dir, spec) {
     errDataLen += data.length
     log.gauge.pulse('preparing git package')
   })
-  return BB.fromNode((cb) => {
-    child.on('error', cb)
+  // BB.fromNode() code replaced by the following
+  return new Promise((resolve, reject) => {
+    child.on('error', reject)
     child.on('exit', (code, signal) => {
       if (code > 0) {
         const err = new Error(`${signal}: npm exited with code ${code} while attempting to build ${spec.raw}. Clone the repository manually and run 'npm install' in it for more information.`)
         err.code = code
         err.signal = signal
-        cb(err)
+        reject(err)
       } else {
-        cb()
+        resolve(null)
       }
     })
   }).then(() => {
@@ -85,8 +85,8 @@ function prepareRawModule(pkgJson, dir, spec) {
     if (errDataLen > 0) log.silly('prepareGitDep', '2>', Buffer.concat(errData, errDataLen).toString())
   }, (err) => {
     if (outDataLen > 0) log.error('prepareGitDep', '1>', Buffer.concat(outData, outDataLen).toString())
+    /* istanbul ignore else: impossible for there to be no error output when there was an error */
     if (errDataLen > 0) log.error('prepareGitDep', '2>', Buffer.concat(errData, errDataLen).toString())
     throw err
   })
 }
-
