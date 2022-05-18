@@ -81,7 +81,6 @@ function copyToTestDir(relPath, opts) {
 }
 
 let gitAux
-//let npm
 let pickManifest
 let utilGit
 
@@ -90,7 +89,6 @@ describe('git-aux module', function() {
     rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
     .then(() => copyFreshMockNpmDir(assets.root))
     .then(() => {
-      //npm = require(path.join(assets.dest, 'npm')) // don't need this?
       pickManifest = require(path.join(assets.nodeMods, 'npm-pick-manifest'))
       utilGit = require(path.join(assets.nodeMods, 'pacote', 'lib', 'util', 'git'))
     })
