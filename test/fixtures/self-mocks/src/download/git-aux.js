@@ -39,25 +39,38 @@ function trackerKeys(npaSpec) {
   return result
 }
 
+const config = {}
 // To ensure we give a consistent answer if the same spec is
 // used for another query, fetchManifest() or resolve()
 const hashCache = {}
+
+module.exports.setTestConfig = function(data) {
+  for (let prop in hashCache) delete hashCache[prop]
+  for (let prop in config) delete config[prop]
+  // Assumes data is an object in which keys are git specs:
+  for (let spec in data) {
+    config[spec] = data[spec]
+    if (data[spec]._sha) hashCache[spec] = data[spec]._sha
+  }
+}
 
 function fetchManifest(npaSpec, opts) {
   const hosted = npaSpec.hosted
   const repo = hosted.git() || hosted.https() || npaSpec.hosted.sshurl()
   let resolved = npaSpec.saveSpec
-  if (!(/^[a-f0-9]{40}$/.test(resolved))) {
-    if (!(npaSpec.raw in hashCache))
-      hashCache[npaSpec.raw] = mockCommitHash()
-    const sha = hashCache[npaSpec.raw]
+  let sha = npaSpec.gitCommittish
+  if (!(/^[a-f0-9]{40}$/.test(sha))) {
+    if (!(npaSpec.rawSpec in hashCache))
+      hashCache[npaSpec.rawSpec] = mockCommitHash()
+    sha = hashCache[npaSpec.rawSpec]
     resolved = resolved.replace(/(?:#.*)?$/, `#${sha}`)
   }
+  else hashCache[npaSpec.rawSpec] = sha
 
   const result = {
     _repo: repo,
     _resolved: resolved,
-    _spec: npaSpec,
+    _spec: npaSpec.raw, // TODO: this gets overwritten in download.js; find out if that holds in other suites
     _ref: { sha: sha, ref: 'master', type: 'branch' },
     _rawRef: npaSpec.gitCommittish || npaSpec.gitRange,
     _uniqueResolved: resolved,
@@ -65,18 +78,21 @@ function fetchManifest(npaSpec, opts) {
     _shasum: false
   }
   if (opts.multipleRefs)
-    result._ref.allRefs = [ 'master', 'megatron', result._ref.sha ]
+    result._ref.allRefs = [ 'master', 'megatron' ]
+  const testData = config[npaSpec.rawSpec]
+  if (testData && testData.dependencies)
+    result.dependencies = { ...testData.dependencies }
 
   return Promise.resolve(result)
 }
 
 function resolve(url, npaSpec, name, opts) {
-  if (!(npaSpec.raw in hashCache))
-    hashCache[npaSpec.raw] = mockCommitHash()
-  const sha = hashCache[npaSpec.raw]
+  if (!(npaSpec.rawSpec in hashCache))
+    hashCache[npaSpec.rawSpec] = mockCommitHash()
+  const sha = hashCache[npaSpec.rawSpec]
   const result = { sha: sha, ref: 'master', type: 'branch' }
   if (opts.multipleRefs)
-    result.allRefs = [ 'master', 'optimus', result.sha ]
+    result.allRefs = [ 'master', 'optimus' ]
 
   return Promise.resolve(result)
 }
