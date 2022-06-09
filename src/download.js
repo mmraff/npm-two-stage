@@ -151,6 +151,9 @@ function download (args, cb) {
 
     log.info('download', 'established download path:', newTracker.path)
 
+    // This is primarily to omit the console output when testing:
+    const noSummary = npm.config.get('no-dl-summary')
+
     const operations = []
     mkdirpAsync(tempCache)
     .then(() => {
@@ -194,10 +197,13 @@ function download (args, cb) {
             // The console call follows the callback call here because when
             // placed before, it causes a stutter in the npm log output.
             cb(serializeErr, results)
-// TODO: This is not acceptable. Go back to using the log, verify the stutter,
-// and try to find a different way around it.
-            //console.info(statsMsgs, '\n\ndownload', 'finished.')
-            log.http('', statsMsgs, '\n\ndownload', 'finished.')
+            // I don't want to do this, but I haven't found another way to
+            // get a conclusion message to display at the very end of the
+            // session. The npmlog does not provide anything close to a
+            // satisfactory way to do it.
+            /* istanbul ignore if: we will always use --no-summary in tests */
+            if (!noSummary)
+              console.info(statsMsgs, '\n\ndownload', 'finished.')
           })
         })
       })
@@ -273,9 +279,7 @@ function walkRequires(itemDef, depsStack, depMap, opts) {
     } while (stackIdx > 0)
     /* istanbul ignore if: can only reproduce with a broken shrinkwrap */
     if (!found) {
-console.log('WARNING: exhausted dependency list(s); did not find specific version')
-console.log(`  to satisfy spec ${name}@${itemDef.requires[name]}`)
-      // TODO: some way to get an error/warning to the user
+      log.warn('download', `failed to find package version to satisfy ${name}@${itemDef.requires[name]} in shrinkwrap dependency list(s)`)
     }
   }
 }
@@ -655,9 +659,7 @@ function makeOpts(extra) {
 
 // Adapted from pacote/manifest.js
 function gitManifest(spec, opts) {
-//console.log('gitManifest called with spec', spec)
   spec = npa(spec, opts.where)
-//console.log('... which then gets converted to npaSpec', spec)
 
   const startTime = Date.now()
   return gitAux.fetchManifest(spec, opts)

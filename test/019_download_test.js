@@ -1,5 +1,5 @@
 /*
-  TODO:
+  TODO maybe:
   * Break out a new define() to group the shrinkwrap cases
 */
 const fs = require('fs')
@@ -152,6 +152,7 @@ describe('download module', function() {
     .then(() => copyFreshMockNpmDir(assets.root))
     .then(() => {
       mockNpm = require(path.join(assets.dest, 'npm'))
+      mockNpm.config.set('no-dl-summary', true)
       mockNpm.tmp = assets.tmpDir // download.js creates dl-temp-cache there
 
       mockPacote = require(path.join(assets.nodeMods, 'pacote'))
