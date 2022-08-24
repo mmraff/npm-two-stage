@@ -220,9 +220,9 @@ function install (where, args, cb) {
       offlineDir = process.cwd()
     }
 
-    DlTracker.create(offlineDir, { log: log }, function(er, newTracker) {
+    DlTracker.create(offlineDir, { log: log }, function(er, dlTracker) {
       if (er) return cb(er)
-      npm.dlTracker = newTracker
+      npm.dlTracker = dlTracker
 
       new Installer(where, dryrun, args).run(cb)
     })
