@@ -593,7 +593,7 @@ References: item, p, dlData, result, fetchKey2, inflight, trackerKeys
       dlData.filename = fetchKey2
       dlData.repo = trackerKeys.name
       dlData.commit = mani._ref.sha
-      dlData.refs = mani._ref.allRefs
+      if (mani._ref.allRefs) dlData.refs = mani._ref.allRefs
 
       const filePath = path.join(npm.dlTracker.path, dlData.filename)
       return pacote.tarball.toFile(
@@ -668,7 +668,12 @@ function gitManifest(spec, opts) {
     const refData = rawManifest._ref
     return finalizeManifest(rawManifest, spec, opts)
     .then(manifest => {
-      manifest._ref = refData
+      if (refData) manifest._ref = refData
+      else if (spec.gitCommittish && /^[a-f\d]{40}$/.test(spec.gitCommittish)) {
+        // A commit that's no longer associated with a tag, for which git.revs
+        // gave no result. Fake it:
+        manifest._ref = { sha: spec.gitCommittish }
+      }
       return manifest
     })
   })
