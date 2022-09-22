@@ -32,6 +32,7 @@ let mockGitAux
 let minNpf
 let mockNpm
 let mockPacote
+let mockFinalizeManifest
 
 const npmRegistryPrefix = 'https:/' + '/registry.npmjs.org/'
 const testData = {
@@ -156,6 +157,7 @@ describe('download module', function() {
       mockNpm.tmp = assets.tmpDir // download.js creates dl-temp-cache there
 
       mockPacote = require(path.join(assets.nodeMods, 'pacote'))
+      mockFinalizeManifest = require(path.join(assets.nodeMods, 'pacote/lib/finalize-manifest'))
 
       return graft(path.join(mockSrcDir, 'download'), assets.dest)
     })
@@ -1040,9 +1042,17 @@ describe('download module', function() {
   })
 
   it('should succeed on request for basic known git package that fetches good metadata', function(done) {
-    const spec1 = testData.git[0].spec
-    const gitAuxData = { [spec1]: { _sha: testData.git[0].sha } }
+    const g0 = testData.git[0]
+    const spec1 = g0.spec
+    const gitAuxData = {
+      [spec1]: {
+        sha: g0.sha, ref: 'master', type: 'branch',
+        allRefs: [ 'master', 'optimus' ]
+      }
+    }
+    const finalizerData = { [spec1]: {} }
     mockGitAux.setTestConfig(gitAuxData)
+    mockFinalizeManifest.setTestConfig(finalizerData)
     mockNpm.dlTracker.purge()
 
     download([ spec1 ], function(err, results) {
@@ -1052,7 +1062,7 @@ describe('download module', function() {
         expect(mockNpm.dlTracker.serializeWasCalled()).to.be.true
         const npaSpec = npa(spec1)
         const repo = npaSpec.hosted.domain + '/' + npaSpec.hosted.path()
-        const commit = gitAuxData[spec1]._sha
+        const commit = gitAuxData[spec1].sha
         const storedData1 = mockNpm.dlTracker.getData(
           'git', repo, commit
         )
@@ -1068,17 +1078,92 @@ describe('download module', function() {
     })
   })
 
+  // Simulate a commit that is no longer associated with a tag
+  it('should insert commit hash into manifest._ref when git.revs gives nothing', function(done) {
+    const g0 = testData.git[0]
+    const spec1 = g0.spec + '#' + g0.sha
+    const gitAuxData = { [spec1]: null }
+    const finalizerData = { [spec1]: {} }
+    mockGitAux.setTestConfig(gitAuxData)
+    mockFinalizeManifest.setTestConfig(finalizerData)
+    mockNpm.dlTracker.purge()
+
+    download([ spec1 ], function(err, results) {
+      try {
+        expect(err).to.not.exist
+        expect(results).to.deep.equal([ [ { spec: spec1 } ] ])
+        const npaSpec = npa(spec1)
+        const repo = npaSpec.hosted.domain + '/' + npaSpec.hosted.path()
+        // Here we build the expected filename like this, but download.js
+        // builds it using manifest._ref.sha, so we must check the dlData
+        // (also, dlData.commit gets set with manifest._ref.sha)
+        const expectedFilename = minNpf.makeTarballName({
+          type: 'git', commit: g0.sha,
+          domain: npaSpec.hosted.domain, path: npaSpec.hosted.path()
+        })
+        const dlData = mockNpm.dlTracker.getData('git', repo, g0.sha)
+        expect(dlData).to.have.property('filename', expectedFilename)
+        expect(dlData).to.not.have.property('refs')
+      }
+      catch (assertErr) { return done(assertErr) }
+      done()
+    })
+  })
+  // case: there is no manifest._ref; spec has a gitCommittish, but it's not
+  // a hash.
+  // The need for the code that this tests(line 678) depends on whether pacote
+  // ever returns a manifest when it has ultimately failed to determine the
+  // commit hash value. We assume 'yes' and fake that case here.
+  it('should pass back error if spec.gitCommittish is not a SHA, and manifest from pacote has no _ref data', function(done) {
+    const g1 = testData.git[1]
+    const testTag = (function(){
+      const match = g1.altSpec.match(/#.+$/)
+      // Just double-checking the test data before using it:
+      expect(match).to.be.an('array').that.is.not.empty
+      expect(match[0]).to.have.lengthOf.above(1)
+      return match[0].slice(1)
+    })()
+    mockGitAux.setTestConfig({ [g1.altSpec]: null })
+    mockFinalizeManifest.setTestConfig({ [g1.altSpec]: {} })
+    mockNpm.dlTracker.purge()
+
+    download([ g1.altSpec ], function(err, results) {
+      expect(err).to.match(/failed to obtain the commit hash/)
+      expect(results).to.not.exist
+      done()
+    })
+  })
+
+  // It's debatable whether this test is necessary for download.js...
+  // but it doesn't hurt.
+  // * it is thrown in pacote/lib/finalize-manifest (function: tarballedProps())
+  // * pacote finalizeManifest is called in download.js (function: gitManifest())
+  it('should pass error through if referenced state of git repo has no package.json', function(done) {
+    const g1 = testData.git[1]
+    const spec = g1.spec + '#' + g1.sha
+    mockGitAux.setTestConfig({ [spec]: {} })
+    mockFinalizeManifest.setErrorState(true, 'ENOPACKAGEJSON')
+
+    download([ spec ], function(err, results) {
+      mockFinalizeManifest.setErrorState(false)
+      // It's a mock error - we don't need to check the message
+      expect(err.code).to.equal('ENOPACKAGEJSON')
+      expect(results).to.not.exist
+      done()
+    })
+  })
+
   it('should report a duplicate git spec', function(done) {
     function verifyGitRepoDlData(spec) {
       const npaSpec = npa(spec)
       const repo = npaSpec.hosted.domain + '/' + npaSpec.hosted.path()
       const storedData = mockNpm.dlTracker.getData(
-        'git', repo, gitAuxData[spec]._sha
+        'git', repo, gitAuxData[spec].sha
       )
       const expectedFilename = minNpf.makeTarballName({
         type: 'git',
         domain: npaSpec.hosted.domain, path: npaSpec.hosted.path(),
-        commit: gitAuxData[spec]._sha
+        commit: gitAuxData[spec].sha
       })
       expect(storedData).to.have.property('filename', expectedFilename)
     }
@@ -1090,23 +1175,22 @@ describe('download module', function() {
     const dep2Name = testData.git[0].pkg.name
     const npaSpec = npa(spec1)
     const gitAuxData = {
+      [spec1]: { sha: testData.git[0].sha },
+      [spec2]: { sha: spec2Sha }
+    }
+    const finalizerData = {
       [spec1]: {
-        _sha: testData.git[0].sha,
-        dependencies: {
-          [dep1Name]: spec2
-        }
+        dependencies: { [dep1Name]: spec2 }
       },
       [spec2]: {
-        _sha: spec2Sha,
-        dependencies: {
-          [dep2Name]: testData.git[0].altSpec
+        dependencies: { [dep2Name]: testData.git[0].altSpec }
           // Discovery: specifying that differently than spec1
           // buys us nothing in coverage.
-        }
       }
     }
 
     mockGitAux.setTestConfig(gitAuxData)
+    mockFinalizeManifest.setTestConfig(finalizerData)
     mockNpm.dlTracker.purge()
 
     download([ spec1 ], function(err, results) {
@@ -1117,7 +1201,7 @@ describe('download module', function() {
           { spec: spec1 },
           { spec: dep1Name + '@' + spec2, name: dep1Name },
           {
-            spec: dep2Name + '@' + gitAuxData[spec2].dependencies[dep2Name],
+            spec: dep2Name + '@' + finalizerData[spec2].dependencies[dep2Name],
             name: dep2Name, duplicate: true
           }
         ])
@@ -1171,9 +1255,11 @@ describe('download module', function() {
     mockPacote.addTestMetadata(rootSpec, testData1)
     mockPacote.addTestMetadata(depSpec, depData)
     const gitAuxData = {
-      [gitDepFullSpec]: { _sha: gitDepData.sha }
+      [gitDepFullSpec]: { sha: gitDepData.sha }
     }
+    const finalizerData = { [gitDepFullSpec]: {} }
     mockGitAux.setTestConfig(gitAuxData)
+    mockFinalizeManifest.setTestConfig(finalizerData)
     mockNpm.dlTracker.purge()
 
     download([ rootSpec ], function(err, results) {

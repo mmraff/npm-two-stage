@@ -22,6 +22,7 @@ let mockLog
 let mockNpm
 let mockReadJson
 let mockTar
+let mockGitAux
 let mockGitContext
 
 const assets = {
@@ -68,6 +69,7 @@ describe('git-offline module', function() {
     })
     .then(() => graft(path.join(mockSrc, 'download'), assets.npmLib))
     .then(() => {
+      mockGitAux = require(path.join(assets.npmLib, 'download', 'git-aux'))
       mockGitContext = require(path.join(assets.npmLib, 'download', 'git-context'))
       expectedPath = path.resolve(
         assets.temp,
@@ -198,8 +200,10 @@ describe('git-offline module', function() {
   })
 
   it('should send back an error if the tarball path already exists and is inaccessible/not a file', function(done) {
+    const npaSpec = npa(testData.spec)
+    mockGitAux.setTestConfig({ [npaSpec.rawSpec]: {} });
     mockTar.setError(`illegal operation on a directory, open '${expectedPath}'`, 'EISDIR')
-    gitOffline(npa(testData.spec), testData.dlt, {}, function(err) {
+    gitOffline(npaSpec, testData.dlt, {}, function(err) {
       let assertError
       try {
         expect(err).to.match(/"package\.tgz" directory obstructing/)
