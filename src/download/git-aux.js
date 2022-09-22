@@ -159,7 +159,6 @@ function resolve(url, npaSpec, name, opts) {
         result.allRefs = remoteRefs.shas[result.sha]
       }
     }
-    /* Invisible else case:  I don't believe git.revs EVER returns nothing */
 
     return result
   })
