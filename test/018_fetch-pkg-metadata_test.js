@@ -228,7 +228,7 @@ describe('fetch-package-metadata replacement module', function() {
     function tryOtherError() {
       pacote.setErrorState('manifest', true, 'EWHATEVER')
       fetchPkgMetadata(dummySpec, where, {}, function(err, data) {
-        expect(err).to.be.an('error').that.matches(/Dummy error from pacote mock/)
+        expect(err).to.be.an('error')
         expect(err.code).to.equal('EWHATEVER')
         expect(data).to.not.exist
         pacote.setErrorState('manifest', false)
