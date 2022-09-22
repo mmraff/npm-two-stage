@@ -203,7 +203,7 @@ function download (args, cb) {
             // satisfactory way to do it.
             /* istanbul ignore if: we will always use --no-summary in tests */
             if (!noSummary)
-              console.info(statsMsgs, '\n\ndownload', 'finished.')
+              console.info(statsMsgs, '\n\ndownload finished.')
           })
         })
       })
@@ -664,15 +664,19 @@ function gitManifest(spec, opts) {
   const startTime = Date.now()
   return gitAux.fetchManifest(spec, opts)
   .then(rawManifest => {
-    // finalizeManifest removes _ref from the manifest, but we need that here
+    // finalizeManifest discards _ref from the manifest, but we need that here
     const refData = rawManifest._ref
     return finalizeManifest(rawManifest, spec, opts)
     .then(manifest => {
       if (refData) manifest._ref = refData
       else if (spec.gitCommittish && /^[a-f\d]{40}$/.test(spec.gitCommittish)) {
+        // See plainManifest() in pacote/lib/fetchers/git.js:
         // A commit that's no longer associated with a tag, for which git.revs
         // gave no result. Fake it:
         manifest._ref = { sha: spec.gitCommittish }
+      }
+      else {
+        throw new Error(`failed to obtain the commit hash for ${spec.rawSpec}`)
       }
       return manifest
     })
