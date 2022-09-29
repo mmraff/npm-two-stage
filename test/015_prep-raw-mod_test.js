@@ -42,8 +42,8 @@ describe('prepare-raw-module', function() {
     makeAssets('prepRawMod', 'prepare-raw-module.js')
     .then(result => {
       assets = result
-      prepRawModule = require(`./${assets.npmLib}/prepare-raw-module`)
-      mockNpmLog = require(`./${assets.nodeModules}/npmlog`)
+      prepRawModule = require(assets.npmLib + '/prepare-raw-module')
+      mockNpmLog = require(assets.nodeModules + '/npmlog')
     })
     .then(() => done())
     .catch(err => done(err))

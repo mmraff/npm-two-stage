@@ -296,7 +296,7 @@ function create(where, opts, cb)
 
       const name = pkgKeys[pkgKeyIndex]
       const ver = versionKeys[i]
-      const data = versions[ver] 
+      const data = versions[ver]
       auditOne(
         'semver', data, pkgDir,
         function(err) {

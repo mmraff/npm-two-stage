@@ -70,9 +70,9 @@ describe('git-aux module', function() {
     makeAssets('gitAux', 'download/git-aux.js')
     .then(result => {
       assets = result
-      gitAux = require(`./${assets.libDownload}/git-aux`)
-      pickManifest = require(`./${assets.nodeModules}/npm-pick-manifest`)
-      utilGit = require(`./${assets.nodeModules}/pacote/lib/util/git`)
+      gitAux = require(assets.libDownload + '/git-aux')
+      pickManifest = require(assets.nodeModules + '/npm-pick-manifest')
+      utilGit = require(assets.nodeModules + '/pacote/lib/util/git')
     })
     .then(() => done())
     .catch(err => done(err))

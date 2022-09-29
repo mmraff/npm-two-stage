@@ -6,7 +6,6 @@ const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
 const copyFileAsync = promisify(fs.copyFile)
-const mkdirAsync = promisify(fs.mkdir)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
