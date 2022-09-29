@@ -1,7 +1,7 @@
 {
   "exclude": [
     "test/",
-    "!test/tempAssets/npm/lib/download.js",
+    "!test/download/npm/lib/download.js",
     "lib/",
     "src/"
   ]

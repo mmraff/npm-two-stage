@@ -3,17 +3,13 @@
   git-offline.js calls resolve (strictly for a *local* git repo).
   offliner.js calls trackerKeys.
 */
-const fs = require('fs')
-const path = require('path')
 const { promisify } = require('util')
-const copyFileAsync = promisify(fs.copyFile)
-const mkdirAsync = promisify(fs.mkdir)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
 const rimrafAsync = promisify(require('rimraf'))
 
-const { copyFreshMockNpmDir } = require('./lib/tools')
+const makeAssets = require('./lib/make-assets')
 const mockCommitHash = require('./lib/mock-commit-hash')
 
 // The repo URLs are broken up to prevent conversion to active links
@@ -64,45 +60,26 @@ for (let i = 0; i < gitRefDocs.length; ++i) {
   refDoc.shas = hashes
 }
 
-const assets = {
-  root: path.join(__dirname, 'tempAssets')
-}
-assets.dest = path.join(assets.root, 'npm', 'lib')
-assets.nodeMods = path.join(assets.root, 'npm', 'node_modules')
-const realSrcDir = path.resolve(__dirname, '..', 'src')
-const mockSrcDir = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
-
-function copyToTestDir(relPath, opts) {
-  if (!opts) opts = {}
-  const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
-  const newFilePath = path.join(assets.dest, relPath)
-  const p = copyFileAsync(srcPath, newFilePath)
-  return opts.getModule ? p.then(() => require(newFilePath)) : p
-}
-
-let gitAux
-let pickManifest
-let utilGit
-
 describe('git-aux module', function() {
+  let assets
+  let gitAux
+  let pickManifest
+  let utilGit
+
   before('set up test directory', function(done) {
-    rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
-    .then(() => copyFreshMockNpmDir(assets.root))
-    .then(() => {
-      pickManifest = require(path.join(assets.nodeMods, 'npm-pick-manifest'))
-      utilGit = require(path.join(assets.nodeMods, 'pacote', 'lib', 'util', 'git'))
+    makeAssets('gitAux', 'download/git-aux.js')
+    .then(result => {
+      assets = result
+      gitAux = require(`./${assets.libDownload}/git-aux`)
+      pickManifest = require(`./${assets.nodeModules}/npm-pick-manifest`)
+      utilGit = require(`./${assets.nodeModules}/pacote/lib/util/git`)
     })
-    .then(() => mkdirAsync(path.join(assets.dest, 'download')))
-    .then(() =>
-      copyToTestDir(path.join('download', 'git-aux.js'), { getModule: true })
-      .then(mod => gitAux = mod)
-    )
     .then(() => done())
     .catch(err => done(err))
   })
 
   after('remove temporary assets', function(done) {
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assets.fs('rootName')).then(() => done())
     .catch(err => done(err))
   })
 
@@ -232,30 +209,31 @@ describe('git-aux module', function() {
     })
   })
 
-function expectManifest(actualData, npaSpec, revDoc, protocol) {
-  const opts = { noCommittish: true }
-  let expectedResolved
-  if (npaSpec.hosted && npaSpec.hosted.default) {
-    const dft = npaSpec.hosted.default
-    expectedResolved = npaSpec.hosted[dft](opts) + '#' + revDoc.sha
-  }
-  else {
-    //console.log('PROBLEM SPEC handed to expectManifest:', npaSpec)
-    throw new Error('Unable to deal with this spec')
+  function expectManifest(actualData, npaSpec, revDoc, protocol) {
+    const opts = { noCommittish: true }
+    let expectedResolved
+    if (npaSpec.hosted && npaSpec.hosted.default) {
+      const dft = npaSpec.hosted.default
+      expectedResolved = npaSpec.hosted[dft](opts) + '#' + revDoc.sha
+    }
+    else {
+      //console.log('PROBLEM SPEC handed to expectManifest:', npaSpec)
+      throw new Error('Unable to deal with this spec')
+    }
+
+    const expectedResult = {
+      _repo: protocol ? npaSpec.hosted[protocol]() : npaSpec.hosted.git(),
+      _resolved: expectedResolved,
+      _spec: npaSpec,
+      _ref: revDoc,
+      _rawRef: npaSpec.gitCommittish || npaSpec.gitRange,
+      _uniqueResolved: expectedResolved,
+      _integrity: false,
+      _shasum: false
+    }
+    expect(actualData).to.deep.equal(expectedResult)
   }
 
-  const expectedResult = {
-    _repo: protocol ? npaSpec.hosted[protocol]() : npaSpec.hosted.git(),
-    _resolved: expectedResolved,
-    _spec: npaSpec,
-    _ref: revDoc,
-    _rawRef: npaSpec.gitCommittish || npaSpec.gitRange,
-    _uniqueResolved: expectedResolved,
-    _integrity: false,
-    _shasum: false
-  }
-  expect(actualData).to.deep.equal(expectedResult)
-}
   describe('fetchManifest', function() {
     it('should reject if given corrupted result of npm-package-arg for git repo spec', function(done) {
       const rawSpec = 'gitlab:gluser/\n' // this results in no hosted.git()

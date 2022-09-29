@@ -2,83 +2,87 @@ const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
 const copyFileAsync = promisify(fs.copyFile)
-const mkdirAsync = promisify(fs.mkdir)
-const rmdirAsync = promisify(fs.rmdir)
-const unlinkAsync = promisify(fs.unlink)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
 const rimrafAsync = promisify(require('rimraf'))
 
-const { copyFreshMockNpmDir } = require('./lib/tools')
-let fetchPkgMetadata // We will require() the dynamically-placed copy
-let mockData // ditto
-let npm // ditto
-let pacote // ditto
-
-const testSpec = {
-  winPath: path.win32.join(
-    /^[a-zA-Z]:/.test(__dirname) ? '' : 'C:',
-    __dirname, 'fixtures', 'dummy'
-  )
-}
-
-const assets = {
-  root: path.join(__dirname, 'tempAssets')
-}
-assets.tempNpmLib = path.join(assets.root, 'npm', 'lib')
-assets.isWindows = path.join(assets.tempNpmLib, 'utils', 'is-windows.js')
-
-const dummyFn = function(){}
+const makeAssets = require('./lib/make-assets')
 
 describe('fetch-package-metadata replacement module', function() {
+  const realSrcDir = path.resolve(__dirname, '../src')
+  const mockSrcDir = path.join(__dirname, 'fixtures/self-mocks/src')
+  const dummyFn = function(){}
+  const testSpec = {
+    winPath: path.win32.join(
+      /^[a-zA-Z]:/.test(__dirname) ? '' : 'C:',
+      __dirname, 'fixtures', 'dummy'
+    )
+  }
+  let assets
+  let fetchPkgMetadata
+  let mockData
+  let npm
+  let pacote
+  let homeOfIsWindows
+
+  function copyToTestDir(relPath, opts) {
+    if (!opts) opts = {}
+    const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
+    const newFilePath = `${assets.npmLib}/${relPath}`
+    const p = copyFileAsync(srcPath, path.resolve(__dirname, newFilePath))
+    return opts.getModule ? p.then(() => require(newFilePath)) : p
+  }
+
   before('set up test directory', function(done) {
-    rimrafAsync(assets.root)
-    .catch(err => { if (err.code != 'ENOENT') throw err })
-    .then(() => mkdirAsync(assets.root))
-    .then(() => copyFreshMockNpmDir(assets.root))
-    .then(() => {
+    makeAssets('fetchPkgMeta', 'fetch-package-metadata.js', { mockDownloadDir: true }) // TODO: Yes?
+    .then(result => {
+      assets = result
+      homeOfIsWindows = path.join(assets.fs('npmLib'), 'utils')
       // We get this so that we can toggle offline mode:
-      npm = require(path.join(assets.tempNpmLib, 'npm'))
+      npm = require(assets.npmLib + '/npm')
       // We get this so that we can make some packages appear to be available
       // and prevent mock-pacote.manifest from erroring:
-      pacote = require(path.join(assets.root, 'npm', 'node_modules', 'pacote'))
-
-      const selfMocksPath = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
-      const filename = 'offliner.js'
-      return copyFileAsync( // Mock
-        path.join(selfMocksPath, filename),
-        path.join(assets.tempNpmLib, filename)
-      )
-      .then(() => { // Helper for tests; no counterpart in actual installation
-        const filename = 'mock-dl-data.js'
-        const newFilePath = path.join(assets.tempNpmLib, filename)
-        return copyFileAsync(
-          path.join(selfMocksPath, filename), newFilePath
-        )
-        .then(() => {
-          mockData = require(newFilePath)
-          testSpec.byVersion = mockData.getSpec('version')
-          pacote.addTestSpec(testSpec.byVersion)
-          pacote.addTestSpec(testSpec.winPath)
-          testSpec.byTag = mockData.getSpec('tag', 1)
-          // but don't add that one
-        })
-      })
-      .then(() => { // The real thing from our src directory
-        const filename = 'fetch-package-metadata.js'
-        const srcFilePath = path.join(__dirname, '..', 'src', filename)
-        const newFilePath = path.join(assets.tempNpmLib, filename)
-        return copyFileAsync(srcFilePath, newFilePath)
-        .then(() => fetchPkgMetadata = require(newFilePath))
-      })
+      pacote = require(assets.nodeModules + '/pacote')
+      // Helper for tests; no counterpart in actual installation.
+      // Mock offliner also requires this.
+      return copyToTestDir('mock-dl-data.js', { mock: true, getModule: true })
     })
-    .then(() => done())
+    .then(mod => {
+      mockData = mod
+      testSpec.byVersion = mockData.getSpec('version')
+      pacote.addTestSpec(testSpec.byVersion)
+      pacote.addTestSpec(testSpec.winPath)
+      testSpec.byTag = mockData.getSpec('tag', 1)
+      // but don't add that one
+
+      // dirty hack to help get to 100% coverage:
+      // For one of two tests in this suite, we need to be able to mock a
+      // Windows/non-Windows platform. As simple as it is, the actual
+      // 'is-windows' module restricts us too much.
+      const startDir = process.cwd()
+      process.chdir(homeOfIsWindows)
+      return copyFileAsync(
+        process.platform === 'win32' ? 'yes-is-windows.js' : 'not-is-windows.js',
+        'is-windows.js'
+      )
+      .catch(err => {
+        process.chdir(startDir)
+        throw err
+      })
+      .then(() => process.chdir(startDir))
+    })
+    .then(() => copyToTestDir('offliner.js', { mock: true }))
+    .then(() => copyToTestDir('fetch-package-metadata.js', { getModule: true }))
+    .then(mod => {
+      fetchPkgMetadata = mod
+      done()
+    })
     .catch(err => done(err))
   })
 
   after('remove temporary assets', function(done) {
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assets.fs('rootName')).then(() => done())
     .catch(err => done(err))
   })
 
@@ -154,15 +158,15 @@ describe('fetch-package-metadata replacement module', function() {
   })
 
   function reloadFpmModule() {
-    const modPath = path.join(assets.tempNpmLib, 'fetch-package-metadata.js')
+    const modPath = path.join(assets.fs('npmLib'), 'fetch-package-metadata.js')
     delete require.cache[modPath]
-    delete require.cache[assets.isWindows]
+    delete require.cache[path.join(homeOfIsWindows, 'is-windows.js')]
     fetchPkgMetadata = require(modPath)
   }
 
   it('should pass back an error on attempt to install from windows path on non-windows system', function(done) {
     const startDir = process.cwd()
-    process.chdir(path.join(assets.tempNpmLib, 'utils'))
+    process.chdir(homeOfIsWindows)
     copyFileAsync('not-is-windows.js', 'is-windows.js')
     .then(() => {
       process.chdir(startDir)
@@ -178,7 +182,7 @@ describe('fetch-package-metadata replacement module', function() {
 
   it('should not error when given a windows path on a windows system', function(done) {
     const startDir = process.cwd()
-    process.chdir(path.join(assets.tempNpmLib, 'utils'))
+    process.chdir(homeOfIsWindows)
     copyFileAsync('yes-is-windows.js', 'is-windows.js')
     .then(() => {
       process.chdir(startDir)

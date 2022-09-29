@@ -12,27 +12,8 @@ const expect = require('chai').expect
 const npa = require('npm-package-arg')
 const rimrafAsync = promisify(require('rimraf'))
 
-const { copyFreshMockNpmDir } = require('./lib/tools')
-const { graft } = require('../lib/file-tools')
+const makeAssets = require('./lib/make-assets')
 const mockCommitHash = require('./lib/mock-commit-hash')
-
-const assets = {
-  root: path.join(__dirname, 'tempAssets')
-}
-assets.dest = path.join(assets.root, 'npm', 'lib')
-assets.nodeMods = path.join(assets.root, 'npm', 'node_modules')
-assets.tmpDir = path.join(assets.root, 'tmp')
-assets.pkgDir = path.join(assets.root, 'package')
-assets.dlDir = path.join(assets.root, 'downloads')
-const realSrcDir = path.resolve(__dirname, '..', 'src')
-const mockSrcDir = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
-
-let download
-let mockGitAux
-let minNpf
-let mockNpm
-let mockPacote
-let mockFinalizeManifest
 
 const npmRegistryPrefix = 'https:/' + '/registry.npmjs.org/'
 const testData = {
@@ -121,58 +102,63 @@ for (let i = 1; i < 4; ++i) {
   else if (item === optDepData) dep.optional = true
 }
 
-// For setup
-function copyToTestDir(relPath, opts) {
-  if (!opts) opts = {}
-  const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
-  const newFilePath = path.join(assets.dest, relPath)
-  const p = copyFileAsync(srcPath, newFilePath)
-  return opts.getModule ? p.then(() => require(newFilePath)) : p
-}
-
-// For checking that dlTracker.add() was called
-function expectDlTrackerData(pkgData, mustExist) {
-  const storedData = mockNpm.dlTracker.getData(
-    'semver', pkgData.name, pkgData.version
-  )
-  if (mustExist) {
-    const expectedFilename = minNpf.makeTarballName({
-      type: 'semver', name: pkgData.name, version: pkgData.version
-    })
-    expect(storedData).to.have.property('filename', expectedFilename)
-  }
-  else expect(storedData).to.not.exist
-}
-
 describe('download module', function() {
+  const realSrcDir = path.resolve(__dirname, '..', 'src')
+  const mockSrcDir = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
+  let assets
+  let download
+  let mockGitAux
+  let minNpf
+  let mockNpm
+  let mockPacote
+  let mockFinalizeManifest
+
+  function copyToTestDir(relPath, opts) {
+    if (!opts) opts = {}
+    const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
+    const newFilePath = `${assets.npmLib}/${relPath}`
+    const p = copyFileAsync(srcPath, path.resolve(__dirname, newFilePath))
+    return opts.getModule ? p.then(() => require(newFilePath)) : p
+  }
+
+  // For checking that dlTracker.add() was called
+  function expectDlTrackerData(pkgData, mustExist) {
+    const storedData = mockNpm.dlTracker.getData(
+      'semver', pkgData.name, pkgData.version
+    )
+    if (mustExist) {
+      const expectedFilename = minNpf.makeTarballName({
+        type: 'semver', name: pkgData.name, version: pkgData.version
+      })
+      expect(storedData).to.have.property('filename', expectedFilename)
+    }
+    else expect(storedData).to.not.exist
+  }
+
   before('set up test directory', function(done) {
-    rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
-    .then(() => mkdirAsync(assets.tmpDir))
-    .then(() => mkdirAsync(assets.dlDir))
-    .then(() => mkdirAsync(assets.pkgDir))
-    .then(() => copyFreshMockNpmDir(assets.root))
-    .then(() => {
-      mockNpm = require(path.join(assets.dest, 'npm'))
+    makeAssets('download', 'download.js', { mockDownloadDir: true })
+    .then(result => {
+      assets = result
+      mockNpm = require(assets.npmLib + '/npm')
       mockNpm.config.set('no-dl-summary', true)
-      mockNpm.tmp = assets.tmpDir // download.js creates dl-temp-cache there
+      mockNpm.tmp = assets.fs('npmTmp') // download.js creates dl-temp-cache there
 
-      mockPacote = require(path.join(assets.nodeMods, 'pacote'))
-      mockFinalizeManifest = require(path.join(assets.nodeMods, 'pacote/lib/finalize-manifest'))
+      mockPacote = require(assets.nodeModules + '/pacote')
+      mockFinalizeManifest = require(assets.nodeModules + '/pacote/lib/finalize-manifest')
 
-      return graft(path.join(mockSrcDir, 'download'), assets.dest)
-    })
-    .then(() => {
-      mockGitAux = require(path.join(assets.dest, 'download/git-aux'))
-      minNpf = require(path.join(assets.dest, 'download/npm-package-filename'))
+      mockGitAux = require(assets.npmLib + '/download/git-aux')
+      minNpf = require(assets.npmLib + '/download/npm-package-filename')
       return copyToTestDir('download.js', { getModule: true })
-      .then(mod => download = mod)
+      .then(mod => {
+        download = mod
+        done()
+      })
     })
-    .then(() => done())
     .catch(err => done(err))
   })
 
   after('remove temporary assets', function(done) {
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assets.fs('rootName')).then(() => done())
     .catch(err => done(err))
   })
 
@@ -308,7 +294,7 @@ describe('download module', function() {
 
       // Again, but give the --dl-dir option:
       mockNpm.dlTracker.purge()
-      mockNpm.config.set('dl-dir', assets.dlDir)
+      mockNpm.config.set('dl-dir', assets.fs('pkgPath'))
       download([ rootSpec, rootSpec ], function(err, results) {
         try {
           expect(err).to.not.exist
@@ -983,13 +969,13 @@ describe('download module', function() {
     }
 
     it('should succeed when given --package-json set to path with a package.json', function(done) {
-      mockPacote.addTestMetadata(assets.pkgDir, pkgWithDeps)
+      mockPacote.addTestMetadata(assets.fs('installPath'), pkgWithDeps)
       mockPacote.addTestMetadata(depSpec, depData)
       mockPacote.addTestMetadata(devDepSpec, devDepData)
       mockPacote.addTestMetadata(optDepSpec, optDepData)
 
       mockNpm.dlTracker.purge()
-      mockNpm.config.set('package-json', assets.pkgDir)
+      mockNpm.config.set('package-json', assets.fs('installPath'))
       download([], function(err, results) {
         mockNpm.config.set('package-json', undefined)
         expect(err).to.not.exist
@@ -1002,7 +988,7 @@ describe('download module', function() {
     // path for either, but if it is, download.js handles it gracefully
     it('should succeed when given --pj set to path of package.json file', function(done) {
       mockNpm.dlTracker.purge()
-      mockNpm.config.set('pj', path.join(assets.pkgDir, 'package.json'))
+      mockNpm.config.set('pj', path.join(assets.fs('installPath'), 'package.json'))
       download([], function(err, results) {
         mockNpm.config.set('pj', undefined)
         expect(err).to.not.exist
@@ -1015,7 +1001,7 @@ describe('download module', function() {
       const startDir = process.cwd()
       mockNpm.dlTracker.purge()
       mockNpm.config.set('J', true)
-      process.chdir(assets.pkgDir) // because download.js will use process.cwd()
+      process.chdir(assets.fs('installPath')) // because download.js will use process.cwd()
       download([], function(err, results) {
         process.chdir(startDir)
         mockNpm.config.set('J', undefined)
@@ -1027,7 +1013,7 @@ describe('download module', function() {
 
     it('should succeed when given a package spec in addition to the --package-json option', function(done) {
       mockNpm.dlTracker.purge()
-      mockNpm.config.set('package-json', assets.pkgDir)
+      mockNpm.config.set('package-json', assets.fs('installPath'))
       // Once more, but with a package spec in the arguments:
       const pkgData = testData.registry[4]
       const pkgSpec = `${pkgData.name}@>=${pkgData.version}`

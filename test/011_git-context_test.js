@@ -1,11 +1,3 @@
-/*
-  TODO: if we create a separate module that functions as a "before"
-  for other scripts, and it copies mock npm in, and then it copies the
-  real source into place, then this can be run along with anything that
-  does not depend on it, because the target module has no complicating
-  dependencies. Currently it is being tested in place, in the src directory,
-  but it does not need to be.
-*/
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
@@ -23,7 +15,7 @@ const rimrafAsync = promisify(require('rimraf'))
 const gitContext = require('../src/download/git-context')
 
 const assets = {
-  root: path.join(__dirname, 'tempAssets')
+  root: path.join(__dirname, 'gitContext')
 }
 // Need a place for getGitRepoDir to operate on:
 assets.correctBasePath = path.join(assets.root, 'mockReposDir')

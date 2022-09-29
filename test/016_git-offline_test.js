@@ -8,31 +8,12 @@ const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
 const copyFileAsync = promisify(fs.copyFile)
-const mkdirAsync = promisify(fs.mkdir)
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
 const rimrafAsync = promisify(require('rimraf'))
 
-const { copyFreshMockNpmDir } = require('./lib/tools')
-const { graft } = require('../lib/file-tools')
-
-let gitOffline
-let mockLog
-let mockNpm
-let mockReadJson
-let mockTar
-let mockGitAux
-let mockGitContext
-
-const assets = {
-  root: path.join(__dirname, 'tempAssets')
-}
-assets.npmLib = path.join(assets.root, 'npm', 'lib')
-assets.npmModules = path.join(assets.root, 'npm', 'node_modules')
-assets.temp = path.join(assets.root, 'tmp')
-const realSrc = path.resolve(__dirname, '..', 'src')
-const mockSrc = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
+const makeAssets = require('./lib/make-assets')
 
 const testData = {
   spec: 'https:' + '//bitbucket.org/someuser/some-project.git',
@@ -41,56 +22,58 @@ const testData = {
     repoID: 'bitbucket_org_someuser_some-project_2d7e5f'
   }
 }
-// Will be set to what git-offline should put in the resolved data:
-let expectedPath
 
 describe('git-offline module', function() {
-  before('set up test directory', function(done) {
-    rimrafAsync(assets.root)
-    .catch(err => { if (err.code != 'ENOENT') throw err })
-    .then(() => mkdirAsync(assets.root))
-    .then(() => mkdirAsync(assets.temp))
-    .then(() => copyFreshMockNpmDir(assets.root))
-    .then(() => {
-      // So that we can access the dlTracker and set the temporary directory:
-      mockNpm = require(path.join(assets.npmLib, 'npm'))
-      mockNpm.tmp = assets.temp
-      // So that we can inject test data:
-      mockReadJson = require(path.join(assets.npmModules, 'read-package-json'))
-      // So that we can retrieve/remove logged messages:
-      mockLog = require(path.join(assets.npmModules, 'npmlog'))
-      // So that we can force an error from tar.create:
-      mockTar = require(path.join(assets.npmModules, 'tar'))
+  let assets
+  let gitOffline
+  let mockLog
+  let mockNpm
+  let mockReadJson
+  let mockTar
+  let mockGitAux
+  let mockGitContext
+  // Will be set to what gitOffline should put in the resolved data:
+  let expectedPath
 
-      const depFile = 'prepare-raw-module.js'
-      return copyFileAsync(
-        path.join(mockSrc, depFile), path.join(assets.npmLib, depFile)
-      )
-    })
-    .then(() => graft(path.join(mockSrc, 'download'), assets.npmLib))
-    .then(() => {
-      mockGitAux = require(path.join(assets.npmLib, 'download', 'git-aux'))
-      mockGitContext = require(path.join(assets.npmLib, 'download', 'git-context'))
+  before('set up test directory', function(done) {
+    makeAssets('gitOffline', 'git-offline.js', { mockDownloadDir: true })
+    .then(result => {
+      assets = result
+      // So that we can access the dlTracker and set the temporary directory:
+      mockNpm = require(assets.npmLib + '/npm')
+      mockNpm.tmp = assets.fs('npmTmp')
+      // So that we can inject test data:
+      mockReadJson = require(assets.nodeModules + '/read-package-json')
+      // So that we can retrieve/remove logged messages:
+      mockLog = require(assets.nodeModules + '/npmlog')
+      // So that we can mock an error from tar.create:
+      mockTar = require(assets.nodeModules + '/tar')
+      mockGitAux = require(assets.libDownload + '/git-aux')
+      mockGitContext = require(assets.libDownload + '/git-context')
       expectedPath = path.resolve(
-        assets.temp,
+        mockNpm.tmp,
         mockGitContext.dirNames.offlineTemps,
         testData.dlt.repoID,
         'package.tgz'
       )
-
-      const tgtFile = 'git-offline.js'
+      // git-offline requires prepare-raw-module, so it must be copied in
+      // before we require(git-offline)
+      const depFile = 'prepare-raw-module.js'
       return copyFileAsync(
-        path.join(realSrc, tgtFile), path.join(assets.npmLib, tgtFile)
+        path.join(__dirname, 'fixtures/self-mocks/src', depFile),
+        path.join(assets.fs('npmLib'), depFile)
       )
-      .then(() => gitOffline = require(path.join(assets.npmLib, tgtFile)))
     })
-    .then(() => done())
+    .then(() => {
+      gitOffline = require(assets.npmLib + '/git-offline.js')
+      done()
+    })
     .catch(err => done(err))
   })
 
   after('remove temporary assets', function(done) {
     child_process.execFile = originalExecFile
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assets.fs('rootName')).then(() => done())
     .catch(err => done(err))
   })
 

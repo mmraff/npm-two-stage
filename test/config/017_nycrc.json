@@ -1,7 +1,7 @@
 {
   "exclude": [
     "test/",
-    "!test/tempAssets/npm/lib/offliner.js",
+    "!test/offliner/npm/lib/offliner.js",
     "lib/",
     "src/"
   ]

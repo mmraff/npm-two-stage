@@ -1,83 +1,75 @@
+/*
+offliner requires:
+  download/dltracker
+  download/git-aux
+  git-offline
+git-offline mock requires nothing but mock-dl-data.js.
+*/
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
 const copyFileAsync = promisify(fs.copyFile)
 const mkdirAsync = promisify(fs.mkdir)
+const accessAsync = promisify(fs.access) // TEMP!
 
 const expect = require('chai').expect
 const npa = require('npm-package-arg')
 const rimrafAsync = promisify(require('rimraf'))
 
-const ft = require('../lib/file-tools')
-const { copyFreshMockNpmDir } = require('./lib/tools')
-let offliner  // We will require() the dynamically-placed copy
-let npf       // ""
-let npm       // ""
-let mockData  // ""
-const testSpec = {}
-
-const assets = {
-  root: path.join(__dirname, 'tempAssets')
-}
-assets.dest = path.join(assets.root, 'npm', 'lib')
-assets.trackerDir = path.join(assets.root, 'tarballs')
-const realSrcDir = path.resolve(__dirname, '..', 'src')
-const mockSrcDir = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
-
-const dummyFn = function(){}
-
-function copyToTestDir(relPath, opts) {
-  if (!opts) opts = {}
-  const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
-  const newFilePath = path.join(assets.dest, relPath)
-  const p = copyFileAsync(srcPath, newFilePath)
-  return opts.getModule ? p.then(() => require(newFilePath)) : p
-}
+const makeAssets = require('./lib/make-assets')
 
 describe('offliner module', function() {
+  const realSrcDir = path.resolve(__dirname, '../src')
+  const mockSrcDir = path.join(__dirname, 'fixtures/self-mocks/src')
+  const dummyFn = function(){}
+  const testSpec = {}
+  let assets
+  let mockData
+  let npf
+  let npm
+  let offliner
+
+  function copyToTestDir(relPath, opts) {
+    if (!opts) opts = {}
+    const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
+    const newFilePath = `${assets.npmLib}/${relPath}`
+    const p = copyFileAsync(srcPath, path.resolve(__dirname, newFilePath))
+    return opts.getModule ? p.then(() => require(newFilePath)) : p
+  }
+
   before('set up test directory', function(done) {
-    rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
-    .then(() => copyFreshMockNpmDir(assets.root))
-    .then(() => npm = require(path.join(assets.dest, 'npm')))
-    .then(() => mkdirAsync(assets.trackerDir))
-    .then(() =>
+    makeAssets('offliner', 'offliner.js', { mockDownloadDir: true })
+    .then(result => {
+      assets = result
+      npm = require(`./${assets.npmLib}/npm`)
       // Helper for tests; no counterpart in actual installation
-      copyToTestDir('mock-dl-data.js', { mock: true, getModule: true })
-      .then(mod => {
-        mockData = mod
-        testSpec.byVersion = mockData.getSpec('version')
-        testSpec.byRange = mockData.getSpec('range')
-        testSpec.byTag = mockData.getSpec('tag')
-        testSpec.remote = mockData.getSpec('remote')
-        testSpec.git = mockData.getSpec('git')
-      })
-    )
-    .then(() => // The real thing from our src directory
-      ft.graft(path.join(realSrcDir, 'download'), assets.dest)
-    )
-    .then(() => 
-      npf = require(path.join(assets.dest, 'download', 'npm-package-filename'))
-    )
-    // Mocks:
-    .then(() =>
-      copyToTestDir(path.join('download', 'dltracker.js'), { mock: true })
-    )
-    .then(() =>
-      copyToTestDir(path.join('download', 'git-aux.js'), { mock: true })
-    )
-    .then(() => copyToTestDir('git-offline.js', { mock: true }))
-    // Real thing:
-    .then(() =>
-      copyToTestDir('offliner.js', { getModule: true })
-      .then(mod => offliner = mod)
-    )
-    .then(() => done())
+      return copyToTestDir('mock-dl-data.js', { mock: true, getModule: true })
+    })
+    .then(mod => {
+      mockData = mod
+      testSpec.byVersion = mockData.getSpec('version')
+      testSpec.byRange = mockData.getSpec('range')
+      testSpec.byTag = mockData.getSpec('tag')
+      testSpec.remote = mockData.getSpec('remote')
+      testSpec.git = mockData.getSpec('git')
+
+      // makeAssets copies the entire mock download directory, which includes
+      // mock npm-package-filename.js; but here we need the real thing
+      return copyToTestDir('download/npm-package-filename.js', { getModule: true })
+    })
+    .then(mod => {
+      npf = mod
+      return copyToTestDir('git-offline.js', { mock: true })
+    })
+    .then(() => {
+      offliner = require(`./${assets.npmLib}/offliner`)
+      done()
+    })
     .catch(err => done(err))
   })
 
   after('remove temporary assets', function(done) {
-    npm.dlTracker.purge()
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assets.fs('rootName')).then(() => done())
     .catch(err => done(err))
   })
 

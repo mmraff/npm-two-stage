@@ -23,15 +23,6 @@ module.exports.copyFreshMockNpmDir = function(where) {
     const startDir = process.cwd()
     process.chdir(where)
     return renameAsync('mock-npm', 'npm')
-    .then(() => {
-      // Part of a dirty hack just to enable 100% coverage for
-      // fetch-package-metadata.js:
-      process.chdir(path.join('npm', 'lib', 'utils'))
-      return copyFileAsync(
-        process.platform === 'win32' ? 'yes-is-windows.js' : 'not-is-windows.js',
-        'is-windows.js'
-      )
-    })
     .then(() => process.chdir(startDir))
     .catch(err => {
       process.chdir(startDir)

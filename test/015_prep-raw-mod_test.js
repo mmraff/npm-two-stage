@@ -1,69 +1,49 @@
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
-const copyFileAsync = promisify(fs.copyFile)
-const mkdirAsync = promisify(fs.mkdir)
 const unlinkAsync = promisify(fs.unlink)
 const writeFileAsync = promisify(fs.writeFile)
 
 const expect = require('chai').expect
 const rimrafAsync = promisify(require('rimraf'))
 
-const { copyFreshMockNpmDir } = require('./lib/tools')
-
-const assets = {
-  root: path.join(__dirname, 'tempAssets')
-}
-assets.dest = path.join(assets.root, 'npm', 'lib')
-assets.nodeMods = path.join(assets.root, 'npm', 'node_modules')
-const realSrcDir = path.resolve(__dirname, '..', 'src')
-const mockSrcDir = path.join(__dirname, 'fixtures', 'self-mocks', 'src')
-
-function copyToTestDir(relPath, opts) {
-  if (!opts) opts = {}
-  const srcPath = path.join(opts.mock ? mockSrcDir : realSrcDir, relPath)
-  const newFilePath = path.join(assets.dest, relPath)
-  const p = copyFileAsync(srcPath, newFilePath)
-  return opts.getModule ? p.then(() => require(newFilePath)) : p
-}
-
-function setPrepareConfig(cfg) {
-  const cfgPath = path.join(assets.root, 'npm', 'bin', 'cli-config.json')
-  return cfg ?
-    writeFileAsync(cfgPath, JSON.stringify(cfg)) : unlinkAsync(cfgPath)
-}
-
-function expectLogMessages(expected, spec) {
-  const messages = mockNpmLog.messages()
-  expect(messages).to.have.lengthOf(expected.length)
-  expect(messages[0]).to.deep.equal({
-    level: 'verbose',
-    prefix: 'prepareGitDep',
-    message: spec + ': installing devDeps and running prepare script.'
-  })
-  for (let i = 1; i < messages.length; ++i) {
-    const wanted = expected[i]
-    expect(messages[i].level).to.equal(wanted.level)
-    expect(messages[i].prefix).to.equal('prepareGitDep')
-    expect(messages[i].message).to.match(new RegExp(wanted.message))
-  }
-}
-
-const failedToReject_msg = 'Should have rejected'
-const dummySpec = 'test-dummy-spec'
-
-let prepRawModule
-let mockNpmLog
+const makeAssets = require('./lib/make-assets')
 
 describe('prepare-raw-module', function() {
+  const failedToReject_msg = 'Should have rejected'
+  const dummySpec = 'test-dummy-spec'
+  let assets
+  let prepRawModule
+  let mockNpmLog
+
+  function setPrepareConfig(cfg) {
+    const cfgPath = path.join(assets.fs('rootName'), 'npm/bin/cli-config.json')
+    return cfg ?
+      writeFileAsync(cfgPath, JSON.stringify(cfg)) : unlinkAsync(cfgPath)
+  }
+
+  function expectLogMessages(expected, spec) {
+    const messages = mockNpmLog.messages()
+    expect(messages).to.have.lengthOf(expected.length)
+    expect(messages[0]).to.deep.equal({
+      level: 'verbose',
+      prefix: 'prepareGitDep',
+      message: spec + ': installing devDeps and running prepare script.'
+    })
+    for (let i = 1; i < messages.length; ++i) {
+      const wanted = expected[i]
+      expect(messages[i].level).to.equal(wanted.level)
+      expect(messages[i].prefix).to.equal('prepareGitDep')
+      expect(messages[i].message).to.match(new RegExp(wanted.message))
+    }
+  }
+
   before('set up test directory', function(done) {
-    rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
-    .then(() => copyFreshMockNpmDir(assets.root))
-    .then(() => {
-      //npm = require(path.join(assets.dest, 'npm'))
-      mockNpmLog = require(path.join(assets.nodeMods, 'npmlog'))
-      return copyToTestDir('prepare-raw-module.js', { getModule: true })
-      .then(mod => prepRawModule = mod)
+    makeAssets('prepRawMod', 'prepare-raw-module.js')
+    .then(result => {
+      assets = result
+      prepRawModule = require(`./${assets.npmLib}/prepare-raw-module`)
+      mockNpmLog = require(`./${assets.nodeModules}/npmlog`)
     })
     .then(() => done())
     .catch(err => done(err))
@@ -74,7 +54,7 @@ describe('prepare-raw-module', function() {
   })
 
   after('remove temporary assets', function(done) {
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assets.fs('rootName')).then(() => done())
     .catch(err => done(err))
   })
 
@@ -103,7 +83,7 @@ describe('prepare-raw-module', function() {
       { scripts: { prepare: 'echo Harmless output' } },
       // Discovery: MUST give an existing path for the next arg,
       // else there is a mysterious ENOENT error
-      assets.root,
+      assets.fs('rootName'),
       // For the npa object, all that's needed is the 'raw' field
       { raw: dummySpec }
     ))
@@ -126,7 +106,7 @@ describe('prepare-raw-module', function() {
     setPrepareConfig({ output: goodMsg, error: badMsg })
     .then(() => prepRawModule(
       { scripts: { prepare: 'echo Harmless output' } },
-      assets.root,
+      assets.fs('rootName'),
       { raw: dummySpec }
     ))
     .then(() => { throw new Error(failedToReject_msg) })
@@ -153,7 +133,7 @@ describe('prepare-raw-module', function() {
     setPrepareConfig({ stderr: errMsg })
     .then(() => prepRawModule(
       { scripts: { prepare: 'echo Harmless output' } },
-      assets.root,
+      assets.fs('rootName'),
       { raw: dummySpec }
     ))
     .then(() => {
@@ -176,7 +156,7 @@ describe('prepare-raw-module', function() {
     })
     .then(() => prepRawModule(
       { scripts: { prepare: 'echo Harmless output' } },
-      assets.root,
+      assets.fs('rootName'),
       { raw: dummySpec }
     ))
     .then(() => { throw new Error(failedToReject_msg) })
