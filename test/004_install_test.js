@@ -21,20 +21,20 @@ const {
   errorCodes: ERRS
 } = require('../lib/constants')
 
+const assetsRootName = 'n2s_install'
 const assets = {
-  root: path.join(__dirname, 'tempAssets')
+  root: path.join(__dirname, assetsRootName),
+  get emptyDir () { return path.join(this.root, 'EMPTY_DIR') },
+  get wrongDir () { return path.join(this.root, 'not-npm') },
+  get npmDir () { return path.join(this.root, 'npm') },
+  get installDest () { return path.join(this.root, 'npm/lib') },
+  get n2sMockSrcPath () { return path.join(this.root, 'src') }
 }
-assets.emptyDir = path.join(assets.root, 'EMPTY_DIR')
-assets.wrongDir = path.join(assets.root, 'not-npm')
-assets.npmDir = path.join(assets.root, 'npm')
-assets.installDest = path.join(assets.npmDir, 'lib')
-assets.n2sMockLibPath = path.join(assets.root, 'lib')
-assets.n2sMockSrcPath = path.join(assets.root, 'src')
 
 const mock = {}
-const realSrcDir = path.resolve(__dirname, '..', 'src')
+const realSrcDir = path.resolve(__dirname, '../src')
 const wrongVersionPJFile = path.join(
-  __dirname, 'fixtures', 'npm-wrong-version-package.json'
+  __dirname, 'fixtures/npm-wrong-version-package.json'
 )
 
 const msgPatterns = [
@@ -58,24 +58,27 @@ describe('`install` module', function() {
   let n2sInstaller // The target module
 
   before('set up test directory', function(done) {
-    const fixtureLibPath = path.join(__dirname, 'fixtures', 'self-mocks', 'lib')
-    const targetModPath = path.join(assets.n2sMockLibPath, 'install.js')
+    const fixtureLibPath = path.join(__dirname, 'fixtures/self-mocks/lib')
+    const mockN2sLibPath = path.join(assets.root, 'lib')
+    const mocksRequirePrefix = `./${assetsRootName}/lib/`
+
     rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
     .then(() => graft(realSrcDir, assets.root))
     .then(() => graft(fixtureLibPath, assets.root))
     .then(() => copyFileAsync(
-      path.join(__dirname, '..', 'lib', 'install.js'), targetModPath
+      path.resolve(__dirname, '../lib/install.js'),
+      path.join(mockN2sLibPath, 'install.js')
     ))
     .then(() => {
-      mock.constants = require(path.join(assets.n2sMockLibPath, 'constants.js'))
-      mock.ft = require(path.join(assets.n2sMockLibPath, 'file-tools.js'))
-      mock.shared = require(path.join(assets.n2sMockLibPath, 'shared.js'))
-      n2sInstaller = require(targetModPath)
+      mock.constants = require(mocksRequirePrefix + 'constants.js')
+      mock.ft = require(mocksRequirePrefix + 'file-tools.js')
+      mock.shared = require(mocksRequirePrefix + 'shared.js')
+      n2sInstaller = require(mocksRequirePrefix + 'install.js')
     })
     .then(() => mkdirAsync(assets.emptyDir))
     .then(() => mkdirAsync(assets.wrongDir))
     .then(() => copyFileAsync(
-      path.join(__dirname, 'fixtures', 'dummy', 'package.json'),
+      path.join(__dirname, 'fixtures/dummy/package.json'),
       path.join(assets.wrongDir, 'package.json')
     ))
     .then(() => testTools.copyFreshMockNpmDir(assets.root))

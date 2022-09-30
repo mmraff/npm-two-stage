@@ -10,24 +10,17 @@ const mkdirAsync = promisify(fs.mkdir)
 const readdirAsync = promisify(fs.readdir)
 const writeFileAsync = promisify(fs.writeFile)
 
-// TODO: we ought to migrate to tap, just in case this stuff eventually
-// gets merged into npm, to make it more palatable to the npm maintainers.
 const expect = require('chai').expect
 const rimrafAsync = promisify(require('rimraf'))
 
 const ft = require('../lib/file-tools')
 
-// TODO: we must have a fixtures directory, with read-only contents,
-// and then a place to put temporary stuff that this suite generates.
-// We must keep them separate.
-const ASSETS_BASE = 'tempAssets'
-const CONTENT_DIRNAME = 'prunable'
 const assets = {
-  root: path.join(__dirname, ASSETS_BASE),
+  root: path.join(__dirname, 'n2s_fileTools'),
+  get srcDir () { return path.join(this.root, 'tempSrc') },
+  get destDir () { return path.join(this.root, 'tempDest') },
+  get pruneTarget () { return path.join(this.root, 'prunable') }
 }
-assets.srcDir = path.join(assets.root, 'tempSrc'),
-assets.destDir = path.join(assets.root, 'tempDest'),
-assets.pruneTarget = path.join(assets.root, CONTENT_DIRNAME)
 
 const notStringArgs = [ 42, true, {}, [], function(){} ]
 

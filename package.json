@@ -36,7 +36,9 @@
   },
   "scripts": {
     "test": "mocha test/01*.js",
+    "test-spec": "mocha",
     "coverage": "nyc npm run test",
+    "cover-spec": "nyc npm run test-spec",
     "backup": "tar czf ../npm2stage-6_backup.tgz --exclude-from=archive-excludes.txt --transform=\"s/^/project\\//\" *"
   },
   "nyc": {
@@ -44,6 +46,11 @@
       "lib/",
       "src/",
       "test/",
+      "!lib/file-tools.js",
+      "!test/n2s_shared/lib/shared.js",
+      "!test/n2s_install/lib/install.js",
+      "!test/n2s_uninstall/lib/uninstall.js",
+      "!test/n2s_status/lib/status.js",
       "!src/download/git-context.js",
       "!test/gitAux/npm/lib/download/git-aux.js",
       "!test/prepRawMod/npm/lib/prepare-raw-module.js",

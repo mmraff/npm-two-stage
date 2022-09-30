@@ -21,20 +21,20 @@ const {
   errorCodes: ERRS
 } = require('../lib/constants')
 
+const assetsRootName = 'n2s_uninstall'
 const assets = {
-  root: path.join(__dirname, 'tempAssets')
+  root: path.join(__dirname, assetsRootName),
+  get emptyDir () { return path.join(this.root, 'EMPTY_DIR') },
+  get wrongDir () { return path.join(this.root, 'not-npm') },
+  get npmDir () { return path.join(this.root, 'npm') },
+  get installDest () { return path.join(this.root, 'npm/lib') },
+  get n2sMockSrcPath () { return path.join(this.root, 'src') }
 }
-assets.emptyDir = path.join(assets.root, 'EMPTY_DIR')
-assets.wrongDir = path.join(assets.root, 'not-npm')
-assets.npmDir = path.join(assets.root, 'npm')
-assets.installDest = path.join(assets.npmDir, 'lib')
-assets.n2sMockLibPath = path.join(assets.root, 'lib')
-assets.n2sMockSrcPath = path.join(assets.root, 'src')
 
 const mock = {}
-const realSrcDir = path.resolve(__dirname, '..', 'src')
+const realSrcDir = path.resolve(__dirname, '../src')
 const wrongVersionPJFile = path.join(
-  __dirname, 'fixtures', 'npm-wrong-version-package.json'
+  __dirname, 'fixtures/npm-wrong-version-package.json'
 )
 
 const msgPatterns = [
@@ -55,26 +55,30 @@ function getDidNotReject() {
 }
 
 describe('`uninstall` module', function() {
-  let targetMod // The target module, uninstall.js
+  let uninstaller
 
   before('set up test directory', function(done) {
-    const fixtureLibPath = path.join(__dirname, 'fixtures', 'self-mocks', 'lib')
-    const targetModPath = path.join(assets.n2sMockLibPath, 'uninstall.js')
+    const fixtureLibPath = path.join(__dirname, 'fixtures/self-mocks/lib')
+    const mockN2sLibPath = path.join(assets.root, 'lib')
+    const mocksRequirePrefix = `./${assetsRootName}/lib/`
+    const uninstallerPath = path.join(mockN2sLibPath, 'uninstall.js')
+
     rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
     .then(() => graft(realSrcDir, assets.root))
     .then(() => graft(fixtureLibPath, assets.root))
     .then(() => copyFileAsync(
-      path.join(__dirname, '..', 'lib', 'uninstall.js'), targetModPath
+      path.join(__dirname, '../lib/uninstall.js'),
+      path.join(mockN2sLibPath, 'uninstall.js')
     ))
     .then(() => {
-      mock.constants = require(path.join(assets.n2sMockLibPath, 'constants.js'))
-      mock.shared = require(path.join(assets.n2sMockLibPath, 'shared.js'))
-      targetMod = require(targetModPath)
+      mock.constants = require(mocksRequirePrefix + 'constants.js')
+      mock.shared = require(mocksRequirePrefix + 'shared.js')
+      uninstaller = require(mocksRequirePrefix + 'uninstall.js')
     })
     .then(() => mkdirAsync(assets.emptyDir))
     .then(() => mkdirAsync(assets.wrongDir))
     .then(() => copyFileAsync(
-      path.join(__dirname, 'fixtures', 'dummy', 'package.json'),
+      path.join(__dirname, 'fixtures/dummy/package.json'),
       path.join(assets.wrongDir, 'package.json')
     ))
     .then(() => testTools.copyFreshMockNpmDir(assets.root))
@@ -88,19 +92,19 @@ describe('`uninstall` module', function() {
   })
 
   it('should export an emitter named `uninstallProgress`', function() {
-    expect(targetMod).to.have.property('uninstallProgress')
+    expect(uninstaller).to.have.property('uninstallProgress')
     .that.is.an.instanceof(Emitter)
   })
 
   it('should export a function named `uninstall`', function() {
-    expect(targetMod).to.have.property('uninstall').that.is.a('function')
+    expect(uninstaller).to.have.property('uninstall').that.is.a('function')
   })
 
   describe('`uninstall` function', function() {
     const messages = []
 
     before('setup for all `uninstall` tests', function() {
-      targetMod.uninstallProgress.on('msg', (msg) => messages.push(msg))
+      uninstaller.uninstallProgress.on('msg', (msg) => messages.push(msg))
     })
 
     afterEach('per-item teardown', function() {
@@ -108,12 +112,12 @@ describe('`uninstall` module', function() {
     })
 
     after('teardown after all `uninstall` tests', function() {
-      targetMod.uninstallProgress.removeAllListeners()
+      uninstaller.uninstallProgress.removeAllListeners()
     })
 
     it('should reject if checking the npm version at the target gets a rejection', function(done) {
       mock.shared.setErrorState('expectCorrectNpmVersion', true, 'ENOENT')
-      targetMod.uninstall(path.join(assets.root, 'NOSUCHDIR'))
+      uninstaller.uninstall(path.join(assets.root, 'NOSUCHDIR'))
       .then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('expectCorrectNpmVersion', false)
@@ -132,7 +136,7 @@ describe('`uninstall` module', function() {
     */
     it('should reject if global npm is the target and has wrong version', function(done) {
       mock.shared.setErrorState('expectCorrectNpmVersion', true)
-      targetMod.uninstall().then(() => { throw getDidNotReject() })
+      uninstaller.uninstall().then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('expectCorrectNpmVersion', false)
         expectStandardMessages(messages, 1)
@@ -147,7 +151,7 @@ describe('`uninstall` module', function() {
         path.join(assets.wrongDir, 'package.json')
       )
       // Here there's a package.json to check, but not a lib dir to chdir into
-      .then(() => targetMod.uninstall(assets.wrongDir))
+      .then(() => uninstaller.uninstall(assets.wrongDir))
       .then(() => { throw getDidNotReject() })
       .catch(err => {
         expect(err.exitcode).to.equal(ERRS.BAD_NPM_INST)
@@ -162,7 +166,7 @@ describe('`uninstall` module', function() {
       // Pick up where we left off with the incomplete mock npm installation
       mkdirAsync(path.join(assets.wrongDir, 'lib'))
       // Now at least uninstall() can chdir into lib...
-      .then(() => targetMod.uninstall(assets.wrongDir))
+      .then(() => uninstaller.uninstall(assets.wrongDir))
       .then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('removeAddedItems', false)
@@ -175,7 +179,7 @@ describe('`uninstall` module', function() {
 
     it('should reject if shared.restoreBackups() rejects', function(done) {
       mock.shared.setErrorState('restoreBackups', true, 'ENOENT')
-      targetMod.uninstall(assets.wrongDir)
+      uninstaller.uninstall(assets.wrongDir)
       .then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('restoreBackups', false)
@@ -187,7 +191,7 @@ describe('`uninstall` module', function() {
     })
 
     it('should succeed given expected conditions at the target', function(done) {
-      targetMod.uninstall(assets.wrongDir)
+      uninstaller.uninstall(assets.wrongDir)
       .then(() => {
         expectStandardMessages(messages, 4)
         done()

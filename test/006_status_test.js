@@ -19,16 +19,16 @@ const {
   errorCodes: ERRS
 } = require('../lib/constants')
 
+const assetsRootName = 'n2s_status'
 const assets = {
-  root: path.join(__dirname, 'tempAssets')
+  root: path.join(__dirname, assetsRootName),
+  get wrongDir () { return path.join(this.root, 'not-npm') },
+  get npmDir () { return path.join(this.root, 'npm') },
+  get installDest () { return path.join(this.root, 'npm/lib') }
 }
-assets.wrongDir = path.join(assets.root, 'not-npm')
-assets.npmDir = path.join(assets.root, 'npm')
-assets.installDest = path.join(assets.npmDir, 'lib')
-assets.n2sMockLibPath = path.join(assets.root, 'lib')
 
 const mock = {}
-const realSrcDir = path.resolve(__dirname, '..', 'src')
+const realSrcDir = path.resolve(__dirname, '../src')
 
 const msgPatterns = [
   /^Checking npm version/,
@@ -104,26 +104,27 @@ function copySrcDirsHere() { // ditto
   return nextDir(0)
 }
 
-
-
 function getDidNotReject() {
   return new Error('Failed to get expected rejection')
 }
 
 describe('`status` module', function() {
-  let targetMod // The target module, status.js
+  let statusMod // The target module, status.js
 
   before('set up test directory', function(done) {
-    const fixtureLibPath = path.join(__dirname, 'fixtures', 'self-mocks', 'lib')
-    const targetModPath = path.join(assets.n2sMockLibPath, 'status.js')
+    const fixtureLibPath = path.join(__dirname, 'fixtures/self-mocks/lib')
+    const mockN2sLibPath = path.join(assets.root, 'lib')
+    const mocksRequirePrefix = `./${assetsRootName}/lib/`
+
     rimrafAsync(assets.root).then(() => mkdirAsync(assets.root))
     .then(() => graft(fixtureLibPath, assets.root))
     .then(() => copyFileAsync(
-      path.join(__dirname, '..', 'lib', 'status.js'), targetModPath
+      path.resolve(__dirname, '../lib/status.js'),
+      path.join(mockN2sLibPath, 'status.js')
     ))
     .then(() => {
-      mock.shared = require(path.join(assets.n2sMockLibPath, 'shared.js'))
-      targetMod = require(targetModPath)
+      mock.shared = require(mocksRequirePrefix + 'shared.js')
+      statusMod = require(mocksRequirePrefix + 'status.js')
     })
     .then(() => mkdirAsync(assets.wrongDir))
     .then(() => testTools.copyFreshMockNpmDir(assets.root))
@@ -137,19 +138,19 @@ describe('`status` module', function() {
   })
 
   it('should export an emitter named `statusProgress`', function() {
-    expect(targetMod).to.have.property('statusProgress')
+    expect(statusMod).to.have.property('statusProgress')
     .that.is.an.instanceof(Emitter)
   })
 
   it('should export a function named `getStatus`', function() {
-    expect(targetMod).to.have.property('getStatus').that.is.a('function')
+    expect(statusMod).to.have.property('getStatus').that.is.a('function')
   })
 
   describe('`getStatus` function', function() {
     const messages = []
 
     before('setup for all `getStatus` tests', function() {
-      targetMod.statusProgress.on('msg', (msg) => messages.push(msg))
+      statusMod.statusProgress.on('msg', (msg) => messages.push(msg))
     })
 
     afterEach('per-item teardown', function() {
@@ -157,12 +158,12 @@ describe('`status` module', function() {
     })
 
     after('teardown after all `getStatus` tests', function() {
-      targetMod.statusProgress.removeAllListeners()
+      statusMod.statusProgress.removeAllListeners()
     })
 
     it('should reject if checking the npm version at the target gets a rejection', function(done) {
       mock.shared.setErrorState('expectCorrectNpmVersion', true, 'ENOENT')
-      targetMod.getStatus(path.join(assets.root, 'NOSUCHDIR'))
+      statusMod.getStatus(path.join(assets.root, 'NOSUCHDIR'))
       .then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('expectCorrectNpmVersion', false)
@@ -177,7 +178,7 @@ describe('`status` module', function() {
       mock.shared.setErrorState(
         'expectCorrectNpmVersion', true, undefined, ERRS.WRONG_NPM_VER
       )
-      targetMod.getStatus().then(() => { throw getDidNotReject() })
+      statusMod.getStatus().then(() => { throw getDidNotReject() })
       .catch(err => {
         mock.shared.setErrorState('expectCorrectNpmVersion', false)
         expectStandardMessages(messages, 2, [null, 'failure'])
@@ -190,7 +191,7 @@ describe('`status` module', function() {
       // This is only for coverage.
       // We can get away with the following regardless of the version of the
       // actual global npm, because we're mocking expectCorrectNpmVersion
-      targetMod.getStatus().then(() => done())
+      statusMod.getStatus().then(() => done())
       .catch(err => done(err))
     })
 
@@ -200,7 +201,7 @@ describe('`status` module', function() {
         path.join(assets.wrongDir, 'package.json')
       )
       // Here there's a package.json to check, but not a lib dir to chdir into
-      .then(() => targetMod.getStatus(assets.wrongDir))
+      .then(() => statusMod.getStatus(assets.wrongDir))
       .then(() => { throw getDidNotReject() })
       .catch(err => {
         expect(err.exitcode).to.equal(ERRS.BAD_NPM_INST)
@@ -214,7 +215,7 @@ describe('`status` module', function() {
       // Pick up where we left off with the incomplete mock npm installation
       mkdirAsync(path.join(assets.wrongDir, 'lib'))
       // Now at least getStatus() can chdir into lib...
-      .then(() => targetMod.getStatus(assets.wrongDir))
+      .then(() => statusMod.getStatus(assets.wrongDir))
       .then(() => {
         expectStandardMessages(messages, 7, [ null, 'success', 'none', 'some', 'none', 'bad' ])
         done()
@@ -223,7 +224,7 @@ describe('`status` module', function() {
     })
 
     it('should emit appropriate messages when the target is a fresh complete npm installation', function(done) {
-      targetMod.getStatus(assets.npmDir)
+      statusMod.getStatus(assets.npmDir)
       .then(() => {
         expectStandardMessages(messages, 6, [ null, 'success', 'none', 'none', 'none', 'not' ])
         done()
@@ -239,7 +240,7 @@ describe('`status` module', function() {
       .then(() => copySrcDirsHere())
       .then(() => {
         process.chdir(startDir)
-        return targetMod.getStatus(assets.npmDir)
+        return statusMod.getStatus(assets.npmDir)
       })
       .then(() => {
         expectStandardMessages(messages, 6, [ null, 'success', 'all', 'none', 'all', 'full' ])
@@ -255,7 +256,7 @@ describe('`status` module', function() {
       const choice = TGTS.CHANGED_FILES[TGTS.CHANGED_FILES.length - 1]
       const choicePath = path.join(assets.installDest, `${choice}${BAKFLAG}.js`)
       unlinkAsync(choicePath)
-      .then(() => targetMod.getStatus(assets.npmDir))
+      .then(() => statusMod.getStatus(assets.npmDir))
       .then(() => {
         expectStandardMessages(messages, 7, [ null, 'success', 'some', 'none', 'all', 'partial' ])
         done()
@@ -267,7 +268,7 @@ describe('`status` module', function() {
       const choice = TGTS.ADDED_FILES[TGTS.ADDED_FILES.length - 1]
       const choicePath = path.join(assets.installDest, choice + '.js')
       unlinkAsync(choicePath)
-      .then(() => targetMod.getStatus(assets.npmDir))
+      .then(() => statusMod.getStatus(assets.npmDir))
       .then(() => {
         expectStandardMessages(messages, 8, [ null, 'success', 'some', 'none', 'some', 'partial' ])
         done()

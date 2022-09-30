@@ -15,17 +15,11 @@ const { expect } = require('chai')
 
 const testTools = require('./lib/tools')
 
-const assets = {
-  root: path.join(__dirname, 'tempAssets'),
-  libFiles: [ 'constants.js', 'file-tools.js', 'shared.js' ]
-}
-assets.n2sMockLibPath = path.join(assets.root, 'lib')
-assets.constants = path.join(assets.n2sMockLibPath, 'constants.js')
-assets.fileTools = path.join(assets.n2sMockLibPath, 'file-tools.js')
-assets.shared = path.join(assets.n2sMockLibPath, 'shared.js')
+const assetsRootName = 'n2s_shared'
+const assetsRoot = path.join(__dirname, assetsRootName)
 
 const mock = {}
-const mockNpmTarget = path.join(assets.root, 'npm')
+const mockNpmTarget = path.join(assetsRoot, 'npm')
 
 const {
   targetVersion: EXPECTED_NPM_VER,
@@ -53,23 +47,28 @@ describe('`shared` module', function() {
   let shared // The target module
 
   before('set up temp assets', function(done) {
-    const fixtureLibPath = path.join(__dirname, 'fixtures', 'self-mocks', 'lib')
-    rimrafAsync(assets.root)
+    const fixtureLibPath = path.join(__dirname, 'fixtures/self-mocks/lib')
+    const mockN2sLibPath = path.join(assetsRoot, 'lib')
+    const mocksRequirePrefix = `./${assetsRootName}/lib/`
+    rimrafAsync(assetsRoot)
     .catch(err => { if (err.code != 'ENOENT') throw err })
-    .then(() => mkdirpAsync(assets.n2sMockLibPath))
+    .then(() => mkdirpAsync(mockN2sLibPath))
     .then(() => copyFileAsync(
-      path.join(fixtureLibPath, 'constants.js'), assets.constants
+      path.join(fixtureLibPath, 'constants.js'),
+      path.join(mockN2sLibPath, 'constants.js')
     ))
     .then(() => copyFileAsync(
-      path.join(fixtureLibPath, 'file-tools.js'), assets.fileTools
+      path.join(fixtureLibPath, 'file-tools.js'),
+      path.join(mockN2sLibPath, 'file-tools.js')
     ))
     .then(() => copyFileAsync(
-      path.join(__dirname, '..', 'lib', 'shared.js'), assets.shared
+      path.resolve(__dirname, '../lib/shared.js'),
+      path.join(mockN2sLibPath, 'shared.js')
     ))
     .then(() => {
-      mock.constants = require(assets.constants)
-      mock.ft = require(assets.fileTools)
-      shared = require(assets.shared)
+      mock.constants = require(mocksRequirePrefix + 'constants.js')
+      mock.ft = require(mocksRequirePrefix + 'file-tools.js')
+      shared = require(mocksRequirePrefix + 'shared.js')
     })
     .then(() => mkdirpAsync(path.join(mockNpmTarget, 'lib')))
     .then(() => done())
@@ -77,7 +76,7 @@ describe('`shared` module', function() {
   })
 
   after('tear down temp assets', function(done) {
-    rimrafAsync(assets.root).then(() => done())
+    rimrafAsync(assetsRoot).then(() => done())
     .catch(err => done(err))
   })
 
@@ -300,7 +299,7 @@ describe('`shared` module', function() {
     it('should succeed if all expected backup files are present and accessible', function(done) {
       const startDir = process.cwd()
       rimrafAsync(mockNpmTarget)
-      .then(() => testTools.copyFreshMockNpmDir(assets.root))
+      .then(() => testTools.copyFreshMockNpmDir(assetsRoot))
       .then(() => {
         process.chdir(path.join(mockNpmTarget, 'lib'))
         return makeMockBackups(0)
