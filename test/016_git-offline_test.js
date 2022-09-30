@@ -1,9 +1,5 @@
 const child_process = require('child_process')
 const originalExecFile = child_process.execFile
-// Monkey patch! To prevent spawning of executables in these tests
-child_process.execFile = function(file, args, opts, cb) {
-  cb(null, { stdout: 'howdy\n', stderr: '' })
-}
 const fs = require('fs')
 const path = require('path')
 const { promisify } = require('util')
@@ -65,6 +61,10 @@ describe('git-offline module', function() {
       )
     })
     .then(() => {
+      // Monkey patch! To prevent spawning of executables in these tests
+      child_process.execFile = function(file, args, opts, cb) {
+        cb(null, { stdout: 'howdy\n', stderr: '' })
+      }
       gitOffline = require(assets.npmLib + '/git-offline.js')
       done()
     })
