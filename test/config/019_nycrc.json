@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/download/npm/lib/download.js",
-    "lib/",
-    "src/"
-  ]
-}

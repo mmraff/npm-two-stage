@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/gitOffline/npm/lib/git-offline.js",
-    "lib/",
-    "src/"
-  ]
-}

@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/prepRawMod/npm/lib/prepare-raw-module.js",
-    "lib/",
-    "src/"
-  ]
-}

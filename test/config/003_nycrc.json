@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "!test/tempAssets/lib/*.js",
-    "lib/",
-    "test/*.js",
-    "test/lib/"
-  ]
-}

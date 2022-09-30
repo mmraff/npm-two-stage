@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/gitAux/npm/lib/download/git-aux.js",
-    "lib/",
-    "src/"
-  ]
-}

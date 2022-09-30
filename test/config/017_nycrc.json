@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/offliner/npm/lib/offliner.js",
-    "lib/",
-    "src/"
-  ]
-}

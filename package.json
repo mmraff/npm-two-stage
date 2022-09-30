@@ -35,8 +35,23 @@
     "npm2stage": "./npm2stage.js"
   },
   "scripts": {
-    "test": "bash test/batchtest.sh",
+    "test": "mocha test/01*.js",
+    "coverage": "nyc npm run test",
     "backup": "tar czf ../npm2stage-6_backup.tgz --exclude-from=archive-excludes.txt --transform=\"s/^/project\\//\" *"
+  },
+  "nyc": {
+    "exclude": [
+      "lib/",
+      "src/",
+      "test/",
+      "!src/download/git-context.js",
+      "!test/gitAux/npm/lib/download/git-aux.js",
+      "!test/prepRawMod/npm/lib/prepare-raw-module.js",
+      "!test/gitOffline/npm/lib/git-offline.js",
+      "!test/offliner/npm/lib/offliner.js",
+      "!test/fetchPkgMeta/npm/lib/fetch-package-metadata.js",
+      "!test/download/npm/lib/download.js"
+    ]
   },
   "dependencies": {
     "commander": "^6.2.1"

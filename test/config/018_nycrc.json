@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/fetchPkgMeta/npm/lib/fetch-package-metadata.js",
-    "lib/",
-    "src/"
-  ]
-}

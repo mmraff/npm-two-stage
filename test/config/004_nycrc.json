@@ -1,8 +1,0 @@
-{
-  "exclude": [
-    "test/",
-    "!test/tempAssets/lib/install.js",
-    "lib/",
-    "src/"
-  ]
-}
