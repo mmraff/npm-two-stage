@@ -1,6 +1,6 @@
 {
   "name": "npm-two-stage",
-  "version": "0.1.0",
+  "version": "6.0.1",
   "description": "Divide `npm install` into download and offline-install stages",
   "author": "Matthew Rafferty <mmraff@gmail.com>",
   "license": "Artistic-2.0",
@@ -17,22 +17,15 @@
     "download",
     "install",
     "offline",
-    "modules",
     "packages",
     "package manager",
-    "air-gap",
-    "sneakernet"
+    "air-gap"
   ],
   "engines": {
     "node": ">=8.10.0"
   },
-  "main": "npm2stage.js",
   "directories": {
-    "lib": "lib",
     "src": "src"
-  },
-  "bin": {
-    "npm2stage": "./npm2stage.js"
   },
   "scripts": {
     "test": "mocha test/01*.js",
@@ -43,14 +36,8 @@
   },
   "nyc": {
     "exclude": [
-      "lib/",
       "src/",
       "test/",
-      "!lib/file-tools.js",
-      "!test/n2s_shared/lib/shared.js",
-      "!test/n2s_install/lib/install.js",
-      "!test/n2s_uninstall/lib/uninstall.js",
-      "!test/n2s_status/lib/status.js",
       "!src/download/git-context.js",
       "!test/gitAux/npm/lib/download/git-aux.js",
       "!test/prepRawMod/npm/lib/prepare-raw-module.js",
@@ -60,12 +47,7 @@
       "!test/download/npm/lib/download.js"
     ]
   },
-  "dependencies": {
-    "commander": "^6.2.1"
-  },
-  "bundleDependencies": [
-    "commander"
-  ],
+  "dependencies": {},
   "devDependencies": {
     "aproba": "^2.0.0",
     "call-limit": "^1.1.1",
