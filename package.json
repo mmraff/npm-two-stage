@@ -24,9 +24,9 @@
   "engines": {
     "node": ">=8.10.0"
   },
-  "directories": {
-    "src": "src"
-  },
+  "files": [
+    "src/**/*.js"
+  ],
   "scripts": {
     "test": "mocha test/01*.js",
     "test-spec": "mocha",
