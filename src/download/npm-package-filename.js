@@ -179,7 +179,8 @@ function makeTarballName(data) {
     case 'url':
       expectNonemptyString(data.url, 'url property')
       const u = url.parse(data.url)
-      if (!(u.protocol && u.slashes && u.host && u.path) || u.path === '/' || u.href !== data.url)
+      if (!(u.protocol && u.slashes && u.host && u.path)
+          || u.path === '/' || u.href !== data.url)
         throw new Error('value given for url does not look usable')
       raw = u.host + u.path
       if (!hasTarballExt(raw)) raw += defaultExt

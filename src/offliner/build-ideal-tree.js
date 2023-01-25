@@ -1,7 +1,16 @@
 /*
   Based on @npmcli/arborist/lib/arborist/build-ideal-tree.js,
   modified for offline stage of npm-two-stage.
+  * reloc = relocation adjustment of a require()
+  * add = addition specific to npm-two-stage
 */
+
+// This item is to allow this modified version of build-ideal-tree.js to be
+// dropped into @npmcli/arborist, replacing the original version when the tests
+// are run, to demonstrate that it breaks no tests in that context:
+/* istanbul ignore next */
+const N2S_REQ_PREFIX =
+  process.env.NPM2STAGE_IN_ARBORIST_TEST ? '..' : '@npmcli/arborist/lib'
 
 // mixin implementing the buildIdealTree method
 const rpj = require('read-package-json-fast')
@@ -9,11 +18,11 @@ const npa = require('npm-package-arg')
 const pacote = require('pacote')
 const cacache = require('cacache')
 const promiseCallLimit = require('promise-call-limit')
-const realpath = require('@npmcli/arborist/lib/realpath.js')
+const realpath = require(N2S_REQ_PREFIX + '/realpath.js') // reloc
 const path = require('path')
 const { resolve, dirname } = path
 const { promisify } = require('util')
-const treeCheck = require('@npmcli/arborist/lib/tree-check.js')
+const treeCheck = require(N2S_REQ_PREFIX + '/tree-check.js') // reloc
 const readdir = promisify(require('readdir-scoped-modules'))
 const fs = require('fs')
 const lstat = promisify(fs.lstat)
@@ -24,22 +33,23 @@ const {
   OK,
   REPLACE,
   CONFLICT,
-} = require('@npmcli/arborist/lib/can-place-dep.js')
-const PlaceDep = require('@npmcli/arborist/lib/place-dep.js')
+} = require(N2S_REQ_PREFIX + '/can-place-dep.js') // reloc
+const PlaceDep = require(N2S_REQ_PREFIX + '/place-dep.js') // reloc
 
-const debug = require('@npmcli/arborist/lib/debug.js')
-const fromPath = require('@npmcli/arborist/lib/from-path.js')
-const calcDepFlags = require('@npmcli/arborist/lib/calc-dep-flags.js')
-const Shrinkwrap = require('@npmcli/arborist/lib/shrinkwrap.js')
-const Node = require('@npmcli/arborist/lib/node.js')
-const Link = require('@npmcli/arborist/lib/link.js')
-const addRmPkgDeps = require('@npmcli/arborist/lib/add-rm-pkg-deps.js')
-const optionalSet = require('@npmcli/arborist/lib/optional-set.js')
+const debug = require(N2S_REQ_PREFIX + '/debug.js') // reloc
+const fromPath = require(N2S_REQ_PREFIX + '/from-path.js') // reloc
+const calcDepFlags = require(N2S_REQ_PREFIX + '/calc-dep-flags.js') // reloc
+const Shrinkwrap = require(N2S_REQ_PREFIX + '/shrinkwrap.js') // reloc
+const Node = require(N2S_REQ_PREFIX + '/node.js') // reloc
+const Link = require(N2S_REQ_PREFIX + '/link.js') // reloc
+const addRmPkgDeps = require(N2S_REQ_PREFIX + '/add-rm-pkg-deps.js') // reloc
+const optionalSet = require(N2S_REQ_PREFIX + '/optional-set.js') // reloc
 const {checkEngine, checkPlatform} = require('npm-install-checks')
 
-const gitTrackerKeys = require('../download/git-tracker-keys')
+const gitTrackerKeys = require('../download/git-tracker-keys') // add
+const consistentResolve = require(N2S_REQ_PREFIX + '/consistent-resolve') // add
 
-const relpath = require('@npmcli/arborist/lib/relpath.js')
+const relpath = require(N2S_REQ_PREFIX + '/relpath.js') // reloc
 
 // note: some of these symbols are shared so we can hit
 // them with unit tests and reuse them across mixins
@@ -79,7 +89,7 @@ const _queueNamedUpdates = Symbol('queueNamedUpdates')
 const _queueVulnDependents = Symbol('queueVulnDependents')
 const _avoidRange = Symbol('avoidRange')
 const _shouldUpdateNode = Symbol('shouldUpdateNode')
-const resetDepFlags = require('@npmcli/arborist/lib/reset-dep-flags.js')
+const resetDepFlags = require(N2S_REQ_PREFIX + '/reset-dep-flags.js') // reloc
 const _loadFailures = Symbol('loadFailures')
 const _pruneFailedOptional = Symbol('pruneFailedOptional')
 const _linkNodes = Symbol('linkNodes')
@@ -100,8 +110,8 @@ const _checkEngine = Symbol('checkEngine')
 const _checkPlatform = Symbol('checkPlatform')
 const _virtualRoots = Symbol('virtualRoots')
 const _virtualRoot = Symbol('virtualRoot')
-const _getDownloadData = Symbol('getDownloadData')
-const _fixNpaMangling = Symbol('fixNpaMangling')
+const _getDownloadData = Symbol('getDownloadData') // add
+const _fixNpaMangling = Symbol('fixNpaMangling') // add
 
 const _failPeerConflict = Symbol('failPeerConflict')
 const _explainPeerConflict = Symbol('explainPeerConflict')
@@ -114,7 +124,8 @@ const _force = Symbol.for('force')
 const _explicitRequests = Symbol('explicitRequests')
 const _global = Symbol.for('global')
 const _idealTreePrune = Symbol.for('idealTreePrune')
-const _downloadMap = Symbol.for('downloadMap')
+const _isOffline = Symbol.for('isOffline') // add
+const _downloadMap = Symbol.for('downloadMap') // add
 
 module.exports = cls => class IdealTreeBuilder extends cls {
   constructor (options) {
@@ -134,7 +145,22 @@ module.exports = cls => class IdealTreeBuilder extends cls {
       packageLock = true,
       strictPeerDeps = false,
       workspaces = [],
+      offline = false,
     } = options
+
+    /* istanbul ignore next: only when inserting into arborist test suite */
+    if (process.env.NPM2STAGE_IN_ARBORIST_TEST) {
+      // MMR TODO:
+      // Currently, these two items are attached to the AltArborist instance
+      // right after it's created in install.js.
+      // Ultimately, we want to pass them in opts; but in the current case,
+      // ad hoc insertion of this file and its extra dependencies into the
+      // arborist test suite, it would require changing that test suite,
+      // which I'm not inclined to do yet.
+      const dlt = require('../download/dltracker')
+      this.dltTypeMap = dlt.typeMap
+      this.dlTracker = dlt.createSync() // TODO: find a way to pass potential offline-dir
+    }
 
     this[_workspaces] = workspaces || []
     this[_force] = !!force
@@ -172,7 +198,10 @@ module.exports = cls => class IdealTreeBuilder extends cls {
     // don't hold onto references for nodes that are garbage collected.
     this[_peerSetSource] = new WeakMap()
     this[_virtualRoots] = new Map()
-    this[_downloadMap] = {}
+    if (offline) {
+      this[_isOffline] = true
+      this[_downloadMap] = {}
+    }
   }
 
   get explicitRequests () {
@@ -513,6 +542,7 @@ module.exports = cls => class IdealTreeBuilder extends cls {
   }
 
   [_getDownloadData] (spec) {
+    /* istanbul ignore if: should be impossible */
     if (spec.type == 'file' || spec.type == 'directory')
       throw new Error(`package type '${spec.type}' must not be used here`)
 
@@ -522,12 +552,14 @@ module.exports = cls => class IdealTreeBuilder extends cls {
       spec.type = 'range'
     }
     const dltType = this.dltTypeMap[spec.type]
+    /* istanbul ignore if: should be impossible */
     if (!dltType)
       throw new Error(`Unhandled spec type "${spec.type}", package spec ${spec.raw}`)
 
     let dlData
     if (dltType != 'git') {
       const name = dltType == 'url' ? null : spec.name
+      /* istanbul ignore next */
       dlData = this.dlTracker.getData(dltType, name, spec.fetchSpec || spec.rawSpec)
     }
     else {
@@ -541,6 +573,7 @@ module.exports = cls => class IdealTreeBuilder extends cls {
   }
 
   [_fixNpaMangling] (spec) {
+    /* istanbul ignore if: should be impossible */
     if (spec.type != 'file')
       throw new Error(`Only 'file' type spec can be used here (received '${spec.type}')`)
     const filename = path.basename(spec.raw)
@@ -558,9 +591,8 @@ module.exports = cls => class IdealTreeBuilder extends cls {
     }
 
     let altSpec = { ...spec }
-    let dltData
-    if (spec.type != 'file') {
-      dltData = this[_getDownloadData](spec)
+    if (this[_isOffline] && spec.type != 'file') {
+      const dltData = this[_getDownloadData](spec)
       altSpec = npa(path.join(this.dlTracker.path, dltData.filename))
       this[_fixNpaMangling](altSpec)
     }
@@ -1236,20 +1268,29 @@ This is a one-time fix-up, please be patient...
 
       let altSpec = { ...spec }
       let dltData
-      if (spec.type != 'file') {
+      if (this[_isOffline] && spec.type != 'file') {
         dltData = this[_getDownloadData](spec)
         altSpec = npa(path.join(this.dlTracker.path, dltData.filename))
         this[_fixNpaMangling](altSpec)
-        // This will be crucial in reify.js:
-        this[_downloadMap][dltData._resolved || spec.rawSpec] = altSpec.raw
+        /*
+          This will be crucial in reify.js:
+          Supposedly, dltData._resolved (where there is one) comes from a
+          reliable source, like a pacote fetcher; but in fact there's more 
+          than one way to get a _resolved value set in a dltracker.json file,
+          including by hand. Luckily, a trustworthy value can be reconstructed,
+          as demonstrated in arborist's consistent-resolve.js (used by arborist
+          node.js).
+        */
+        const newResolved = consistentResolve(dltData._resolved || spec.rawSpec)
+        this[_downloadMap][newResolved] = altSpec.raw
       }
       const p = pacote.manifest(altSpec, options)
         .then(mani => {
           if (dltData) {
             mani._from = dltData._from || spec.rawSpec
-            mani._resolved = dltData._resolved || spec.raw // TODO: is spec.raw the right thing to use here?
+            mani._resolved = dltData._resolved || spec.raw
           }
-          this[_manifests].set(spec.raw, mani) // TODO: ditto
+          this[_manifests].set(spec.raw, mani)
           return mani
         })
       this[_manifests].set(spec.raw, p)

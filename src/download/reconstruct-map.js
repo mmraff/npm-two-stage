@@ -37,6 +37,7 @@ function iterateAndAdd(itemList, map, log) {
         table = map.url
         version = parsed.url
         break
+      /* istanbul ignore next: npf does not yet parse any type other than above */
       default:
         log.warn('DownloadTracker', `unrecognized parsed type '${parsed.type}'`)
         continue

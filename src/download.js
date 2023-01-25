@@ -5,14 +5,14 @@ const url = require('url')
 const util = require('util')
 
 // 3rd party
-const log = require('npmlog') // TODO: might be obligated to switch to npm.log instance
+const log = require('npmlog')
 const mkdirp = require('mkdirp')
 const pacote = require('pacote')
 const rimraf = require('rimraf')
 
 // npm/download internals
 const BaseCommand = require('./base-command')
-const cfg = require('./download/config')
+//const cfg = require('./download/config')
 const dltFactory = require('./download/dltracker')
 const npf = require('./download/npm-package-filename')
 const {
@@ -22,26 +22,30 @@ const {
 } = require('./download/item-agents')
 
 class Download extends BaseCommand {
+// TODO: load-all-commands should be made part of our integration test:
+  /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get description () {
     return 'Download package(s) and dependencies as tarballs'
   }
 
+  /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get name () {
     return 'download'
   }
 
-  // TODO: find out how Options get listed with shorthands and aliases for npm commands!
-  // TODO: remove the deprecated ones from below; add new ones (e.g., package-lock)
+  /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get params () {
     return [
       'dl-dir',
       'include',
       'omit',
       'only',
-      'package-json'
+      'package-json',
+      'package-lock'
     ]
   }
 
+  /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get usage () {
     return [
       '[<@scope>/]<pkg>',
@@ -79,18 +83,29 @@ class Download extends BaseCommand {
   download(args, cb) {
     log.silly('download', 'args:', args)
 
+    const self = this
+    // TODO: flatOpts is currently experimental. We're adding it because of
+    // the need to set an alternate (mock) registry for testing.
+    const flatOpts = {
+      ...this.npm.flatOptions,
+      log: this.npm.log,
+      auditLevel: null, // Not used in pacote! TODO: eliminate?
+      workspaces: this.workspaceNames // TODO: ditto.
+      // TODO: look into adding cache property, tempCache as the value
+    }
     const cmdOpts = {
       dlDir: this.npm.config.get('dl-dir'),
       phantom: this.npm.config.get('dl-phantom'), // Still unimplemented
     }
 
     const optInclude = this.npm.config.get('include')
+    const optOmit = this.npm.config.get('omit')
+    if (!optInclude.includes('optional') && optOmit.includes('optional'))
+      cmdOpts.noOptional = true
     if (optInclude.includes('dev')) cmdOpts.includeDev = true
     if (optInclude.includes('peer')) cmdOpts.includePeer = true
     // definitions.js addresses problem of '--omit' args also given
     // as '--include' args, so we don't worry about that here.
-    const optOmit = this.npm.config.get('omit')
-    if (optOmit.includes('optional')) cmdOpts.noOptional = true
 
     // --only: deprecated.
     // There's support for it (in definitions.js), but the only values
@@ -120,11 +135,13 @@ class Download extends BaseCommand {
       this.npm.config.get('pj') || this.npm.config.get('J')
     if (optPj) {
       cmdOpts.packageJson = typeof optPj == 'boolean' ? './' : optPj
-      cmdOpts.packageJson.replace(/package\.json$/, '')
+      const pjFilePattern = /package\.json$/
+      if (pjFilePattern.test(cmdOpts.packageJson))
+        cmdOpts.packageJson = cmdOpts.packageJson.replace(pjFilePattern, '')
       if (!cmdOpts.packageJson) cmdOpts.packageJson = './'
     }
 
-    if (!(cmdOpts.packageJson || (args && args.length > 0))) {
+    if (!cmdOpts.packageJson && (!args || args.length == 0)) {
       return cb(new SyntaxError([
         'No packages named for download.',
         'Maybe you want to use the package-json option?',
@@ -144,24 +161,30 @@ class Download extends BaseCommand {
       )
     }
 
-    const tempCache = path.join(cmdOpts.dlDir || '.', 'dl-temp-cache')
-    cfg.set('cache', tempCache)
-    cfg.set('log', log)
-    cfg.set('opts', cmdOpts)
+    // INTEGRATION TEST shows that the last component of this path is not 
+    // honored by pacote fetcher.js, which passes path.dirname() of the value
+    // from opts.cache to the child_process:
+    const tempCache = path.join(cmdOpts.dlDir || '.', 'dl-temp', 'cache')
+    flatOpts.cache = tempCache
 
     let statsMsgs = ''
 
     dltFactory.create(cmdOpts.dlDir, { log: log }).then(newTracker => {
       log.info('download', 'established download path:', newTracker.path)
-      cfg.set('dlTracker', newTracker)
-      cfg.freeze()
+      self.dlTracker = newTracker
       return mkdirp(tempCache)
     })
     .then(() => {
       if (!cmdOpts.packageJson) return []
 
-      return pacote.manifest(cmdOpts.packageJson).then(mani => {
-        return processDependencies(mani, { topLevel: true })
+      return pacote.manifest(cmdOpts.packageJson, { ...flatOpts })
+      .then(mani => {
+        return processDependencies(mani, {
+          topLevel: true,
+          cmd: cmdOpts,
+          dlTracker: self.dlTracker,
+          flatOpts
+        })
         .then(results => {
           const pjResults = xformResult(results)
           statsMsgs = getItemResultsStats('package.json', pjResults)
@@ -174,10 +197,13 @@ class Download extends BaseCommand {
         const operations = []
         for (const item of args)
           operations.push(
-            handleItem(item, { topLevel: true })
+            handleItem(item, {
+              topLevel: true,
+              cmd: cmdOpts,
+              dlTracker: self.dlTracker,
+              flatOpts
+            })
             .then(results => {
-if (!results)
-  console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!! download: no results resolved for', item)
               statsMsgs += getItemResultsStats(item, results)
               return results
             })
@@ -192,15 +218,16 @@ if (!results)
     .then(results => {
       // results is an array of arrays, 1 for each spec on the command line.
       rimraf(tempCache, function(rimrafErr) {
+        /* istanbul ignore if: a condition not worth the overhead of testing */
         if (rimrafErr)
           log.warn('download', 'failed to delete the temp dir ' + tempCache)
 
-          cfg.get('dlTracker').serialize().then(() => {
-          // The console call follows the callback call here because when
-          // placed before, it causes a stutter in the npm log output.
-          // TODO: try npm.output()
+        self.dlTracker.serialize().then(() => {
+          self.npm.output(statsMsgs + '\n\ndownload finished.')
+          // QUESTION: Why are we returning results? Who is the caller, and
+          // does it do anything with them?
+          // Keep in mind that we have written tests to expect the results...
           cb(null, results)
-          console.info(statsMsgs, '\n\ndownload', 'finished.')
         })
       })
     })
@@ -219,12 +246,16 @@ function getItemResultsStats(item, results) {
     if (item == 'package.json')
       stats.push(util.format(
         '\nDownloaded tarballs to satisfy %i dependenc%s derived from %s',
-        filtered.length, filtered.length == 1 ? 'y' : 'ies', item
+        filtered.length,
+        /* istanbul ignore next: trivial */
+        filtered.length == 1 ? 'y' : 'ies', item
       ))
     else
       stats.push(util.format(
         '\nDownloaded tarballs to satisfy %s and %i dependenc%s',
-        item, filtered.length - 1, filtered.length == 2 ? 'y' : 'ies'
+        item, filtered.length - 1,
+        /* istanbul ignore next: trivial */
+        filtered.length == 2 ? 'y' : 'ies'
       ))
   }
   else
@@ -235,7 +266,10 @@ function getItemResultsStats(item, results) {
     ))
   if (dupCount)
     stats.push(util.format(
-      '(%i duplicate spec%s skipped)', dupCount, dupCount > 1 ? 's' : ''
+      '(%i duplicate spec%s skipped)', dupCount,
+      /* istanbul ignore next: trivial */
+      dupCount > 1 ? 's' : ''
     ))
   return stats.join('\n')
 }
+

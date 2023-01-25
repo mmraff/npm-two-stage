@@ -15,6 +15,10 @@ const dlt = require('./download/dltracker')
 
 const ArboristWorkspaceCmd = require('./workspaces/arborist-cmd.js')
 class Install extends ArboristWorkspaceCmd {
+  /*
+    mmraff NOTE: All of the 'istanbul ignore's below that refer to
+    test/lib/load-all-commands.js are from the original npm install.js.
+  */
   /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get description () {
     return 'Install a package'
@@ -170,24 +174,25 @@ class Install extends ArboristWorkspaceCmd {
       add: args,
       workspaces: this.workspaceNames,
     }
+    //const arb = new Arborist(opts)
     //*******************************************
-    const isOffline = !!this.npm.config.get('offline')
+    const offlineDir = this.npm.config.get('offline-dir')
+    const isOffline = !!(this.npm.config.get('offline') && offlineDir)
     const arb = isOffline ? new AltArborist(opts) : new Arborist(opts)
     if (isOffline) {
       // User wants to use local fs source for all packages to install.
       // Validate the user-supplied path to local tarball directory:
       this.npm.log.verbose('install', 'offline option given')
-      let offlineDir = this.npm.config.get('offline-dir')
-      if (!offlineDir) {
-        this.npm.log.warn('install', 'offline-dir not configured; using current directory')
-        offlineDir = process.cwd()
-      }
       // TODO: *consider* putting these in the opts passed to AltArborist
       arb.dlTracker = await dlt.create(offlineDir, {log: this.npm.log})
       arb.dltTypeMap = dlt.typeMap
+      // NEW: up to this point, we have our copies of build-ideal-tree and
+      // reify assuming offline simply because they are only used by AltArborist.
+      // But we must change this attitude/strategy for the sake of easier
+      // integration with Arborist.
+      opts.offline = isOffline
     }
     //*******************************************
-    //const arb = new Arborist(opts)
     await arb.reify(opts)
 
     if (!args.length && !isGlobalInstall && !ignoreScripts) {

@@ -1,7 +1,9 @@
 /*
   Based on pacote/lib/git.js.
-  We use this only to get the manifest from a git repo,
-  but in the process, we also cache a tarball made from the repo clone.
+  Added requires: ssri, util.promisify, promisify(fs.readFile).
+  Added method: [_istream].
+  We use this only to get the manifest from a git repo, but in the process,
+  we clone, and we also cache a tarball made from the clone.
 */
   
 const Fetcher = require('pacote/lib/fetcher.js')
@@ -14,10 +16,10 @@ const url = require('url')
 const cacache = require('cacache')
 const readPackageJson = require('read-package-json-fast')
 const npm = require('pacote/lib/util/npm.js')
-const ssri = require('ssri')                        // MMR added
+const ssri = require('ssri')
 
-const { promisify } = require('util')               // MMR added
-const readfile = promisify(require('fs').readFile)  // MMR added
+const { promisify } = require('util')
+const readfile = promisify(require('fs').readFile)
 
 const _tarballFromResolved = Symbol.for('pacote.Fetcher._tarballFromResolved')
 const _addGitSha = Symbol('_addGitSha')
@@ -27,7 +29,7 @@ const _cloneHosted = Symbol('_cloneHosted')
 const _cloneRepo = Symbol('_cloneRepo')
 const _setResolvedWithSha = Symbol('_setResolvedWithSha')
 const _prepareDir = Symbol('_prepareDir')
-const _istream = Symbol('_istream2')                // MMR added
+const _istream = Symbol('_istream2')
 
 // get the repository url.
 // prefer https if there's auth, since ssh will drop that.
@@ -143,7 +145,7 @@ class AltGitFetcher extends Fetcher {
     // defer istream end until after cstream
     // cache write errors should not crash the fetch, this is best-effort.
     cstream.promise().catch(err => {
-      this.log.warn('AltGitFetcher[_istream]', 'cache write error: %s', err.message)
+      this.log.warn('AltGitFetcher[_istream]', 'cache write error:', err.message)
     })
     .then(() => istream.end())
 
@@ -159,7 +161,6 @@ class AltGitFetcher extends Fetcher {
     const ref = this.resolvedSha || this.spec.gitCommittish
     const h = this.spec.hosted
     const resolved = this.resolved
-
     return cacache.tmp.withTmp(this.cache, o, tmp => {
       return (
         h ? this[_cloneHosted](ref, tmp)
@@ -228,11 +229,12 @@ class AltGitFetcher extends Fetcher {
     if (this.package) // The already-annotated manifest
       return Promise.resolve(this.package)
 
-    // For a hosted repo with a resolved spec (a commit hash), GitFetcher
-    // resorts to using the FileFetcher method, which gets a tarball.
-    // We don't do that here because a tarball does not give us a rev doc,
-    // which we'd really like to have. Force a clone, or get from cache.
-
+    /*
+      For a hosted repo with a resolved spec (a commit hash), GitFetcher
+      resorts to using the FileFetcher method, which gets a tarball.
+      We don't do that here because a tarball does not give us a rev doc,
+      which we'd really like to have. Force a clone, or get from cache.
+    */
     /*
       THIS NOTE IS UNIMPORTANT, I think. Just a mild concern.
       Note that the DirFetcher created in [_clone] (to create a tarball to
@@ -248,6 +250,7 @@ class AltGitFetcher extends Fetcher {
           readfile(path.join(dir, 'npm-shrinkwrap.json'), 'utf8')
           .then(str => {
             // Strip BOM, if any
+            /* istanbul ignore next */
             if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1)
             try { mani._shrinkwrap = JSON.parse(str) }
             catch (err) {
@@ -260,20 +263,23 @@ class AltGitFetcher extends Fetcher {
             }
           })
           .catch(err => {
+            /* istanbul ignore if */
             if (err.code != 'ENOENT') throw err
           })
         )
-        .then(() => this.package = {
-          ...mani,
-          _integrity: this.integrity && String(this.integrity),
-          _resolved: this.resolved,
-          _from: this.from,
-          _sha: this.resolvedSha,
-          _allRefs: this.allRefs,
-        })
+        .then(() => this.package = Object.assign(
+          {
+            ...mani,
+            _integrity: this.integrity && String(this.integrity),
+            _resolved: this.resolved,
+            _from: this.from,
+            _sha: this.resolvedSha
+          },
+          this.opts.multipleRefs ? { _allRefs: this.allRefs } : {}
+        ))
       })
 
-    return this[_clone](handler, false)
+    return this[_clone](handler)
   }
 }
 module.exports = AltGitFetcher

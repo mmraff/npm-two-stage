@@ -179,8 +179,7 @@ function create(where, opts) {
   try {
     if (where !== undefined && where !== null) {
       if (typeof where !== 'string')
-        if (Object.getPrototypeOf(where) !== Object.getPrototypeOf(new String()))
-          throw new TypeError('path must be given as a string')
+        throw new TypeError('path must be given as a string')
     }
     if (opts !== undefined && opts !== null) {
       if (typeof opts !== 'object')
@@ -206,8 +205,7 @@ function create(where, opts) {
   const oldInfo = {}
   const log = opts.log || dummyLog
 
-  // where.toString() covers the (unlikely) case of (where instanceof String)
-  const pkgDir = (where) ? path.resolve(where.toString()) : path.resolve()
+  const pkgDir = (where) ? path.resolve(where) : path.resolve()
 
   return lstatAsync(pkgDir).then(stats => {
     if (!stats.isDirectory()) {
@@ -238,7 +236,14 @@ function create(where, opts) {
         throw parseErr
       }
       for (let p in map) {
-        if (DLT_TYPES.has(p)) tables[p] = map[p]
+        if (!DLT_TYPES.has(p)) continue
+        if (!map[p] || typeof map[p] != 'object')
+          log.warn(
+            'DownloadTracker',
+            `Violation of schema in map file; discarding '${p}' section`
+          )
+        else
+          tables[p] = map[p]
       }
       if (map.created)
         oldInfo.created = map.created
@@ -258,7 +263,12 @@ function create(where, opts) {
     })
   })
 
-  function auditAll(cb) {
+  function isNonemptyObject(val) {
+    const isObject = !!val && typeof val == 'object'
+    return isObject && Object.keys(val).length > 0
+  }
+
+  function auditAll() {
     let pkgs
     let pkgKeys
     let pkgKeyIndex = 0
@@ -271,7 +281,14 @@ function create(where, opts) {
 
       const name = pkgKeys[pkgKeyIndex]
       const ver = versionKeys[i]
-      const data = versions[ver] 
+      let data = versions[ver]
+      if (!data || typeof data != 'object') {
+        log.warn(
+          'DownloadTracker.audit',
+          `Replacing violation of schema at ${name}@${ver}`
+        )
+        data = versions[ver] = {}
+      }
       return auditOne('semver', data, pkgDir)
       .catch(err => {
         errors.push({
@@ -285,7 +302,17 @@ function create(where, opts) {
     function iterateSemverPkgs() {
       if (pkgKeyIndex >= pkgKeys.length) return Promise.resolve(null)
 
-      versions = pkgs[pkgKeys[pkgKeyIndex]]
+      const name = pkgKeys[pkgKeyIndex]
+      versions = pkgs[name]
+      if (!isNonemptyObject(versions)) {
+        log.warn(
+          'DownloadTracker.audit',
+          `Removing violation of schema in semver section, name '${name}'`
+        )
+        delete pkgs[name]
+        pkgKeys.splice(pkgKeyIndex, 1)
+        return iterateSemverPkgs()
+      }
       versionKeys = Object.keys(versions)
       return nextVersion(0).then(() => {
         ++pkgKeyIndex
@@ -296,10 +323,25 @@ function create(where, opts) {
     function iterateTagPkgs() {
       let err
       // pkgs is tables['tag'] here
-      for (let n in pkgs) {
+      for (const n in pkgs) {
         const tags = pkgs[n]
-        for (let tag in tags) {
-          const data = tags[tag]
+        if (!isNonemptyObject(tags)) {
+          log.warn(
+            'DownloadTracker.audit',
+            `Removing violation of schema in tag section, name '${n}'`
+          )
+          delete pkgs[n]
+          continue
+        }
+        for (const tag in tags) {
+          let data = tags[tag]
+          if (!(data && typeof data == 'object')) {
+            log.warn(
+              'DownloadTracker.audit',
+              `Replacing violation of schema at ${n}@${tag}`
+            )
+            data = tags[tag] = {}
+          }
           if ('version' in data) {
             if (!tables.semver[n] || !tables.semver[n][data.version]) {
               err = new Error("Orphaned npm registry tag reference")
@@ -323,32 +365,31 @@ function create(where, opts) {
     function nextCommit(i) {
       if (i >= versionKeys.length) return Promise.resolve(null)
 
-      let err
       const repo = pkgKeys[pkgKeyIndex]
       const commit = versionKeys[i]
-      const data = versions[commit]
-      if ('commit' in data) {
-        // This is a ref record. Verify the reference:
-        if (!versions[data.commit]) {
-          err = new Error("Orphaned git commit reference")
-          err.code = 'EORPHANREF'
-          errors.push({
-            data: preparedData('git', repo, commit),
-            error: err
-          })
-        }
-        return nextCommit(i+1)
+      let data = versions[commit]
+      if (!data || typeof data != 'object') {
+        log.warn(
+          'DownloadTracker.audit',
+          `Replacing violation of schema at ${repo}#${commit}`
+        )
+        data = versions[commit] = {}
       }
+      let err
+      let p
       if (!Object.keys(data).length) {
         err = new Error('No data in git record')
         err.code = 'ENODATA'
-        errors.push({
-          data: preparedData('git', repo, commit),
-          error: err
-        })
-        return nextCommit(i+1)
       }
-      return auditOne('git', data, pkgDir)
+      else if ('commit' in data) {
+        // This is a ref record. Verify the reference:
+        if (!versions[data.commit]) {
+          err = new Error('Orphaned git commit reference')
+          err.code = 'EORPHANREF'
+        }
+        else p = Promise.resolve()
+      }
+      return (err ? Promise.reject(err) : (p || auditOne('git', data, pkgDir)))
       .catch(err => {
         errors.push({
           data: preparedData('git', repo, commit),
@@ -361,7 +402,17 @@ function create(where, opts) {
     function iterateGitPkgs() {
       if (pkgKeyIndex >= pkgKeys.length) return Promise.resolve(null)
 
-      versions = pkgs[pkgKeys[pkgKeyIndex]]
+      const repo = pkgKeys[pkgKeyIndex]
+      versions = pkgs[repo]
+      if (!isNonemptyObject(versions)) {
+        log.warn(
+          'DownloadTracker.audit',
+          `Removing violation of schema in git section, repo '${repo}'`
+        )
+        delete pkgs[repo]
+        pkgKeys.splice(pkgKeyIndex, 1)
+        return iterateGitPkgs()
+      }
       versionKeys = Object.keys(versions)
       return nextCommit(0).then(() => {
         ++pkgKeyIndex
@@ -373,7 +424,14 @@ function create(where, opts) {
       if (pkgKeyIndex >= pkgKeys.length) return Promise.resolve(null)
 
       const spec = pkgKeys[pkgKeyIndex]
-      const data = pkgs[spec] 
+      let data = pkgs[spec]
+      if (!(data && typeof data == 'object')) {
+        log.warn(
+          'DownloadTracker.audit',
+          `Replacing violation of schema at url ${spec}`
+        )
+        data = pkgs[spec] = {}
+      }
       return auditOne('url', data, pkgDir)
       .catch(err => {
         errors.push({
@@ -387,20 +445,20 @@ function create(where, opts) {
       })
     }
 
-    pkgs = tables['semver']
+    pkgs = tables.semver
     pkgKeys = Object.keys(pkgs)
     return iterateSemverPkgs()
     .then(() => {
-      pkgs = tables['tag']
+      pkgs = tables.tag
       iterateTagPkgs()
 
-      pkgs = tables['git']
+      pkgs = tables.git
       pkgKeys = Object.keys(pkgs)
       pkgKeyIndex = 0
       return iterateGitPkgs()
     })
     .then(() => {
-      pkgs = tables['url']
+      pkgs = tables.url
       pkgKeys = Object.keys(pkgs)
       pkgKeyIndex = 0
       return iterateUrlPkgs()
@@ -417,7 +475,7 @@ function create(where, opts) {
     }
     catch (err) { return Promise.reject(err) }
 
-    if (type === 'tag' && (data.spec === '' || data.spec === 'latest'))
+    if (type === 'tag' && data.spec === 'latest')
       type = 'semver'
 
     // First, need to verify existence of item in download directory.
@@ -551,8 +609,8 @@ function create(where, opts) {
             ver = getMaxSemverMatch(spec.slice(7), versions, {filter: true})
           if (ver) data = versions[ver]
         }
-        // Given that the default branch of a git repo *can* be named
-        // arbitrarily, I'm uncomfortable with this:
+        // Given that the default branch of a git repo can be named arbitrarily,
+        // I'm uncomfortable with this, because it amounts to a guess:
         else if (!(data = versions['master'] || versions['main'])) {
           // If there's only one full record for the given repo, use that.
           const fullRecords = []

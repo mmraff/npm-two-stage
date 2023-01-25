@@ -1,12 +1,16 @@
-// TODO: consider putting this as a static in dltracker
-// Also consider exporting it from npm-package-filename, since that uses the same logic
-
 const url = require('url')
 
 const RE_GIT_REPO_SUFFIX = /\.git$/
 const RE_HASH_PREFIX = /^#/
 
-module.exports = npaSpec => {
+module.exports = function(npaSpec) {
+  if (arguments.length == 0)
+    throw new SyntaxError('No argument given')
+  if (!npaSpec || typeof npaSpec != 'object' || !('type' in npaSpec))
+    throw new TypeError('Argument must be a npa-package-arg parse result')
+  if (npaSpec.type != 'git')
+    throw new TypeError('npa-package-arg parse result for a "git" spec required')
+
   const result = {}
   if (!npaSpec.hosted) {
     try {
@@ -14,8 +18,8 @@ module.exports = npaSpec => {
       result.repo = parsed.host + parsed.pathname.replace(RE_GIT_REPO_SUFFIX, '')
       result.spec = parsed.hash.replace(RE_HASH_PREFIX, '')
     }
-    catch (err) {
-      return null
+    catch (err) { // It will be a url.URL parse error
+      throw new TypeError('Invalid URL in npa-package-arg object:', npaSpec.rawSpec)
     }
   }
   else {

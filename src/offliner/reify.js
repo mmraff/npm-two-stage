@@ -1,16 +1,25 @@
 /*
   Based on @npmcli/arborist/lib/arborist/reify.js,
   modified for offline stage of npm-two-stage.
+  * reloc = relocation adjustment of a require()
+  * add = addition specific to npm-two-stage
 */
+
+// This item is to allow this modified version of reify.js to be dropped into
+// @npmcli/arborist, replacing the original version when the tests are run,
+// to demonstrate that it breaks no tests in that context:
+/* istanbul ignore next */
+const N2S_REQ_PREFIX =
+  process.env.NPM2STAGE_IN_ARBORIST_TEST ? '..' : '@npmcli/arborist/lib'
 
 // mixin implementing the reify method
 
-const onExit = require('@npmcli/arborist/lib/signal-handling.js')
+const onExit = require(N2S_REQ_PREFIX + '/signal-handling.js')
 const pacote = require('pacote')
-const AuditReport = require('@npmcli/arborist/lib/audit-report.js')
+const AuditReport = require(N2S_REQ_PREFIX + '/audit-report.js')
 const {subset, intersects} = require('semver')
 const npa = require('npm-package-arg')
-const debug = require('@npmcli/arborist/lib/debug.js')
+const debug = require(N2S_REQ_PREFIX + '/debug.js')
 const walkUp = require('walk-up-path')
 
 const {dirname, resolve, relative} = require('path')
@@ -28,14 +37,14 @@ const packageContents = require('@npmcli/installed-package-contents')
 const { checkEngine, checkPlatform } = require('npm-install-checks')
 const _force = Symbol.for('force')
 
-const treeCheck = require('@npmcli/arborist/lib/tree-check.js')
-const relpath = require('@npmcli/arborist/lib/relpath.js')
-const Diff = require('@npmcli/arborist/lib/diff.js')
-const retirePath = require('@npmcli/arborist/lib/retire-path.js')
+const treeCheck = require(N2S_REQ_PREFIX + '/tree-check.js')
+const relpath = require(N2S_REQ_PREFIX + '/relpath.js')
+const Diff = require(N2S_REQ_PREFIX + '/diff.js')
+const retirePath = require(N2S_REQ_PREFIX + '/retire-path.js')
 const promiseAllRejectLate = require('promise-all-reject-late')
-const optionalSet = require('@npmcli/arborist/lib/optional-set.js')
-const calcDepFlags = require('@npmcli/arborist/lib/calc-dep-flags.js')
-const { saveTypeMap, hasSubKey } = require('@npmcli/arborist/lib/add-rm-pkg-deps.js')
+const optionalSet = require(N2S_REQ_PREFIX + '/optional-set.js')
+const calcDepFlags = require(N2S_REQ_PREFIX + '/calc-dep-flags.js')
+const { saveTypeMap, hasSubKey } = require(N2S_REQ_PREFIX + '/add-rm-pkg-deps.js')
 
 const _retiredPaths = Symbol('retiredPaths')
 const _retiredUnchanged = Symbol('retiredUnchanged')
@@ -101,7 +110,8 @@ const _pruneBundledMetadeps = Symbol('pruneBundledMetadeps')
 const _resolvedAdd = Symbol.for('resolvedAdd')
 const _usePackageLock = Symbol.for('usePackageLock')
 const _formatPackageLock = Symbol.for('formatPackageLock')
-const _downloadMap = Symbol.for('downloadMap')
+const _isOffline = Symbol.for('isOffline') // add - see offliner/build-ideal-tree
+const _downloadMap = Symbol.for('downloadMap') // add - ditto
 
 module.exports = cls => class Reifier extends cls {
   constructor (options) {
@@ -654,16 +664,16 @@ module.exports = cls => class Reifier extends cls {
           })
         }
       })
-      let filePath = this[_downloadMap][node.resolved]
-      if (!filePath && node.resolved.startsWith('git+')) {
-        // The resolved string has been mangled by so-called 'consistent-resolve',
-        // causing an inconsistency for us. Let's try something else:
-        const unmangled = npa(node.resolved).hosted.git({ noCommittish: false })
-        filePath = this[_downloadMap][unmangled]
-        if (!filePath)
+      let spec = res
+      if (this[_isOffline]) {
+        const filepath = this[_downloadMap][node.resolved]
+        /* istanbul ignore if: apparently impossible to get here */
+        if (!filepath) {
           throw new Error(`Unrecognized resolved spec ${node.resolved}. Aborting.`)
+        }
+        spec = filepath
       }
-      await pacote.extract(filePath, node.path, {
+      await pacote.extract(spec, node.path, {
         ...this.options,
         resolved: node.resolved,
         integrity: node.integrity,

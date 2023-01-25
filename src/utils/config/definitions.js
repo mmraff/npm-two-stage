@@ -1,4 +1,3 @@
-/* TODO: add --offline-dir option to install command; check --offline def */
 const definitions = {}
 module.exports = definitions
 
