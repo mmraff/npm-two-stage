@@ -1,0 +1,20 @@
+{
+  "name": "dummy-remote",
+  "version": "3.4.5",
+  "description": "test asset from mock remote site",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo over the hills and far away"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://imaginary.org/a/b/zzzzzz.git"
+  },
+  "keywords": [
+    "dummy",
+    "remote",
+    "test"
+  ],
+  "author": "skizziks",
+  "license": "ISC"
+}

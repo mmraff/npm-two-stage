@@ -1,0 +1,78 @@
+{
+  "name": "@offliner/dummy",
+  "version": "1.0.0",
+  "lockfileVersion": 2,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "@offliner/dummy",
+      "version": "1.0.0",
+      "license": "ISC",
+      "dependencies": {
+        "@offliner/npm-downloadtracker": "^2.0.0"
+      }
+    },
+    "node_modules/@offliner/npm-downloadtracker": {
+      "version": "2.0.0",
+      "resolved": "https://registry.npmjs.org/@offliner/npm-downloadtracker/-/npm-downloadtracker-2.0.0.tgz",
+      "integrity": "sha512-l3vs7hL9B49nawXlGTmFDFmf9uNyPqgQ1UXPmJ6EXF231zBZI1ujOuWfrHmy4dXKbx5lV2+ChDofDX5rJ3pqaQ==",
+      "license": "Artistic-2.0",
+      "dependencies": {
+        "@offliner/npm-package-filename": "^1.1.0",
+        "graceful-fs": "^4.2.3",
+        "semver": "^5.7"
+      },
+      "engines": {
+        "node": ">=8.5.0"
+      }
+    },
+    "node_modules/@offliner/npm-package-filename": {
+      "version": "1.1.0",
+      "resolved": "https://registry.npmjs.org/@offliner/npm-package-filename/-/npm-package-filename-1.1.0.tgz",
+      "integrity": "sha512-iL6tZfQTuwuPIPLyHVE/cP/mHwV5InToPNO7KuF6vKd5Vzu7JuoSzSqBPZWTGIyZuTvGMtH6wNmJ7PikPruBgQ==",
+      "license": "Artistic-2.0"
+    },
+    "node_modules/graceful-fs": {
+      "version": "4.2.9",
+      "resolved": "https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.9.tgz",
+      "integrity": "sha512-NtNxqUcXgpW2iMrfqSfR73Glt39K+BLwWsPs94yR63v45T0Wbej7eRmL5cWfwEgqXnmjQp3zaJTshdRW/qC2ZQ==",
+      "license": "ISC"
+    },
+    "node_modules/semver": {
+      "version": "5.7.1",
+      "resolved": "https://registry.npmjs.org/semver/-/semver-5.7.1.tgz",
+      "integrity": "sha512-sauaDf/PZdVgrLTNYHRtpXa1iRiKcaebiKQ1BJdpQlWH2lCvexQdX55snPFyK7QzpudqbCI0qXFfOasHdyNDGQ==",
+      "license": "ISC",
+      "bin": {
+        "semver": "bin/semver"
+      }
+    }
+  },
+  "dependencies": {
+    "@offliner/npm-downloadtracker": {
+      "version": "2.0.0",
+      "resolved": "https://registry.npmjs.org/@offliner/npm-downloadtracker/-/npm-downloadtracker-2.0.0.tgz",
+      "integrity": "sha512-l3vs7hL9B49nawXlGTmFDFmf9uNyPqgQ1UXPmJ6EXF231zBZI1ujOuWfrHmy4dXKbx5lV2+ChDofDX5rJ3pqaQ==",
+      "requires": {
+        "@offliner/npm-package-filename": "^1.1.0",
+        "graceful-fs": "^4.2.3",
+        "semver": "^5.7"
+      }
+    },
+    "@offliner/npm-package-filename": {
+      "version": "1.1.0",
+      "resolved": "https://registry.npmjs.org/@offliner/npm-package-filename/-/npm-package-filename-1.1.0.tgz",
+      "integrity": "sha512-iL6tZfQTuwuPIPLyHVE/cP/mHwV5InToPNO7KuF6vKd5Vzu7JuoSzSqBPZWTGIyZuTvGMtH6wNmJ7PikPruBgQ=="
+    },
+    "graceful-fs": {
+      "version": "4.2.9",
+      "resolved": "https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.9.tgz",
+      "integrity": "sha512-NtNxqUcXgpW2iMrfqSfR73Glt39K+BLwWsPs94yR63v45T0Wbej7eRmL5cWfwEgqXnmjQp3zaJTshdRW/qC2ZQ=="
+    },
+    "semver": {
+      "version": "5.7.1",
+      "resolved": "https://registry.npmjs.org/semver/-/semver-5.7.1.tgz",
+      "integrity": "sha512-sauaDf/PZdVgrLTNYHRtpXa1iRiKcaebiKQ1BJdpQlWH2lCvexQdX55snPFyK7QzpudqbCI0qXFfOasHdyNDGQ=="
+    }
+  }
+}
