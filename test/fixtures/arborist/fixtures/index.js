@@ -1,7 +1,6 @@
 const mkdirp = require('mkdirp').sync
-const { unlinkSync, symlinkSync, readFileSync, writeFileSync } = require('fs')
-// MMR TODO: readFileSync, writeFileSync will go away if the .gitignore
-// rewriting gets dropped.
+const { unlinkSync, symlinkSync } = require('fs')
+// mmraff REMOVED: readFileSync & writeFileSync from the above
 const { relative, resolve, dirname } = require('path')
 
 const fixtures = __dirname
@@ -152,7 +151,6 @@ const setup = () => {
   Object.keys(symlinks).forEach(s => {
     const p = resolve(__dirname, s)
     mkdirp(dirname(p))
-    // MMR TODO: find out what the ../.. affects, and whether we need to change it
     const rel = relative(resolve(__dirname, '../..'), p)
     links.push('/' + rel.replace(/\\/g, '/'))
 
@@ -163,24 +161,7 @@ const setup = () => {
       didSomething = true
     } catch (_) {}
   })
-/*
-  if (didSomething) {
-// MMR
-// TODO: I AM VERY SKEPTICAL ABOUT LEAVING THIS IN:
-// WHY THE HELL WOULD THEY WANT TO REWRITE THE .gitignore FILE OF ARBORIST
-// IN A TEST?  ARE THE AUTOMATIC SCRIPTS SO SCREWED UP THAT THEY WOULD PACK UP
-// ALL THE SYMLINKS CREATED BY THE TEST AND PUBLISH THEM OTHERWISE?
-    const gifile = resolve(__dirname, '../../.gitignore')
-    const gitignore = readFileSync(gifile, 'utf8')
-      .replace(/### BEGIN IGNORED SYMLINKS ###[\s\S]*### END IGNORED SYMLINKS ###/,
-      `### BEGIN IGNORED SYMLINKS ###
-### this list is generated automatically, do not edit directly
-### update it by running \`node test/fixtures/index.js\`
-${links.sort((a,b) => a.localeCompare(b, 'en')).join('\n')}
-### END IGNORED SYMLINKS ###`)
-    writeFileSync(gifile, gitignore)
-  }
-*/
+  // mmraff REMOVED: rewrite  of .gitignore
 }
 
 const doCleanup = process.argv[2] === 'cleanup' && require.main === module ||

@@ -113,14 +113,22 @@ const runNpmCmd = async (npmBin, cmd, argList, opts) => {
   // rejects as error E with E.stdout and E.stderr
 }
 
+const RE_RMV_PROTO = /^[a-z]+:\/\/(.+)$/
+const RE_TARBALL_EXT = /\.(tar\.gz|tgz)$/
+
 const checkDownloads = (t, pkgMap, dlPath) =>
   readdirAsync(dlPath).then(list => {
     const expectedItems = [ 'dl-temp', 'dltracker.json' ]
     for (const name in pkgMap) {
       const versions = pkgMap[name]
       for (const v in versions) {
-        if (!versions[v].inBundle)
-          expectedItems.push(`${encodeURIComponent(name)}-${v}.tar.gz`)
+        if (versions[v].inBundle) continue
+        const raw = versions[v].rawSpec
+        const fname = encodeURIComponent(
+          raw ? (RE_RMV_PROTO.exec(raw)[1] + (RE_TARBALL_EXT.test(raw) ? '' : '.tar.gz'))
+          : `${name}-${v}.tar.gz`
+        )
+        expectedItems.push(fname)
       }
     }
     // It's no good using t1.same() on an array unless the sequence of 'found'
@@ -235,9 +243,10 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
     // the same as what's in the code, then we'll have to add a flag to the
     // pkgs record!
     const tgtVer = Object.keys(pkgs[tgtName])[0]
+    const rawSpec = pkgs[tgtName][tgtVer].rawSpec
     const expected = {
       // npm adds the prefix '^' to exact target specs
-      '': { dependencies: { [tgtName]: '^' + tgtVer } }
+      '': { dependencies: { [tgtName]: rawSpec || ('^' + tgtVer) } }
     }
     for (const name in pkgs) {
       const versions = pkgs[name]
@@ -333,7 +342,7 @@ const rootPath = path.join(__dirname, 'XXXXXX')
     return regProxy.start()
   //})
     .then(() => gitServer.start(gitHostPort, gitHostBase))
-    .then(() => remoteServer.start(remoteBase, { debug: true }))
+    .then(() => remoteServer.start(remoteBase/*, { debug: true }*/))
     .then(num => remotePort = num)
   //}) // TEMP COMMENT-OUT! TODO
 })
@@ -1011,18 +1020,6 @@ const createRepo = async (repoPath) => {
 }
 
 tap.test('git 1', async t1 => {
-/*
-  TODO:
-  * Discovered in the opts passed to @npmcli/git:
-      npmBin: '/home/mmraff/dev/myNodeModules/npm-two-stage/test/integration.js'
-  * Also discovered a bunch of environment variables with prefix "npm_config_",
-    including npm_execpath:
-      '/home/mmraff/dev/myNodeModules/npm-two-stage/test/integration.js'
-    THAT would explain why we're getting EADDRINUSE when we include the prepare
-    script in the repo created below.
-    But where the hell is it getting the above? TRACK THAT DOWN!
-    (Later note: I tracked it down, but forgot to write it up)
-*/
   const pkgName1 = 'top-repo'
   const abbrevSpec = '1.1.1'
   const repoPath = path.join(gitHostBase, pkgName1)
@@ -1034,10 +1031,9 @@ tap.test('git 1', async t1 => {
     '--no-sign-git-tag',
   ], repoPath)
 
-//console.log('Starting git operations for repo at', repoPath, '...')
-
   /*
     The following prep for a git repo dl/install test is very lengthy.
+    ALSO, there's some questionable stuff in it. Example: Why gitignore index.js?
     TODO: decide on whether to extract all this git repo creation stuff to a
     separate module, a separate function, to a 'before', or leave where it is.
     The deciding factor will be whether this repo could serve more than one
@@ -1109,6 +1105,7 @@ tap.test('git 1', async t1 => {
     // TODO: these notes go to a journal entry that ends with the discovery that
     // pacote and cacache are discarding the last component of the path passed
     // for cache, and creating the cache in the parent directory instead!
+    // But how did I fix this?
     // Interesting results in our download directory when we fetch a git repo
     // that has a prepare script:
     // * _cacache: probably a directory
@@ -1143,6 +1140,20 @@ tap.test('git 1', async t1 => {
     const expected = [ 'README.md', 'index.js', 'package.json' ]
     t1.same(list, expected, 'Nothing more or less than expected in package installation')
   })
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data =>
+    console.log('Case git 1 package-lock contents of packages:', data.packages)
+    const expected = {
+      '': {
+        name: installDirName, version: '1.0.0',
+        dependencies: { [pkgName1]: spec }
+      },
+      ['node_modules/' + pkgName1]: {
+        version: '1.0.0'
+      }
+    }
+    t1.match(data, expected)
+  )
   .finally(() => {
     t1.end()
   })
@@ -1154,13 +1165,11 @@ tap.test('url 1', async t1 => {
   const installPath = path.join(testBase, installDirName)
   const tgtName = 'remote1'
   const tgtVer = '1.0.0'
-  const tarballName = `${tgtName}-${tgtVer}.tgz`
-  const specPrefix = `http://localhost:${remotePort}/skizziks/`
-  const spec = `${specPrefix}${remoteDir}/${tarballName}`
+  const spec = `http://localhost:${remotePort}/skizziks/${tgtName}-${tgtVer}.tgz`
   const pkgs = {
     [tgtName]: {
       [tgtVer]: {
-        specPrefix,
+        rawSpec: spec,
         deps: {
           'acorn-jsx': '^3.0.0',
           'bcrypt-pbkdf': '*'
@@ -1172,28 +1181,26 @@ tap.test('url 1', async t1 => {
     'bcrypt-pbkdf': { '1.0.2': { deps: { 'tweetnacl': '^0.14.3' } } },
     'tweetnacl': { '0.14.5': {} }
   }
-  // TODO:
-  // * 
 
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  .then(() => readdirAsync(dlPath)).then(list =>
-    console.log('Case Remote download dir contents:', list)
-  )
-  //.then(() => checkDownloads(t1, pkgs, dlPath))
+  //.then(() => readdirAsync(dlPath)).then(list =>
+    //console.log('Case Remote download dir contents:', list)
+  //)
+  .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
     { cwd: installPath }
   ))
-  .then(() => readdirAsync(path.join(installPath, 'node_modules')))
-  .then(list => console.log('Case Remote post-install node_modules contents:', list))
-  //.then(() => checkInstalled(
-    //t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
-  //))
-  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data =>
-    console.log('Case Remote package-lock contents of packages:', data.packages)
-  )
-  //.then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
+  //.then(() => readdirAsync(path.join(installPath, 'node_modules')))
+  //.then(list => console.log('Case Remote post-install node_modules contents:', list))
+  .then(() => checkInstalled(
+    t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
+  ))
+  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  //.then(data =>
+    //console.log('Case Remote package-lock contents of packages:', data.packages)
+  //)
+  .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
   .catch(err => console.error('$$$$ WTF?', err))
   .finally(() => {
     t1.end()
