@@ -2194,6 +2194,10 @@ t.test('shrinkwrap which lacks metadata updates deps', async t => {
 })
 
 t.test('move aside symlink clutter', async t => {
+  if (process.platform === 'win32') {
+    t.plan(0, 'This one causes EPERM on Windows; arborist maintainers failed to resolve')
+    return
+  }
   // have to make the clutter manually, because we collide packages based
   // on case-insensitive names, so the ABBREV folder would be removed.
   // not sure how this would ever happen, but defense in depth.
@@ -2212,7 +2216,7 @@ t.test('move aside symlink clutter', async t => {
 
   // check to see if we're on a case-insensitive fs
   try {
-    const st = fs.lstatSync(path + '/SENSITIVITY-TEST')
+    const st = fs.lstatSync(join(path, 'SENSITIVITY-TEST'))
     t.equal(st.isSymbolicLink(), true, 'fs is case insensitive')
   } catch (er) {
     t.plan(0, 'case sensitive file system, test not relevant')
@@ -2223,26 +2227,26 @@ t.test('move aside symlink clutter', async t => {
   const reifyPackages = Arborist.prototype[kReifyPackages]
   t.teardown(() => Arborist.prototype[kReifyPackages] = reifyPackages)
   Arborist.prototype[kReifyPackages] = async function () {
-    fs.mkdirSync(path + '/node_modules')
-    fs.symlinkSync('../target', path + '/node_modules/ABBREV')
+    fs.mkdirSync(join(path, 'node_modules'))
+    fs.symlinkSync(join('..', 'target'), join(path, 'node_modules/ABBREV'))
     Arborist.prototype[kReifyPackages] = reifyPackages
     return this[kReifyPackages]()
   }
 
   const tree = await printReified(path)
-  const st = fs.lstatSync(path + '/node_modules/abbrev')
+  const st = fs.lstatSync(join(path, 'node_modules/abbrev'))
   t.equal(st.isSymbolicLink(), false)
   t.equal(st.isDirectory(), true)
-  const realName = basename(fs.realpathSync.native(path + '/node_modules/abbrev'))
+  const realName = basename(fs.realpathSync.native(join(path, 'node_modules/abbrev')))
   t.equal(realName, 'abbrev', 'lowercase form is the winner')
-  t.equal(fs.readFileSync(path + '/target/file', 'utf8'),
+  t.equal(fs.readFileSync(join(path, 'target/file'), 'utf8'),
     'do not delete me please')
-  const linkPJ = fs.readFileSync(path + '/target/package.json', 'utf8')
+  const linkPJ = fs.readFileSync(join(path, 'target/package.json'), 'utf8')
   t.strictSame(JSON.parse(linkPJ), {
     name: 'ABBREV',
     version: '1.0.0',
   })
-  const abbrevPJ = fs.readFileSync(path + '/node_modules/abbrev/package.json', 'utf8')
+  const abbrevPJ = fs.readFileSync(join(path, 'node_modules/abbrev/package.json'), 'utf8')
   t.match(JSON.parse(abbrevPJ), {
     name: 'abbrev',
     version: '1.1.1',
@@ -2389,7 +2393,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(dlData.name)
     t.hasStrict(newChild, {
       name: dlData.name, version: dlData.version,
-      location: join('node_modules', dlData.name),
+      location: `node_modules/${dlData.name}`,
       path: join(installPath, 'node_modules', dlData.name),
       resolved: dlData._resolved
     })
@@ -2420,7 +2424,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(name)
     t.hasStrict(newChild, {
       name,
-      location: join('node_modules', name),
+      location: `node_modules/${name}`,
       path: join(installPath, 'node_modules', name),
       resolved: dlData._resolved
     })
@@ -2451,7 +2455,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(name)
     t.hasStrict(newChild, {
       name,
-      location: join('node_modules', name),
+      location: `node_modules/${name}`,
       path: join(installPath, 'node_modules', name),
       resolved: dlData._resolved
     })
@@ -2482,7 +2486,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(name)
     t.hasStrict(newChild, {
       name,
-      location: join('node_modules', name),
+      location: `node_modules/${name}`,
       path: join(installPath, 'node_modules', name),
       resolved: 'git+' + npaSpec.hosted.sshurl({ noCommittish: false })
     })
@@ -2511,7 +2515,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(name)
     t.hasStrict(newChild, {
       name,
-      location: join('node_modules', name),
+      location: `node_modules/${name}`,
       path: join(installPath, 'node_modules', name),
       resolved: 'git+' + npaSpec.hosted.sshurl({ noCommittish: false })
     })
@@ -2540,7 +2544,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(name)
     t.hasStrict(newChild, {
       name,
-      location: join('node_modules', name),
+      location: `node_modules/${name}`,
       path: join(installPath, 'node_modules', name),
       resolved: spec
     })
@@ -2564,7 +2568,7 @@ t.test('offline cases', async t => {
     const newChild = tree.children.get(name)
     t.hasStrict(newChild, {
       name,
-      location: join('node_modules', name),
+      location: `node_modules/${name}`,
       path: join(installPath, 'node_modules', name),
       resolved: spec
     })

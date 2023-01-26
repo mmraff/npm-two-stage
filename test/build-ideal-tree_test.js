@@ -2735,7 +2735,7 @@ t.test('offline cases', async t => {
     const newChild = newArb.idealTree.children.get(dlData1.name)
     t.hasStrict(newChild, {
       packageName: dlData1.name, version: dlData1.version,
-      location: join('node_modules', dlData1.name),
+      location: `node_modules/${dlData1.name}`,
       path: join(installPath, 'node_modules', dlData1.name),
       resolved: dlData1._resolved
     })
@@ -2755,7 +2755,7 @@ t.test('offline cases', async t => {
     const newChild = newArb.idealTree.children.get(dlData1.name)
     t.hasStrict(newChild, {
       packageName: dlData1.name, version: dlData1.version,
-      location: join('node_modules', dlData1.name),
+      location: `node_modules/${dlData1.name}`,
       path: join(installPath, 'node_modules', dlData1.name),
       resolved: dlData1._resolved
     })
@@ -2772,7 +2772,7 @@ t.test('offline cases', async t => {
     const newChild = newArb.idealTree.children.get(dlData1.name)
     t.hasStrict(newChild, {
       packageName: dlData1.name, version: dlData1.version,
-      location: join('node_modules', dlData1.name),
+      location: `node_modules/${dlData1.name}`,
       path: join(installPath, 'node_modules', dlData1.name),
       resolved: dlData1._resolved
     })
