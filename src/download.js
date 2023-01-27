@@ -12,7 +12,6 @@ const rimraf = require('rimraf')
 
 // npm/download internals
 const BaseCommand = require('./base-command')
-//const cfg = require('./download/config')
 const dltFactory = require('./download/dltracker')
 const npf = require('./download/npm-package-filename')
 const {

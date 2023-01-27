@@ -5,7 +5,6 @@ const npa = require('npm-package-arg')
 const pacote = require('pacote')
 
 const AltGitFetcher = require('./alt-git')
-//const cfg = require('./config')
 const dltFactory = require('./dltracker')
 const npf = require('./npm-package-filename')
 const gitTrackerKeys = require('./git-tracker-keys')
