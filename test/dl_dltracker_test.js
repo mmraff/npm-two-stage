@@ -568,7 +568,7 @@ tap.test('add(): handling of errors', t1 => {
     return tracker.add('semver', { ...s0 })
   })
   .catch(err => {
-    t1.match(err, new RegExp(`Package ${s0.filename} not found at ${absWhere}`))
+    t1.match(err, new RegExp(`Package ${s0.filename} not found at `))
 
     fsStats[path.join(absWhere, s0.filename)] = {
       isFile: () => true, size: 1001

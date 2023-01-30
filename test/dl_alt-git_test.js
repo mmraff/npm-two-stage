@@ -323,9 +323,11 @@ tap.test('spec leads to package with a prepare script', t => {
     t.match(mani, expectedMani, 'yields manifest with expected fields')
     // Verify that mock pacote/lib/util/npm got called with a path for a
     // mock git clone:
-    t.match(
-      mockPacoteNpm.lastTarget(), new RegExp('^' + n2sAssets.fs('npmTmp'))
-    )
+    const RE_CLONEPATH = process.platform !== 'win32' ?
+      new RegExp('^' + n2sAssets.fs('npmTmp')) :
+      new RegExp('^' + n2sAssets.fs('npmTmp').replaceAll('\\', '\\\\'))
+
+    t.match(mockPacoteNpm.lastTarget(), RE_CLONEPATH)
     // Verify that the previous call cleared the saved path:
     t.equal(mockPacoteNpm.lastTarget(), undefined)
     // Simulate whatever it is that's supposed to put the current package

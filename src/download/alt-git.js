@@ -83,7 +83,8 @@ class AltGitFetcher extends Fetcher {
   }
 
   [_prepareDir] (dir) {
-    return readPackageJson(dir + '/package.json').then(mani => {
+    return readPackageJson(path.join(dir, 'package.json'))
+    .then(mani => {
       // no need if we aren't going to do any preparation.
       const scripts = mani.scripts
       if (!scripts || !(

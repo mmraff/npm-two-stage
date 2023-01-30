@@ -313,6 +313,10 @@ tap.test('completion cases', t1 => {
   // This is the only place where install.js uses readdir.
   // See notes about that in the makeAssets.then.
 
+  // npm completion on Windows presents a complication:
+  // the syntax requires '/', but result path components use '\\' separator
+  // hence the apparent duplication with pathSpec and partialWord
+
   t1.test('partialWord is a URL', t2 => {
     const inst = new Install(mockNpm)
     inst.completion({ partialWord: 'https://whatever.net' })
@@ -336,8 +340,9 @@ tap.test('completion cases', t1 => {
 
   t1.test('partialWord is a path, but dirname does not exist in the filesystem', t2 => {
     const inst = new Install(mockNpm)
-    const pathSpec = 'a/b'
-    inst.completion({ partialWord: pathSpec })
+    const pathSpec = 'a' + path.sep + 'b'
+    const partialWord = 'a/b'
+    inst.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
       t2.end()
@@ -348,10 +353,11 @@ tap.test('completion cases', t1 => {
   t1.test('partialWord is an entry at filesystem root', t2 => {
     const inst = new Install(mockNpm)
     const childName = 'abc'
-    const pathSpec = '/' + childName
-    readdirConfig[ '/' ]  = [ childName ]
+    const pathSpec = path.sep + childName
+    const partialWord = '/' + childName
+    readdirConfig[ path.sep ]  = [ childName ]
     readdirConfig[ pathSpec ]  = []
-    inst.completion({ partialWord: pathSpec })
+    inst.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
       t2.end()
@@ -361,9 +367,9 @@ tap.test('completion cases', t1 => {
   // This hits line 92
   t1.test('partialWord looks like a child folder that does not exist', t2 => {
     const inst = new Install(mockNpm)
-    const pathSpec = 'a/b'
+    const partialWord = 'a/b'
     readdirConfig[ 'a' ] = [ 'c' ]
-    inst.completion({ partialWord: pathSpec })
+    inst.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
       t2.end()
@@ -373,9 +379,9 @@ tap.test('completion cases', t1 => {
   // This hits the catch, covering line 101
   t1.test('partialWord is an only child that is not a folder', t2 => {
     const inst = new Install(mockNpm)
-    const pathSpec = 'a/b'
+    const partialWord = 'a/b'
     readdirConfig[ 'a' ] = [ 'b' ]
-    inst.completion({ partialWord: pathSpec })
+    inst.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
       t2.end()
@@ -386,10 +392,11 @@ tap.test('completion cases', t1 => {
     const inst = new Install(mockNpm)
     const parentPath = 'a'
     const childName = 'b'
-    const pathSpec = parentPath + '/' + childName
+    const pathSpec = parentPath + path.sep + childName
+    const partialWord = parentPath + '/' + childName
     readdirConfig[ parentPath ]  = [ childName ]
     readdirConfig[ pathSpec ] = [ 'whatever' ]
-    inst.completion({ partialWord: pathSpec })
+    inst.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
       t2.end()
@@ -400,10 +407,11 @@ tap.test('completion cases', t1 => {
     const inst = new Install(mockNpm)
     const parentPath = 'a'
     const childName = 'b'
-    const pathSpec = parentPath + '/' + childName
+    const pathSpec = parentPath + path.sep + childName
+    const partialWord = parentPath + '/' + childName
     readdirConfig[ parentPath ]  = [ childName ]
     readdirConfig[ pathSpec ] = [ 'package.json' ]
-    inst.completion({ partialWord: pathSpec })
+    inst.completion({ partialWord })
     .then(result => {
       t2.same(result, [ pathSpec ])
       t2.end()
