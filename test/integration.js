@@ -9,8 +9,9 @@ const readdirAsync = promisify(fs.readdir)
 const readFileAsync = promisify(fs.readFile)
 
 const rimrafAsync = promisify(require('rimraf'))
-const spawnGit = require('@npmcli/git').spawn
-const spawnNpm = require('pacote/lib/util/npm')
+
+const spawnGit = require('@npmcli/git').spawn // TODO: only usedby code to be extracted to git-server
+const spawnNpm = require('pacote/lib/util/npm') // TODO: only usedby code to be extracted to git-server
 const tap = require('tap')
 
 const graft = require('./lib/graft')
@@ -20,7 +21,7 @@ const arbFixtures = './fixtures/arborist/fixtures'
 const {
   registry, auditResponse // TODO: auditResponse may not be needed here
 } = require(arbFixtures + '/registry-mocks/server.js')
-const regProxy = require('./lib/mock-server-proxy')
+const mockRegistryProxy = require('./lib/mock-server-proxy')
 
 // Where the test npm will be installed
 const staging = path.resolve(__dirname, 'staging')
@@ -102,7 +103,7 @@ const runNpmCmd = async (npmBin, cmd, argList, opts) => {
   argList.push('--registry=' + registry)
   if (!opts) opts = { env: {} }
   if (!opts.env) opts.env = {}
-  // TODO: might need to do something different on Windows...
+  // So far, it seems there's no need to do anything special on Windows...
   if (process.platform != 'win32') {
     opts.env.PATH = process.env.PATH
     opts.env.SHELL = process.env.SHELL
@@ -110,7 +111,7 @@ const runNpmCmd = async (npmBin, cmd, argList, opts) => {
   opts.env.PREFIX = staging
   return execAsync([ npmBin, cmd ].concat(argList).join(' '), opts)
   // resolves to { stdout, stderr };
-  // rejects as error E with E.stdout and E.stderr
+  // rejects as error e with e.stdout and e.stderr
 }
 
 const RE_RMV_PROTO = /^[a-z]+:\/\/(.+)$/
@@ -233,7 +234,7 @@ const getJsonFileData = filepath => {
 }
 
 const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
-  getJsonFileData(path.join(installPath, 'package-lock.json')).then(data => {
+  getJsonFileData(path.join(installPath, 'package-lock.json')).then(pkgLk => {
     // TODO: get the integrity value from the previous run of npm install,
     // and store it in a convenient place in pkgs;
     // when we get here, add it to the object to compare
@@ -265,7 +266,7 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
       }
     }
     t.match(
-      data.packages, expected, 'expected content is in package-lock.json'
+      pkgLk.packages, expected, 'expected content is in package-lock.json'
     )
   })
 
@@ -279,29 +280,23 @@ let remotePort
 let remoteBase
 
 tap.before(() => {
-/*
   const rootPath = tap.testdir({
-    [gitHostBaseName]: {},
     [testCacheName]: {}
   })
-*/
-// TEMPORARILY we will make persistent directories for the above, so that
-// we can examine the git base after failed test
-const rootPath = path.join(__dirname, 'XXXXXX')
 
   const cache = path.resolve(rootPath, testCacheName)
-  const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest') // TODO: WHY did I use this location?
+  const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest')
   let pkgPath
-  gitHostBase = path.resolve(rootPath, gitHostBaseName)
+  // NOTE: formerly had gitHostBase in the tap.testdir; but was getting EBUSY
+  // error from rmdir on teardown, even though the tap doc for fixtures says
+  // "The fixture directory cleanup will always happen after any
+  //  user-scheduled t.teardown() functions, as of tap v14.11.0."
+  // Funny, now that removal is done *during* teardown, the problem is gone.
+  gitHostBase = path.resolve(staging, 'srv', gitHostBaseName)
   remoteBase = path.resolve(__dirname, remoteBaseRelPath)
 
-//fs.mkdirSync(rootPath)
-//fs.mkdirSync(cache)
-//fs.mkdirSync(gitHostBase)
-
-/* // TEMP COMMENT-OUT! TODO
   return mkdirAsync(pkgDrop)
-  .then(() => execAsync('npm root -g').then(({ stdout, stderr }) => {
+  .then(() => execAsync('npm root -g')).then(({ stdout, stderr }) => {
     const npmDir = path.join(stdout.trim(), 'npm')
     console.log('live npm path is', npmDir)
     const npm = require(npmDir)
@@ -319,6 +314,7 @@ const rootPath = path.join(__dirname, 'XXXXXX')
     })
     .then(() => rimrafAsync(staging))
     .then(() => mkdirAsync(staging))
+    .then(() => mkdirAsync(gitHostBase, { recursive: true }))
     .then(() => {
       npm.globalPrefix = staging // Really important!
       npm.config.set('global', true)
@@ -333,29 +329,21 @@ const rootPath = path.join(__dirname, 'XXXXXX')
   // The executable of the test installation is now at testNpm;
   // the target location for npm-two-stage is at stagedNpmDir.
   .then(() => {
-    console.log('Seems to be a successful installation...')
+    console.log('npm installation seems to have been successful...')
     return rimrafAsync(pkgDrop).then(() => applyN2SFiles())
   })
   .then(() => {
-*/
-    testGHI = require(stagedNpmDir + '/node_modules/hosted-git-info/git-host-info')
-    return regProxy.start()
-  //})
+    return mockRegistryProxy.start()
     .then(() => gitServer.start(gitHostPort, gitHostBase))
     .then(() => remoteServer.start(remoteBase/*, { debug: true }*/))
     .then(num => remotePort = num)
-  //}) // TEMP COMMENT-OUT! TODO
+  })
 })
 tap.teardown(() => {
-  return new Promise((resolve, reject) => {
-    regProxy.stop(() => {
-      gitServer.stop()
-      .then(() => remoteServer.stop())
-      //.then(() => rimrafAsync(staging)) // TEMP COMMENT-OUT! TODO
-      .then(() => resolve())
-      .catch(err => reject(err))
-    })
-  })
+  return new Promise(resolve => mockRegistryProxy.stop(() => resolve()))
+  .then(() => gitServer.stop())
+  .then(() => remoteServer.stop())
+  .then(() => rimrafAsync(staging))
 })
 
 // Path component names we'll be using a lot
@@ -1025,11 +1013,12 @@ tap.test('git 1', async t1 => {
   const repoPath = path.join(gitHostBase, pkgName1)
   const git = (...cmd) => spawnGit(cmd, { cwd: repoPath })
   const write = (f, c) => fs.writeFileSync(path.join(repoPath, f), c)
-  const npm = (...cmd) => spawnNpm(testNpm, [
-    ...cmd,
-    '--no-sign-git-commit',
-    '--no-sign-git-tag',
-  ], repoPath)
+  const npm = (...cmd) => spawnNpm(
+    testNpm + (process.platform === 'win32' ? '.cmd' : ''), [
+      ...cmd,
+      '--no-sign-git-commit',
+      '--no-sign-git-tag',
+    ], repoPath)
 
   /*
     The following prep for a git repo dl/install test is very lengthy.
@@ -1138,11 +1127,14 @@ tap.test('git 1', async t1 => {
   }).then(list => {
 //console.log('target package dir contents:', list)
     const expected = [ 'README.md', 'index.js', 'package.json' ]
-    t1.same(list, expected, 'Nothing more or less than expected in package installation')
+    t1.same(
+      list.sort(), expected.sort(),
+      'Nothing more or less than expected in package installation'
+    )
   })
   .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data =>
-    console.log('Case git 1 package-lock contents of packages:', data.packages)
+  .then(data => {
+//console.log('Case git 1 package-lock contents of packages:', data.packages)
     const expected = {
       '': {
         name: installDirName, version: '1.0.0',
@@ -1152,8 +1144,8 @@ tap.test('git 1', async t1 => {
         version: '1.0.0'
       }
     }
-    t1.match(data, expected)
-  )
+    t1.match(data.packages, expected)
+  })
   .finally(() => {
     t1.end()
   })
