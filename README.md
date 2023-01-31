@@ -48,46 +48,15 @@ the same as unmodified npm if you don't use the `--offline` option._
 _________________________
 
 ### Before Attempting Installation or Removal
-* You must be able to execute with sufficient elevated privileges
- (`su`, `sudo`, or if on Windows open a CMD window with **Run as Administrator**
-  ...)
-* Ensure your **npm** installation is one of the versions targeted by this
- project, and ensure you are downloading the correct release of this project for
- your version of npm. **You are currently viewing the branch for npm 7.x.**
-* Note that backup copies of the original files modified by this project are
- created in the same location. If you ever want to use the uninstall script,
- it's best if you leave the backup files where they are.
-* If you have already installed npm-two-stage, you should run the npm-two-stage
- uninstall script first **if** you need to do any of the following:
-  - update npm
-  - update your nodejs installation
-  - remove your nodejs installation
+*Rewrite in progress*
 
 ## To Install
-1. On the github homepage for this project, navigate to the Releases page, and
- find the _latest_ release with your installed version of npm in the title.  
- If your installed version of npm is behind by patch or minor version number,
- you must update first.
-2. Download the project archive.
-3. Extract the contents of the project archive where they can be accessed from
- the target system.
-4. In a console window _with elevated privileges_, `cd` into the root directory
- of this project.
-5. Execute the script appropriate to your platform:  
-    * `install.sh` if you have a **`bash`** shell  
-    (You may need to use `chmod u+x` on this file to make it executable)
-    * `node win-install.js` if you are on Windows and only have a CMD window
-6. Observe the output for the success/failure message.
+*Rewrite in progress*
 
 ## To Uninstall
 **Only use the same version of this project as was used for installation.**
-1. In a console window _with elevated privileges_, `cd` into the root directory
- of this project.
-2. Execute the script appropriate to your platform:  
-    * `uninstall.sh` if you have a **`bash`** shell  
-    (You may need to use `chmod u+x` on this file to make it executable)
-    * `node win-uninstall.js` if you are on Windows and only have a CMD window
-3. Observe the output for the success/failure message.
+
+*Rewrite in progress*
 _________________________
 
 ## Usage
