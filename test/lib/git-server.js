@@ -1,9 +1,15 @@
 /*
   Extracted/adapted from pacote v11.3.5 test/git.js
 */
+const fs = require('fs')
+const path = require('path')
 const { spawn } = require('child_process')
 
+const spawnGit = require('@npmcli/git').spawn
+const spawnNpm = require('pacote/lib/util/npm')
+
 let daemonPID
+let hostBase
 
 // port: ephemeral port on which the daemon should listen.
 // base: path where repos and the cache are located.
@@ -53,9 +59,82 @@ exports.start = function startDaemon(port, base) {
           else reject(err)
         }
       })
+      hostBase = base
       resolve()
     }
     daemon.stderr.on('data', onDaemonData)
   })
+}
+
+const initializeRepo = async (repoPath) => {
+  const git = (...cmd) => spawnGit(cmd, { cwd: repoPath })
+
+  fs.mkdirSync(repoPath)
+  await git('init')
+  await git('config', 'user.name', 'n2s7dev')
+  await git('config', 'user.email', 'n2s7dev@npm2stage.io')
+  await git('config', 'tag.gpgSign', 'false')
+  await git('config', 'commit.gpgSign', 'false')
+  await git('config', 'tag.forceSignAnnotated', 'false')
+}
+
+let repoCount = 0
+
+exports.createRepo = async (repoName, cfg, npmBin) => {
+  if (!hostBase)
+    return Promise.reject(new Error('Base path for repos has not been set!'))
+
+  const repoPath = path.join(hostBase, repoName)
+  const git = (...cmd) => spawnGit(cmd, { cwd: repoPath })
+  const write = (f, c) => fs.writeFileSync(path.join(repoPath, f), c)
+  const npm = (...cmd) => spawnNpm(
+    npmBin + (process.platform === 'win32' ? '.cmd' : ''), [
+      ...cmd,
+      '--no-sign-git-commit',
+      '--no-sign-git-tag',
+    ], repoPath)
+
+  if (!cfg) cfg = {}
+
+  const pkgJson = {
+    name: repoName,
+    version: '0.0.1',
+    description: 'git test asset ' + ++repoCount,
+    files: [
+      'index.js'
+    ],
+  }
+  if (cfg.deps) pkgJson.dependencies = { ...cfg.deps }
+  if (cfg.devDeps) pkgJson.devDependencies = { ...cfg.devDeps }
+  if (cfg.scripts) pkgJson.scripts = { ...cfg.scripts }
+
+  await initializeRepo(repoPath)
+  await write('package.json', JSON.stringify(pkgJson))
+  await git('add', 'package.json')
+  await git('commit', '-m', 'package json file')
+
+  // We will use the name 'items' instead of 'files', because the latter has a
+  // specific definition in a package.json, and we want to avoid ambiguity:
+  if (cfg.items) {
+    for (data of cfg.items) {
+      await write(data.filename, data.content)
+      await git('add', data.filename)
+      await git('commit', '-m', data.message)
+      // From the npm doc for `npm version`:
+      // "If run in a git repo, it will also create a version commit and tag."
+      if (data.version) await npm('version', data.version)
+      // TODO: use a data property that is a flag to tell us whether to fetch
+      // the HEAD commit, and then associate it with a name to put in the map
+      // that we resolve to...
+    }
+  }
+
+/*
+  TODO: It may be worth testing for a version downloaded by a spec that precedes
+  or follows a certain change that can be detected in the ensuing installation.
+  It's definitely worth testing a tag-based download and a semver spec-based
+  download.
+  For this, it would be essential to add code to query the commit hashes.
+*/
 }
 

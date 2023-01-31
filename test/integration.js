@@ -10,17 +10,13 @@ const readFileAsync = promisify(fs.readFile)
 
 const rimrafAsync = promisify(require('rimraf'))
 
-const spawnGit = require('@npmcli/git').spawn // TODO: only usedby code to be extracted to git-server
-const spawnNpm = require('pacote/lib/util/npm') // TODO: only usedby code to be extracted to git-server
 const tap = require('tap')
 
 const graft = require('./lib/graft')
 const gitServer = require('./lib/git-server')
 const remoteServer = require('./lib/remote-server')
 const arbFixtures = './fixtures/arborist/fixtures'
-const {
-  registry, auditResponse // TODO: auditResponse may not be needed here
-} = require(arbFixtures + '/registry-mocks/server.js')
+const { registry } = require(arbFixtures + '/registry-mocks/server.js')
 const mockRegistryProxy = require('./lib/mock-server-proxy')
 
 // Where the test npm will be installed
@@ -271,6 +267,45 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
   })
 
 const testCacheName = 'tempcache'
+
+const repoName1 = 'top-repo'
+const repoCfg1 = {
+  devDeps: {
+    'abbrev': '1.1.1',
+  },
+  scripts: {
+    prepare: 'node prepare.js',
+    test: 'node index.js',
+  },
+  items: [
+    {
+      filename: '.gitignore',
+      content: 'index.js',
+      message: 'ignore file'
+    },
+    {
+      filename: 'prepare.js',
+      content: [
+        "const fs = require('fs')",
+        "const { join } = require('path')",
+        "require('abbrev')",
+        "fs.writeFileSync(join(__dirname, 'index.js'), 'console.log(\"ok\")')"
+      ].join('\n'),
+      message: 'prepare script'
+    },
+    {
+      filename: 'README.md',
+      content: 'This is documentation.',
+      message: 'added documentation',
+      version: '1.0.0'
+    },
+    {
+      filename: 'README.md',
+      content: 'This is UPDATED documentation.',
+      message: 'updated docs'
+    }
+  ]
+}
 const gitHostPort = 19418
 const gitHostBaseName = 'gitBase'
 let gitHostBase
@@ -283,7 +318,6 @@ tap.before(() => {
   const rootPath = tap.testdir({
     [testCacheName]: {}
   })
-
   const cache = path.resolve(rootPath, testCacheName)
   const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest')
   let pkgPath
@@ -298,7 +332,7 @@ tap.before(() => {
   return mkdirAsync(pkgDrop)
   .then(() => execAsync('npm root -g')).then(({ stdout, stderr }) => {
     const npmDir = path.join(stdout.trim(), 'npm')
-    console.log('live npm path is', npmDir)
+    //console.log('live npm path is', npmDir)
     const npm = require(npmDir)
     return npm.load().then(() => {
       npm.config.set('cache', cache)
@@ -332,12 +366,11 @@ tap.before(() => {
     console.log('npm installation seems to have been successful...')
     return rimrafAsync(pkgDrop).then(() => applyN2SFiles())
   })
-  .then(() => {
-    return mockRegistryProxy.start()
-    .then(() => gitServer.start(gitHostPort, gitHostBase))
-    .then(() => remoteServer.start(remoteBase/*, { debug: true }*/))
-    .then(num => remotePort = num)
-  })
+  .then(() => mockRegistryProxy.start())
+  .then(() => gitServer.start(gitHostPort, gitHostBase))
+  .then(() => gitServer.createRepo(repoName1, repoCfg1, testNpm))
+  .then(() => remoteServer.start(remoteBase/*, { debug: true }*/))
+  .then(num => remotePort = num)
 })
 tap.teardown(() => {
   return new Promise(resolve => mockRegistryProxy.stop(() => resolve()))
@@ -969,123 +1002,12 @@ tap.test('8', t1 => {
   })
 })
 
-/*
-// SO FAR, SEEMS TO ME I SHOULDN'T NEED THIS STUFF
-const hashOrNot = h => h.committish ? `#${h.committish}` : ''
-// TODO: Find out - why is the project not in this template?
-const sTemplate = (h) => `git://127.0.0.1:${gitPort}/${h.user}${hashOrNot(h)}`
-// For git repo package tests
-function setGitHostInfo(data) {
-  testGHI.byShortcut[data.shortcut + ':'] = data.shortcut
-  testGHI.byDomain[data.domain || data.shortcut] = data.shortcut
-  testGHI[data.shortcut] = {
-    protocols: data.protocols || ['git+ssh:'],
-    shortcuttemplate: (h) => `${data.shortcut}:${h.user}/${h.project}${hashOrNot(h)}`,
-    extract: (url) => {
-      const [, user, project] = url.pathname.split('/')
-      return { user, project, committish: url.hash.slice(1) }
-    }
-  }
-  if (data.tarball)
-    testGHI[data.shortcut].tarballtemplate = `${hostedUrl}/${data.tarball}`
-  if (data.uses_sshurl)
-    testGHI[data.shortcut].sshurltemplate = sTemplate
-  if (data.uses_https)
-    testGHI[data.shortcut].httpstemplate = sTemplate
-}
-*/
-
-const createRepo = async (repoPath) => {
-  const git = (...cmd) => spawnGit(cmd, { cwd: repoPath })
-
-  fs.mkdirSync(repoPath)
-  await git('init')
-  await git('config', 'user.name', 'n2s7dev')
-  await git('config', 'user.email', 'n2s7dev@npm2stage.io')
-  await git('config', 'tag.gpgSign', 'false')
-  await git('config', 'commit.gpgSign', 'false')
-  await git('config', 'tag.forceSignAnnotated', 'false')
-}
-
 tap.test('git 1', async t1 => {
-  const pkgName1 = 'top-repo'
-  const abbrevSpec = '1.1.1'
-  const repoPath = path.join(gitHostBase, pkgName1)
-  const git = (...cmd) => spawnGit(cmd, { cwd: repoPath })
-  const write = (f, c) => fs.writeFileSync(path.join(repoPath, f), c)
-  const npm = (...cmd) => spawnNpm(
-    testNpm + (process.platform === 'win32' ? '.cmd' : ''), [
-      ...cmd,
-      '--no-sign-git-commit',
-      '--no-sign-git-tag',
-    ], repoPath)
-
-  /*
-    The following prep for a git repo dl/install test is very lengthy.
-    ALSO, there's some questionable stuff in it. Example: Why gitignore index.js?
-    TODO: decide on whether to extract all this git repo creation stuff to a
-    separate module, a separate function, to a 'before', or leave where it is.
-    The deciding factor will be whether this repo could serve more than one
-    purpose...
-    * as a dep of some kind in a planned remote (url) package
-    * do further commits to it, then do a test that expects a particular version
-  */
-  await createRepo(repoPath)
-  await write('package.json', JSON.stringify({
-    name: pkgName1,
-    version: '0.0.1',
-    description: 'git test asset 1',
-    devDependencies: {
-      abbrev: abbrevSpec,
-    },
-    scripts: {
-      prepare: 'node prepare.js',
-      test: 'node index.js',
-    },
-    files: [
-      'index.js'
-    ],
-  }))
-  await git('add', 'package.json')
-  await git('commit', '-m', 'package json file')
-
-  await write('.gitignore', 'index.js')
-  await git('add', '.gitignore')
-  await git('commit', '-m', 'ignore file')
-
-/*
-  TODO: It may be worth testing for a version downloaded by a spec that precedes
-  or follows a certain change that can be detected in the ensuing installation.
-  It's definitely worth testing a tag-based download and a semver spec-based
-  download.
-  For this, it would be essential to add code to query the commit hashes.
-*/
-  await write('prepare.js', [
-    "const fs = require('fs')",
-    "const { join } = require('path')",
-    "require('abbrev')",
-    "fs.writeFileSync(join(__dirname, 'index.js'), 'console.log(\"ok\")')"
-  ].join('\n'))
-  await git('add', 'prepare.js')
-  await git('commit', '-m', 'prepare script')
-
-  await write('README.md', 'This is documentation.')
-  await git('add', 'README.md')
-  await git('commit', '-m', 'added documentation')
-
-  await npm('version', '1.0.0')
-
-  await write('README.md', 'This is UPDATED documentation.')
-  await git('add', 'README.md')
-  await git('commit', '-m', 'updated docs')
-
-//console.log('Finished git operations for repo at', repoPath)
-
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
   const host = 'localhost:' + gitHostPort
-  const spec = `git://${host}/${pkgName1}`
+  const spec = `git://${host}/${repoName1}`
 
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
   .then(() => readdirAsync(dlPath))
@@ -1105,7 +1027,7 @@ tap.test('git 1', async t1 => {
     t1.ok(list.includes('dl-temp'), 'temp dir for cache was created')
 
     const RE_REPO = new RegExp([
-      '^', encodeURIComponent(`${host}/${pkgName1}#`), '[0-9a-z]{40}\.tar\.gz$'
+      '^', encodeURIComponent(`${host}/${repoName1}#`), '[0-9a-z]{40}\.tar\.gz$'
     ].join(''))
     t1.ok(
       list.find(el => RE_REPO.test(el)),
@@ -1123,7 +1045,7 @@ tap.test('git 1', async t1 => {
 //console.log('installation target node_modules contents:', list)
     const expected = [ '.package-lock.json', 'top-repo' ]
     t1.same(list, expected, 'Nothing more or less than expected in node_modules')
-    return readdirAsync(path.join(installPath, 'node_modules', pkgName1))
+    return readdirAsync(path.join(installPath, 'node_modules', repoName1))
   }).then(list => {
 //console.log('target package dir contents:', list)
     const expected = [ 'README.md', 'index.js', 'package.json' ]
@@ -1138,9 +1060,9 @@ tap.test('git 1', async t1 => {
     const expected = {
       '': {
         name: installDirName, version: '1.0.0',
-        dependencies: { [pkgName1]: spec }
+        dependencies: { [repoName1]: spec }
       },
-      ['node_modules/' + pkgName1]: {
+      ['node_modules/' + repoName1]: {
         version: '1.0.0'
       }
     }
