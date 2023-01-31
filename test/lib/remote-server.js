@@ -79,7 +79,7 @@ exports.start = (home, opts) => new Promise((resolve, reject) => {
     exports.stop = () => new Promise((resolve, reject) => {
       server.close(err => err ? reject(err) : resolve())
     })
-    console.log('Server address:', server.address())
+    if (opts.debug) console.log('Remote server address:', server.address())
     resolve(server.address().port)
   })
 })
