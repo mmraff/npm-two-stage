@@ -211,9 +211,10 @@ class GitItemAgent extends ItemAgent {
       Object.assign(this.dlData, {
         filename: this.fetchKey2,
         repo: repoV2,
-        commit: mani._sha,
-        refs: mani._allRefs
+        commit: mani._sha
       })
+      if (mani._allRefs && mani._allRefs.length)
+        this.dlData.refs = mani._allRefs
 
       const filePath = path.join(this.dlTracker.path, this.dlData.filename)
       // Note: here spec == `${name}@${mani.from}`

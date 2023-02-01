@@ -228,11 +228,11 @@ function expectDlTrackerData(t, dlTracker, type, keyData, msg) {
       })
       break
   }
-  t.has(
-    dlTracker.getData(type, keyData.name, keyData.spec || keyData.version),
-    expected,
-    msg
+  const actual = dlTracker.getData(
+    type, keyData.name, keyData.spec || keyData.version
   )
+  t.has(actual, expected, msg)
+  return actual
 }
 
 tap.test('xformResult', t1 => {
@@ -1007,6 +1007,31 @@ tap.test('handleItem', t1 => {
         'git', { name: keys.repo, spec: pkg._sha },
         'expected values for item requested 1st are in the dlTracker data'
       )
+      t2.end()
+    })
+  })
+  t1.test('git repo spec with commit hash, no associated tag', t2 => {
+    const opts = makeOpts()
+    const testData0 = testSpecs.git[0]
+    const pkg = testData0.manifest
+    const testData = {
+      spec: `${testData0.spec}#${pkg._sha}`, manifest: { ...pkg }
+    }
+    // If the _allRefs value is an empty array (meaning: no tags found for
+    // the item as specified), the dltracker omits the 'refs' property
+    testData.manifest._allRefs = []
+    mockPacote.setTestConfig({ [testData.spec]: testData.manifest })
+    itemAgents.handleItem(testData.spec, { ...opts, topLevel: true })
+    .then(res => {
+      t2.strictSame(res, [{ spec: testData.spec }])
+      const npaSpec = npa(testData.spec)
+      const keys = gitTrackerKeys(npaSpec)
+      const dlData = expectDlTrackerData(
+        t2, opts.dlTracker,
+        'git', { name: keys.repo, spec: pkg._sha },
+        'dlTracker data contains the expected values'
+      )
+      t2.ok(!('refs' in dlData), 'dlTracker data contains no refs property')
       t2.end()
     })
   })
