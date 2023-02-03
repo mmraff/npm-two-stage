@@ -84,6 +84,7 @@ exports.createRepo = async (repoName, cfg, npmBin) => {
   if (!hostBase)
     return Promise.reject(new Error('Base path for repos has not been set!'))
 
+  const commits = []
   const repoPath = path.join(hostBase, repoName)
   const git = (...cmd) => spawnGit(cmd, { cwd: repoPath })
   const write = (f, c) => fs.writeFileSync(path.join(repoPath, f), c)
@@ -123,18 +124,10 @@ exports.createRepo = async (repoName, cfg, npmBin) => {
       // From the npm doc for `npm version`:
       // "If run in a git repo, it will also create a version commit and tag."
       if (data.version) await npm('version', data.version)
-      // TODO: use a data property that is a flag to tell us whether to fetch
-      // the HEAD commit, and then associate it with a name to put in the map
-      // that we resolve to...
+      const cmt = data.getCommit ?
+        (await git('rev-parse', 'HEAD')).stdout.trim() : null
+      commits.push(cmt)
     }
   }
-
-/*
-  TODO: It may be worth testing for a version downloaded by a spec that precedes
-  or follows a certain change that can be detected in the ensuing installation.
-  It's definitely worth testing a tag-based download and a semver spec-based
-  download.
-  For this, it would be essential to add code to query the commit hashes.
-*/
+  return commits
 }
-
