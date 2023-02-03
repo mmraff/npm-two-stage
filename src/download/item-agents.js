@@ -51,7 +51,8 @@ class ItemAgent {
         }
         catch (err) { return Promise.reject(err) }
       }
-      if (this.dlTracker.contains(this.type, this.trackerKeys.name, this.trackerKeys.spec)) {
+      const pkgName = this.type != 'url' ? this.trackerKeys.name : null
+      if (this.dlTracker.contains(this.type, pkgName, this.trackerKeys.spec)) {
         this.result.duplicate = true
         return Promise.resolve([ this.result ])
       }
