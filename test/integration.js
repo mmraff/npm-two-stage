@@ -1,13 +1,9 @@
-const fs = require('fs')
+const {
+  copyFile, lstat, mkdir, readdir, readFile, writeFile, unlink
+} = require('fs').promises
 const path = require('path')
 const { promisify } = require('util')
 const execAsync = promisify(require('child_process').exec)
-const copyFileAsync = promisify(fs.copyFile)
-const lstatAsync = promisify(fs.lstat)
-const mkdirAsync = promisify(fs.mkdir)
-const readdirAsync = promisify(fs.readdir)
-const readFileAsync = promisify(fs.readFile)
-
 const rimrafAsync = promisify(require('rimraf'))
 
 const tap = require('tap')
@@ -34,24 +30,24 @@ function applyN2SFiles() {
   const src = path.resolve(__dirname, '../src')
   const dest = path.join(stagedNpmDir, 'lib')
   let npmLibList
-  return readdirAsync(dest)
+  return readdir(dest)
   .then(list => {
     npmLibList = list
-    return readdirAsync(src).then(items => nextItem('', items, 0))
+    return readdir(src).then(items => nextItem('', items, 0))
   })
 
   function nextItem(offset, list, i) {
     if (i >= list.length) return Promise.resolve()
     const item = list[i]
     const srcItemPath = path.join(src, offset, item)
-    return lstatAsync(srcItemPath).then(srcStats => {
+    return lstat(srcItemPath).then(srcStats => {
       const target = path.join(dest, offset, item)
       let p
       if (srcStats.isDirectory()) {
         p = offset == '' && !npmLibList.includes(item) ?
           graft(srcItemPath, dest) :
-          readdirAsync(srcItemPath).then(entries =>
-            mkdirAsync(target)
+          readdir(srcItemPath).then(entries =>
+            mkdir(target)
             .catch(err => {
               if (err.code != 'EEXIST') throw err
             })
@@ -61,7 +57,7 @@ function applyN2SFiles() {
       else if (srcStats.isFile())
         // We don't do COPYFILE_EXCL here because we don't do backups in this
         // sandboxed test situation, we simply overwrite
-        p = copyFileAsync(srcItemPath, target)
+        p = copyFile(srcItemPath, target)
       else {
         // This should never happen in this context!
         // But potential harm is neutralized
@@ -96,7 +92,7 @@ const runNpmCmd = async (npmBin, cmd, argList, opts) => {
   // NOTE that in download.js, we set the cache to a custom location:
   // 'dl-temp-cache' in the dl-dir.
   if (!argList) argList = []
-  argList.push('--registry=' + registry)
+  argList.unshift('--registry=' + registry)
   if (!opts) opts = { env: {} }
   if (!opts.env) opts.env = {}
   // So far, it seems there's no need to do anything special on Windows...
@@ -114,7 +110,7 @@ const RE_RMV_PROTO = /^[a-z]+:\/\/(.+)$/
 const RE_TARBALL_EXT = /\.(tar\.gz|tgz)$/
 
 const checkDownloads = (t, pkgMap, dlPath) =>
-  readdirAsync(dlPath).then(list => {
+  readdir(dlPath).then(list => {
     const expectedItems = [ 'dl-temp', 'dltracker.json' ]
     for (const name in pkgMap) {
       const versions = pkgMap[name]
@@ -137,7 +133,7 @@ const checkDownloads = (t, pkgMap, dlPath) =>
   })
 
 const checkProjectRootPostInstall = (t, projectRoot) =>
-  readdirAsync(projectRoot).then(list => {
+  readdir(projectRoot).then(list => {
     const expected = [ 'node_modules', 'package-lock.json', 'package.json' ]
     t.same(list, expected, 'Nothing more or less than what is expected')
   })
@@ -177,7 +173,7 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
   const checkDirs = (dirs, i) => {
     if (i >= dirs.length) return Promise.resolve()
     const dir = dirs[i]
-    return readdirAsync(path.join(node_modules, dir))
+    return readdir(path.join(node_modules, dir))
     .then(list => {
       const found = list.filter(
         name => (name != '.package-lock.json' && name != '.bin')
@@ -203,7 +199,7 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
       what they do with the 'packages' entries in the package-lock:
         [[@ns/]ancestor/node_modules/]*[@ns/]parent
       So we will join(installDir, 'node_modules', theAbove, 'node_modules'),
-      and expect readdirAsync to give us the associated list
+      and expect readdir to give us the associated list
       (once .package-lock.json and .bin are removed)
       */
       if (pkg.parent) parts.push(pkg.parent)
@@ -222,7 +218,7 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
 }
 
 const getJsonFileData = filepath => {
-  return readFileAsync(filepath, { encoding: 'utf8' }).then(str => {
+  return readFile(filepath, { encoding: 'utf8' }).then(str => {
     // Strip BOM, if any
     if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1)
     return JSON.parse(str)
@@ -291,28 +287,32 @@ const repoCfg1 = {
         "require('abbrev')",
         "fs.writeFileSync(join(__dirname, 'index.js'), 'console.log(\"ok\")')"
       ].join('\n'),
-      message: 'prepare script'
+      message: 'prepare script',
+      getCommit: true
     },
     {
       filename: 'README.md',
       content: 'This is documentation.',
       message: 'added documentation',
-      version: '1.0.0'
+      version: '1.0.0',
+      getCommit: true
     },
     {
       filename: 'README.md',
       content: 'This is UPDATED documentation.',
-      message: 'updated docs'
+      message: 'updated docs',
+      getCommit: true
     }
   ]
 }
+const gitCommits = {}
 const gitHostPort = 19418
 const gitHostBaseName = 'gitBase'
-let gitHostBase
-
+const gitRepoId1 = `localhost:${gitHostPort}/${repoName1}`
 const remoteBaseRelPath = 'fixtures/data'
-let remotePort
-let remoteBase
+const cfg = {
+  git: {}, remote: {}
+}
 
 tap.before(() => {
   const rootPath = tap.testdir({
@@ -321,15 +321,15 @@ tap.before(() => {
   const cache = path.resolve(rootPath, testCacheName)
   const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest')
   let pkgPath
-  // NOTE: formerly had gitHostBase in the tap.testdir; but was getting EBUSY
+  // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting EBUSY
   // error from rmdir on teardown, even though the tap doc for fixtures says
   // "The fixture directory cleanup will always happen after any
   //  user-scheduled t.teardown() functions, as of tap v14.11.0."
   // Funny, now that removal is done *during* teardown, the problem is gone.
-  gitHostBase = path.resolve(staging, 'srv', gitHostBaseName)
-  remoteBase = path.resolve(__dirname, remoteBaseRelPath)
+  cfg.git.hostBase = path.resolve(staging, 'srv', gitHostBaseName)
+  cfg.remote.base = path.resolve(__dirname, remoteBaseRelPath)
 
-  return mkdirAsync(pkgDrop)
+  return mkdir(pkgDrop)
   .then(() => execAsync('npm root -g')).then(({ stdout, stderr }) => {
     const npmDir = path.join(stdout.trim(), 'npm')
     //console.log('live npm path is', npmDir)
@@ -341,14 +341,14 @@ tap.before(() => {
       const packAsync = promisify(npm.commands.pack)
       return packAsync([path.join(__dirname, '../node_modules/npm')])
     })
-    .then(() => readdirAsync(pkgDrop))
+    .then(() => readdir(pkgDrop))
     .then(list => {
       if (!list.length) throw new Error('npm tarball not found at ' + pkgDrop)
       pkgPath = path.join(pkgDrop, list[0])
     })
     .then(() => rimrafAsync(staging))
-    .then(() => mkdirAsync(staging))
-    .then(() => mkdirAsync(gitHostBase, { recursive: true }))
+    .then(() => mkdir(staging))
+    .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
     .then(() => {
       npm.globalPrefix = staging // Really important!
       npm.config.set('global', true)
@@ -367,10 +367,16 @@ tap.before(() => {
     return rimrafAsync(pkgDrop).then(() => applyN2SFiles())
   })
   .then(() => mockRegistryProxy.start())
-  .then(() => gitServer.start(gitHostPort, gitHostBase))
+  .then(() => gitServer.start(gitHostPort, cfg.git.hostBase))
   .then(() => gitServer.createRepo(repoName1, repoCfg1, testNpm))
-  .then(() => remoteServer.start(remoteBase/*, { debug: true }*/))
-  .then(num => remotePort = num)
+  .then(commits => gitCommits[repoName1] = commits)
+  .then(() => remoteServer.start(cfg.remote.base))//, { debug: true }))
+  .then(num => {
+    cfg.remote.port = num
+    cfg.remote.id2 = `localhost:${num}/skizziks/remote2-1.1.0.tgz`
+    cfg.pjPath = path.join(staging, 'tmp', 'dl-pj')
+    return mkdir(cfg.pjPath, { recursive: true })
+  })
 })
 tap.teardown(() => {
   return new Promise(resolve => mockRegistryProxy.stop(() => resolve()))
@@ -390,8 +396,9 @@ const installDirName = 'install-tgt'
 // Case 1: request for non-existent package
 tap.test('1', t1 => {
   const targetDir = t1.testdir()
+  // Package name chosen to ensure that it won't be found.
   // Note: npm-package-arg has no problem with a name like 'OMGZ!',
-  // even though npm would count it as illegal
+  // even though npm (e.g. publish) would reject it.
   t1.rejects(
     runNpmCmd(testNpm, 'download', ['OMGZ!'], { cwd: targetDir }),
     /npm ERR! 404 Not Found/
@@ -412,7 +419,7 @@ tap.test('2', t1 => {
   // tarballs it has available, so we must be careful with the spec we use.
   const spec = '"acorn@<4.0.5"'
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  .then(() => readdirAsync(dlPath))
+  .then(() => readdir(dlPath))
   .then(list => {
     t1.equal(list.length, 3, 'Nothing more or less than what is expected')
     t1.ok(list.includes('acorn-4.0.4.tar.gz'), 'Target package tarball was downloaded')
@@ -424,78 +431,44 @@ tap.test('2', t1 => {
       [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
     )
   })
-  .then(() => readdirAsync(path.join(installPath, 'node_modules')))
+  .then(() => readdir(path.join(installPath, 'node_modules')))
   .then(list => {
     t1.ok(list.includes('acorn'))
     // TODO: ???
   })
   .then(() => {
-    /*
-      TODO: verify somehow (maybe there's a convenient npm.command that does that?)
-      * look for the installed package in the dependencies of the package.json,
-        and verify the spec
-      * verify the package is in node_modules
-      * validate the package-lock.json somehow?
-      The following has output that looks like the contents of a simple
-      package-lock.json file - is that where ls gets its info from?
-      In which case, why not just examine the contents of the package-lock.json?
-    */
+    // TODO: verify somehow (maybe there's a convenient npm.command that does that?)
+    // * look for the installed package in the dependencies of the package.json,
+      // and verify the spec
+    // * verify the package is in node_modules
+    // * validate the package-lock.json somehow?
+    // The following has output that looks like the contents of a simple
+    // package-lock.json file - is that where ls gets its info from?
+    // In which case, why not just examine the contents of the package-lock.json?
     return runNpmCmd(
       testNpm, 'ls', [ '--all', '--json' ], { cwd: installPath }
     )
   })
-  /*
-    dl 'rimraf@2.4.3' works (at last), and its dependency tree is retrieved
-    alright, but...
-    we requested rimraf (a) with no spec, and (b) with a partial spec;
-    in both cases, the test install failed with a 404 error.
-    It turns out that there's a "packument" for every package in the content
-    directory of registry-mocks, but the registry directory for the package
-    does not contain every version listed; so if the request is not specific,
-    the mock registry tries to serve the latest that matches the spec, and
-    fails when the matching version is not present.
-    Then it's also possible that npm is walking up to the npm-two-stage root,
-    reading what's in the package.json there, and figuring that into it's
-    decision about what to request...
-    TODO:
-    * pick a package from the arborist registry mocks that's not in
-      npm-two-stage/node_modules (if any), so that we don't get that confusion
-      that we saw when . See if our test setup can handle those cases.
-    * verify that the pkg directory contains the expected tarballs, with
-      .tar.gz extension.
-    * verify that the pkg directory contains a dltracker.json file.
-    * Run npm install --offline from the pkg directory, and verify the
-      result (somehow - look to the npm tests for an example to follow).
-    * Do all of the above for each kind of spec.
-    * Do a non-offline install (perhaps before anything else).
-    * Do a test to prove that npm download does not care about the engine
-      required by a package.
-  */
-  .finally(() => {
-    t1.end()
-  })
-/*
-  TODO:
-  * Set up the integration test suite to be done without coverage!
-    (Coverage is covered by unit test suites.)
-    Instead, investigate npm tests for the cases to be addressed, then add
-    our own for download.
-  * have a directory with a package.json as a fixture
-  * copy it to a test base directory for each test
-  * process.chdir() to it before running a command
-  * See this directory for what packages are available through the mock registry:
-      fixtures/arborist/fixtures/registry-mocks/content/
-*/
-/*
-  LESSON:
-  * npm commands run programmatically *must* be given an array as the 1st arg
-    (containing args meant to be passed to the command), and *must* be given
-    a callback (unless promisified).
-  * If you want to see `testNpm root -g` give the staging location,
-      testNpm.config.set('global', true)
-  * If you want to see `testNpm root` give the root of a specific project,
-      process.chdir(<PROJECT_PATH>)
-*/
+
+  // TODO:
+  // * Set up the integration test suite to be done without coverage!
+    // (Coverage is covered by unit test suites.)
+    // Instead, investigate npm tests for the cases to be addressed, then add
+    // our own for download.
+  // * have a directory with a package.json as a fixture
+  // * copy it to a test base directory for each test
+  // * process.chdir() to it before running a command
+  // * See this directory for what packages are available through the mock registry:
+      // fixtures/arborist/fixtures/registry-mocks/content/
+
+  // LESSON:
+  // * npm commands run programmatically *must* be given an array as the 1st arg
+    // (containing args meant to be passed to the command), and *must* be given
+    // a callback (unless promisified).
+  // * If you want to see `testNpm root -g` give the staging location,
+      // testNpm.config.set('global', true)
+  // * If you want to see `testNpm root` give the root of a specific project,
+      // process.chdir(<PROJECT_PATH>)
 })
 
 // Case 3: package with a flat set of regular deps
@@ -543,9 +516,6 @@ tap.test('3', t1 => {
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-  .finally(() => {
-    t1.end()
-  })
 })
 
 // Case 4: package with a non-flat tree of regular deps
@@ -608,9 +578,6 @@ tap.test('4', t1 => {
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-  .finally(() => {
-    t1.end()
-  })
 })
 
 // Case 5: (scoped) package with scoped regular dep
@@ -641,9 +608,6 @@ tap.test('5', t1 => {
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-  .finally(() => {
-    t1.end()
-  })
 })
 
 // Case 6: package with a peer dep with deps
@@ -695,7 +659,7 @@ tap.test('6', t1 => {
       [ '--omit=peer', spec ], { cwd: installPath }
     )
     .then(() => checkProjectRootPostInstall(t2, installPath))
-    .then(() => readdirAsync(path.join(installPath, 'node_modules')))
+    .then(() => readdir(path.join(installPath, 'node_modules')))
     .then(list => {
 //console.log('Case 6-baseline node_modules contents:', list)
       t2.equal(list.length, 2, 'Nothing more or less than what is expected')
@@ -705,10 +669,7 @@ tap.test('6', t1 => {
 
       return checkPackageLock(t2, installPath, pkgs, tgtName)
     })
-    .finally(() => {
-      t2.end()
-    })
-  })
+ })
   // TODO: a special section in the README about peerDependencies with/without
   // the use of --include=peer and --omit=peer
   // ( this might turn into a section about all kinds of non-regular dependencies!)
@@ -725,7 +686,7 @@ tap.test('6', t1 => {
       testNpm, 'download', [ '--dl-dir='+dlPath, spec ]
     )
     // Does *not* include peer deps by default
-    .then(() => readdirAsync(dlPath))
+    .then(() => readdir(dlPath))
     .then(list => {
 //console.log('Case 6a download dir contents:', list)
       t2.equal(list.length, 3, 'Nothing more or less than what is expected')
@@ -747,7 +708,7 @@ tap.test('6', t1 => {
         t2.match(err.stderr, RE_missingPeerError)
       })
     })
-    .then(() => readdirAsync(installPath)).then(list => {
+    .then(() => readdir(installPath)).then(list => {
 //console.log('Case 6a install dir contents:', list)
       t2.same(list, [ 'package.json' ], 'install destination has nothing new')
     })
@@ -766,12 +727,9 @@ tap.test('6', t1 => {
       t2.match(err.stderr, RE_resolvePeerFailureWarning2)
       t2.match(err.stderr, RE_missingPeerError)
     })
-    .then(() => readdirAsync(installPath)).then(list => {
+    .then(() => readdir(installPath)).then(list => {
 //console.log('Case 6a install dir contents after install --force:', list)
       t2.same(list, [ 'package.json' ], 'install destination has nothing new')
-    })
-    .finally(() => {
-      t2.end()
     })
   })
 
@@ -809,31 +767,28 @@ tap.test('6', t1 => {
     .then(() => checkPackageLock(
       t2, installPath, pkgs, tgtName, { omit: ['peer'] }
     ))
-/*
-  TODO:
-  This is a nagging problem. The npm documentation says nothing about omit=peer
-  being overridden by anything but include=peer on the same command line; yet
-  npm install is still insisting on trying to obtain the peer dependency, and
-  causing an error when it can't. SO, two things to try:
-  1. Do a straight npm install of the target package from the mock registry,
-    and see what happens -- DONE
-  2. Change the case where omit=peer is used, to be the one where the peer dep
-    got downloaded with the target package, and see what happens.
-  My theory is that the install with omit=peer would work fine where the dest
-  already has the peer dep installed (could be wrong, if npm wants to check for
-  a later version to satisfy the range spec); maybe it would even work fine if
-  the registry record/downloaded tarball is available...
-  OBSERVATIONS:
-  1) Even if the peer dependency is already installed, offline installation of
-    the package that has a peer dep, with --omit=peer, fails with an error
-    indicating that npm is unable to resolve the dependency tree. Clearly npm
-    wants some manifest info (e.g., from the registry).
-  2) If the option --force is given with the above, installation succeeds with
-    only a brief warning about "Recommended protections disabled."
-*/
-    .finally(() => {
-      t2.end()
-    })
+
+  // TODO:
+  // This is a nagging problem. The npm documentation says nothing about omit=peer
+  // being overridden by anything but include=peer on the same command line; yet
+  // npm install is still insisting on trying to obtain the peer dependency, and
+  // causing an error when it can't. SO, two things to try:
+  // 1. Do a straight npm install of the target package from the mock registry,
+  //   and see what happens -- DONE
+  // 2. Change the case where omit=peer is used, to be the one where the peer dep
+  //   got downloaded with the target package, and see what happens.
+  // My theory is that the install with omit=peer would work fine where the dest
+  // already has the peer dep installed (could be wrong, if npm wants to check for
+  // a later version to satisfy the range spec); maybe it would even work fine if
+  // the registry record/downloaded tarball is available...
+  // OBSERVATIONS:
+  // 1) Even if the peer dependency is already installed, offline installation of
+  //   the package that has a peer dep, with --omit=peer, fails with an error
+  //   indicating that npm is unable to resolve the dependency tree. Clearly npm
+  //   wants some manifest info (e.g., from the registry).
+  // 2) If the option --force is given with the above, installation succeeds with
+  //   only a brief warning about "Recommended protections disabled."
+
   })
 
   // Third: with include=peer, download succeeds in fetching all the peer deps;
@@ -854,9 +809,6 @@ tap.test('6', t1 => {
     // All peer deps get installed, by default
     .then(() => checkInstalled(t2, pkgs, installPath))
     .then(() => checkPackageLock(t2, installPath, pkgs, tgtName))
-    .finally(() => {
-      t2.end()
-    })
   })
 
   // 4th: with include=peer, download succeeds in fetching all the peer deps;
@@ -875,7 +827,7 @@ tap.test('6', t1 => {
       { cwd: installPath }
     ))
     .then(() => checkProjectRootPostInstall(t2, installPath))
-    .then(() => readdirAsync(path.join(installPath, 'node_modules')))
+    .then(() => readdir(path.join(installPath, 'node_modules')))
     .then(list => {
 //console.log('Case 6d node_modules contents:', list)
       t2.equal(list.length, 2, 'Nothing more or less than what is expected')
@@ -886,9 +838,6 @@ tap.test('6', t1 => {
     // The records for the peer dependencies in the package-lock have the
     // peer flag in this case.
     .then(() => checkPackageLock(t2, installPath, pkgs, tgtName))
-    .finally(() => {
-      t2.end()
-    })
   })
 
   t1.end()
@@ -933,9 +882,6 @@ tap.test('7', t1 => {
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-  .finally(() => {
-    t1.end()
-  })
 })
 
 // Case 8: package with bundled deps
@@ -972,13 +918,11 @@ tap.test('8', t1 => {
     }
   }
 
-  /*
-    NOTE about the commented-out lines below: KEEP them until the next
-    registry package test case is written, because it will be useful to
-    copy them in for development.
-  */
+  // NOTE about the commented-out lines below: KEEP them until the next
+  // registry package test case is written, because it will be useful to
+  // copy them in for development.
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  //.then(() => readdirAsync(dlPath)).then(list =>
+  //.then(() => readdir(dlPath)).then(list =>
     //console.log('Case 8 download dir contents:', list)
   //)
   .then(() => checkDownloads(t1, pkgs, dlPath))
@@ -986,7 +930,7 @@ tap.test('8', t1 => {
     testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
     { cwd: installPath }
   ))
-  //.then(() => readdirAsync(path.join(installPath, 'node_modules')))
+  //.then(() => readdir(path.join(installPath, 'node_modules')))
   //.then(list => console.log('Case 8 post-install node_modules contents:', list))
   .then(() => checkInstalled(
     t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
@@ -996,27 +940,26 @@ tap.test('8', t1 => {
   //  console.log('Case 8 package-lock contents of packages:', data.packages)
   //)
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-  .catch(err => console.error('$$$$ WTF?', err))
-  .finally(() => {
-    t1.end()
-  })
 })
 
+// git repo, version unspecified, gets HEAD of default branch
 tap.test('git 1', async t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
   const host = 'localhost:' + gitHostPort
   const spec = `git://${host}/${repoName1}`
+  const expectedHash = gitCommits[repoName1][3] // the last one for the target repo
 
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  .then(() => readdirAsync(dlPath))
+  .then(() => readdir(dlPath))
   .then(list => {
 //console.log('After download of git pkg, we have:', list)
     // TODO: these notes go to a journal entry that ends with the discovery that
     // pacote and cacache are discarding the last component of the path passed
     // for cache, and creating the cache in the parent directory instead!
     // But how did I fix this?
+
     // Interesting results in our download directory when we fetch a git repo
     // that has a prepare script:
     // * _cacache: probably a directory
@@ -1026,11 +969,11 @@ tap.test('git 1', async t1 => {
     t1.ok(list.includes('dltracker.json'), 'dltracker.json file was created')
     t1.ok(list.includes('dl-temp'), 'temp dir for cache was created')
 
-    const RE_REPO = new RegExp([
-      '^', encodeURIComponent(`${host}/${repoName1}#`), '[0-9a-z]{40}\.tar\.gz$'
-    ].join(''))
+    const tarball = [ // TODO: use the cfg value in the arg to encode...
+      encodeURIComponent(`${host}/${repoName1}#`), expectedHash, '\.tar\.gz'
+    ].join('')
     t1.ok(
-      list.find(el => RE_REPO.test(el)),
+      list.includes(tarball),
       'Target git repo was downloaded as a tarball'
     )
 
@@ -1040,12 +983,12 @@ tap.test('git 1', async t1 => {
     )
   })
   .then(() => checkProjectRootPostInstall(t1, installPath))
-  .then(() => readdirAsync(path.join(installPath, 'node_modules')))
+  .then(() => readdir(path.join(installPath, 'node_modules')))
   .then(list => {
 //console.log('installation target node_modules contents:', list)
     const expected = [ '.package-lock.json', 'top-repo' ]
     t1.same(list, expected, 'Nothing more or less than expected in node_modules')
-    return readdirAsync(path.join(installPath, 'node_modules', repoName1))
+    return readdir(path.join(installPath, 'node_modules', repoName1))
   }).then(list => {
 //console.log('target package dir contents:', list)
     const expected = [ 'README.md', 'index.js', 'package.json' ]
@@ -1063,23 +1006,88 @@ tap.test('git 1', async t1 => {
         dependencies: { [repoName1]: spec }
       },
       ['node_modules/' + repoName1]: {
-        version: '1.0.0'
+        version: '1.0.0',
+        resolved: `${spec}#${expectedHash}`
       }
     }
     t1.match(data.packages, expected)
   })
-  .finally(() => {
-    t1.end()
+})
+
+// git repo specified by tag
+tap.test('git 2', async t1 => {
+  const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const installPath = path.join(testBase, installDirName)
+  const host = 'localhost:' + gitHostPort
+  const spec = `git://${host}/${repoName1}#v1.0.0`
+  // Expect the commit that got tagged as side effect of `npm version`:
+  const expectedHash = gitCommits[repoName1][2]
+
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  .then(() => readdir(dlPath))
+  .then(list => {
+    const tarball = [
+      encodeURIComponent(`${host}/${repoName1}#`), expectedHash, '\.tar\.gz'
+    ].join('')
+    t1.ok(
+      list.includes(tarball),
+      'Target git repo was downloaded as a tarball'
+    )
   })
 })
 
-tap.test('url 1', async t1 => {
+// git repo specified by semver expression
+tap.test('git 3', async t1 => {
+  const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const installPath = path.join(testBase, installDirName)
+  const host = 'localhost:' + gitHostPort
+  const spec = `git://${host}/${repoName1}#semver:^1`
+  // Expect the commit that got tagged as side effect of `npm version`:
+  const expectedHash = gitCommits[repoName1][2]
+
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  .then(() => readdir(dlPath))
+  .then(list => {
+    const tarball = [
+      encodeURIComponent(`${host}/${repoName1}#`), expectedHash, '\.tar\.gz'
+    ].join('')
+    t1.ok(
+      list.includes(tarball),
+      'Target git repo was downloaded as a tarball'
+    )
+  })
+})
+
+// git repo specified by commit hash
+tap.test('git 4', async t1 => {
+  const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const installPath = path.join(testBase, installDirName)
+  const expectedHash = gitCommits[repoName1][1]
+  const spec = `git://${gitRepoId1}#${expectedHash}`
+
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  .then(() => readdir(dlPath))
+  .then(list => {
+    const tarball = [
+      encodeURIComponent(`${gitRepoId1}#`), expectedHash, '\.tar\.gz'
+    ].join('')
+    t1.ok(
+      list.includes(tarball),
+      'Target git repo was downloaded as a tarball'
+    )
+  })
+})
+
+tap.test('url 1', t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
   const tgtName = 'remote1'
   const tgtVer = '1.0.0'
-  const spec = `http://localhost:${remotePort}/skizziks/${tgtName}-${tgtVer}.tgz`
+  const spec = `http://localhost:${cfg.remote.port}/skizziks/${tgtName}-${tgtVer}.tgz`
   const pkgs = {
     [tgtName]: {
       [tgtVer]: {
@@ -1097,7 +1105,7 @@ tap.test('url 1', async t1 => {
   }
 
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  //.then(() => readdirAsync(dlPath)).then(list =>
+  //.then(() => readdir(dlPath)).then(list =>
     //console.log('Case Remote download dir contents:', list)
   //)
   .then(() => checkDownloads(t1, pkgs, dlPath))
@@ -1105,7 +1113,7 @@ tap.test('url 1', async t1 => {
     testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
     { cwd: installPath }
   ))
-  //.then(() => readdirAsync(path.join(installPath, 'node_modules')))
+  //.then(() => readdir(path.join(installPath, 'node_modules')))
   //.then(list => console.log('Case Remote post-install node_modules contents:', list))
   .then(() => checkInstalled(
     t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
@@ -1115,9 +1123,260 @@ tap.test('url 1', async t1 => {
     //console.log('Case Remote package-lock contents of packages:', data.packages)
   //)
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-  .catch(err => console.error('$$$$ WTF?', err))
-  .finally(() => {
-    t1.end()
-  })
 })
 
+tap.test('pj 1', t1 => {
+  const pjFilePath = path.join(cfg.pjPath, 'package.json')
+  const pjForDownload = {
+    name: 'do-not-care', version: '0.0.0',
+    dependencies: {
+      'acorn': '^3.0.4',
+      'commander': '2_x',
+      [repoName1]: `git://${gitRepoId1}#v1.0.0`,
+      'remote2': `http://${cfg.remote.id2}`
+    }
+  }
+  const repoTarball2 = [
+    encodeURIComponent(`${gitRepoId1}#`), gitCommits[repoName1][2], '\.tar\.gz'
+  ].join('')
+  const expected = [
+    'dl-temp', 'dltracker.json',
+    'acorn-3.3.0.tar.gz', 'commander-2.20.3.tar.gz',
+    repoTarball2, encodeURIComponent(cfg.remote.id2)
+  ]
+  const startDir = process.cwd()
+
+  t1.before(() => writeFile(pjFilePath, JSON.stringify(pjForDownload)))
+
+  t1.teardown(() => unlink(pjFilePath))
+ 
+  t1.test('package-json option with path', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json='+cfg.pjPath ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains all expected items'
+      )
+    })
+  })
+ 
+  t1.test('pj option with path', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir='+dlPath, '--pj='+cfg.pjPath ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains all expected items'
+      )
+    })
+  })
+ 
+  t1.test('package-json option no path', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains all expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+ 
+  t1.test('pj option no path', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir='+dlPath, '--pj' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains all expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+ 
+  t1.test('J option no path', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir='+dlPath, '-J' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains all expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  t1.end()
+})
+
+tap.test('pj 2', t1 => {
+  const pjFilePath = path.join(cfg.pjPath, 'package.json')
+  const pjForDownload = {
+    name: 'do-not-care', version: '0.0.0',
+    dependencies: {
+      'abbrev': '*', // no deps. expect to get 1.1.1
+      'acorn-jsx': '^3.0.0' // expect 3.0.1. dep acorn@^3.0.4; expect 3.3.0
+    },
+    peerDependencies: {
+      'balanced-match': 'latest', // no deps. expect to get 1.0.0
+      'bcrypt-pbkdf': '*' // expect 1.0.2. dep tweetnacl@^0.14.3; expect 0.14.5
+    },
+    optionalDependencies: {
+      'commander': '2_x', // no deps. expect to get 2.20.3
+      'combined-stream': '^1' // expect 1.0.8. dep delayed-stream@~1.0.0; expect 1.0.0
+    },
+    devDependencies: {
+      'diff': '^1', // no deps. expect to get 1.4.0
+      'dashdash': '^1' // expect 1.14.1; dep assert-plus@^1.0.0; expect 1.0.0
+    }
+  }
+  const startDir = process.cwd()
+
+  t1.before(() => writeFile(pjFilePath, JSON.stringify(pjForDownload)))
+
+  t1.teardown(() => unlink(pjFilePath))
+
+  t1.test('dl include dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [
+      'dl-temp', 'dltracker.json',
+      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz',
+      'diff-1.4.0.tar.gz', 'dashdash-1.14.1.tar.gz', 'assert-plus-1.0.0.tar.gz',
+      // optional deps are fetched by default!
+      'commander-2.20.3.tar.gz', 'combined-stream-1.0.8.tar.gz',
+      'delayed-stream-1.0.0.tar.gz'
+    ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--include=dev' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  t1.test('dl include peer', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [
+      'dl-temp', 'dltracker.json',
+      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz',
+      'balanced-match-1.0.0.tar.gz', 'bcrypt-pbkdf-1.0.2.tar.gz',
+      'tweetnacl-0.14.5.tar.gz',
+      // optional deps are fetched by default!
+      'commander-2.20.3.tar.gz', 'combined-stream-1.0.8.tar.gz',
+      'delayed-stream-1.0.0.tar.gz'
+    ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--include=peer' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  t1.test('dl omit optional', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [
+      'dl-temp', 'dltracker.json',
+      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz'
+    ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--omit=optional' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  t1.test('dl omit optional omit and include dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [
+      'dl-temp', 'dltracker.json',
+      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz',
+      'diff-1.4.0.tar.gz', 'dashdash-1.14.1.tar.gz', 'assert-plus-1.0.0.tar.gz'
+    ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [
+        '-J', '--dl-dir='+dlPath,
+        '--omit=optional', '--include=dev', '--omit=dev'
+      ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  t1.end()
+})
+
+// JOURNAL entry introduction to preserve the following:
+// I have a set of tests to have `npm download` use a package.json file to identify
+// packages to download. There are tests that use --package-json or --pj with an
+// explicitly-named path; then more that chdir to the path that has the package.json,
+// and iterate through those and the -J option.
+// I decided to set up the pj path once for all in the t1, then have t2s iterate
+// through the tests, each t2 creating its own download directory (via t2.fixture).
+// TODO: On Windows, the above is resulting in a EBUSY error when tap attempts
+// to remove the tempdir created for t1 - probably because t2 chdirs into that
+// tempdir and reads the file there. Solution: don't give responsibility for
+// cfg.pjPath to tap; instead, create it at init time next to the other dirs in
+// staging.
+// TODO: The tap documentation says that t.end() "is not necessary ... if the test
+// function returns a Promise." So try commenting out the 'finally's; then see if
+// it runs OK on both Linux and Windows.
