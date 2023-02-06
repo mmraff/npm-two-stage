@@ -1,6 +1,11 @@
 //const fs = require('fs')
 const path = require('path')
 
+const stagedNpmLibPath = [
+  'test/staging/', (process.platform != 'win32' ? 'lib/' : ''),
+  'node_modules/npm/lib/'
+].join('')
+
 const fileMap = {
   'utils_cmd-list_test.js': 'src/utils/cmd-list.js',
   'utils_config_definitions_test.js': 'test/tempAssets8/npm/lib/utils/config/definitions.js',
@@ -15,14 +20,14 @@ const fileMap = {
   'ofl_alt-arborist_test.js': 'test/tempAssets3/npm/lib/offliner/alt-arborist.js',
   'build-ideal-tree_test.js': 'test/tempAssets4/npm/lib/offliner/build-ideal-tree.js',
   'reify_test.js': 'test/tempAssets5/npm/lib/offliner/reify.js',
-  'install_test.js': 'test/tempAssets6/npm/lib/install.js'/*,
+  'install_test.js': 'test/tempAssets6/npm/lib/install.js',
   'integration.js': [
     'download.js', 'install.js', 'download/config.js', 'download/dltracker.js',
     'download/npm-package-filename.js', 'download/reconstruct-map.js',
     'download/alt-git.js', 'download/git-tracker-keys.js',
     'download/item-agents.js', 'offliner/alt-arborist.js',
     'offliner/build-ideal-tree.js', 'offliner/reify.js'
-  ].map(f => 'test/staging/lib/node_modules/npm/lib/' + f)*/
+  ].map(f => stagedNpmLibPath + f)
 }
 
 const TESTDIR_PREFIX_RE = new RegExp('^test\/')
