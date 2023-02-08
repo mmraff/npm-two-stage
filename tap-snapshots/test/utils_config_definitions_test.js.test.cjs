@@ -152,7 +152,6 @@ Array [
   "workspaces",
   "yes",
   "dl-dir",
-  "package-json",
 ]
 `
 
@@ -1240,17 +1239,6 @@ exports[`test/utils_config_definitions_test.js TAP > config description for pack
 * Type: String (can be set multiple times)
 
 The package to install for [\`npm exec\`](/commands/npm-exec)
-`
-
-exports[`test/utils_config_definitions_test.js TAP > config description for package-json 1`] = `
-#### \`package-json\`
-
-* Default: null
-* Type: null, true, or String
-
-Refer to dependency list(s) in a package.json file for what to download. If
-<path/that/has/one> is not given, the package.json file is expected to be in
-the current directory. The -J form assumes this.
 `
 
 exports[`test/utils_config_definitions_test.js TAP > config description for package-lock 1`] = `

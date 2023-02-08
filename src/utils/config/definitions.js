@@ -2193,16 +2193,3 @@ define('dl-dir', {
   `,
   flatten,
 })
-
-define('package-json', {
-  default: null,
-  type: [null, true, String],
-  usage: '--package-json[=<path/that/has/one>]|--pj[=<path/that/has/one>]|-J',
-  description: `
-    Refer to dependency list(s) in a package.json file for what to download.
-    If <path/that/has/one> is not given, the package.json file is expected
-    to be in the current directory.
-    The -J form assumes this.
-  `,
-  flatten,
-})
