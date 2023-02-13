@@ -83,8 +83,6 @@ const makeProjectDirectory = (t, dlDirName, installDirName) => {
   })
 }
 
-// TODO: modify this according to what I developed at work for npm2stage-v6
-// (cmd.js module, cmd.execute)
 const runNpmCmd = async (npmBin, cmd, argList, opts) => {
   // For almost all calls, we need npm to be configured with
   //   globalPrefix=staging, registry=registry, ...
@@ -92,7 +90,7 @@ const runNpmCmd = async (npmBin, cmd, argList, opts) => {
   // NOTE that in download.js, we set the cache to a custom location:
   // 'dl-temp-cache' in the dl-dir.
   if (!argList) argList = []
-  argList.unshift('--registry=' + registry)
+  argList.push('--registry', registry)
   if (!opts) opts = { env: {} }
   if (!opts.env) opts.env = {}
   // So far, it seems there's no need to do anything special on Windows...
@@ -188,7 +186,8 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
   }
   // Collect lists of package names that we should find in subdirectories
   // under the project root
-  // TODO: Arguably, this is complex enough to merit its own test suite.
+  // TODO: Think about moving this and the other helper functions out to a
+  // separate module, and then writing a test suite for it. It's complex enough.
   for (const name in pkgMap) {
     const versions = pkgMap[name]
     for (const v in versions) {
@@ -200,7 +199,7 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
         [[@ns/]ancestor/node_modules/]*[@ns/]parent
       So we will join(installDir, 'node_modules', theAbove, 'node_modules'),
       and expect readdir to give us the associated list
-      (once .package-lock.json and .bin are removed)
+      (once .package-lock.json and .bin are disregarded)
       */
       if (pkg.parent) parts.push(pkg.parent)
       const dir = addPathToCheckFor(name, [...parts], pathMap)
@@ -227,14 +226,11 @@ const getJsonFileData = filepath => {
 
 const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
   getJsonFileData(path.join(installPath, 'package-lock.json')).then(pkgLk => {
-    // TODO: get the integrity value from the previous run of npm install,
+    // TODO?: get the integrity value from the previous run of npm install,
     // and store it in a convenient place in pkgs;
     // when we get here, add it to the object to compare
     opts = opts || {}
     if (!opts.omit) opts.omit = []
-    // TODO: if we can't rely on the order of versions in pkgs[tgtName] to be
-    // the same as what's in the code, then we'll have to add a flag to the
-    // pkgs record!
     const tgtVer = Object.keys(pkgs[tgtName])[0]
     const rawSpec = pkgs[tgtName][tgtVer].rawSpec
     const expected = {
@@ -248,7 +244,7 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
         let modPath = 'node_modules/' + name
         if (data.parent) modPath = `node_modules/${data.parent}/${modPath}`
         expected[modPath] = { version: v }
-        // TODO: this is where we'd apply 'integrity'
+        // TODO?: this is where we'd apply 'integrity'
         if (data.deps)
           expected[modPath].dependencies = data.deps
         if (data.peerDeps)
@@ -389,16 +385,30 @@ tap.teardown(() => {
 const dlDirName = 'tarballs'
 const installDirName = 'install-tgt'
 
+tap.test('quick help', t1 => {
+  return runNpmCmd(testNpm, 'download', [ '-h' ])
+  .then(({stdout, stderr}) => {
+    t1.match(
+      stdout,
+      /^npm download\n\nDownload packages and dependencies as tarballs\n/,
+      'quick help output for download command as expected'
+    )
+    t1.equal(stderr, '', 'no error output from quick help')
+  })
+})
+
 // TODO: Decide whether to keep this test.
 // It's good for nothing more than proving that an error from pacote gets
 // passed through the download() callback.
+// Well, OK, it also proves that it takes more than an invalid package spec
+// to break download - up to the point when it receives a reply from pacote.
 // Are there any other pacote errors that we can cause in a test?
 // Case 1: request for non-existent package
 tap.test('1', t1 => {
   const targetDir = t1.testdir()
   // Package name chosen to ensure that it won't be found.
   // Note: npm-package-arg has no problem with a name like 'OMGZ!',
-  // even though npm (e.g. publish) would reject it.
+  // even though npm (publish) would reject it.
   t1.rejects(
     runNpmCmd(testNpm, 'download', ['OMGZ!'], { cwd: targetDir }),
     /npm ERR! 404 Not Found/
@@ -406,73 +416,82 @@ tap.test('1', t1 => {
   t1.end()
 })
 
-// TODO? a package that refuses to install because wrong os?
-
-// Case 2: package with no regular deps
-// TODO: add at least one other no-dep pkg to the command line
+// Case 2: package with no regular deps, spec'd by range
 tap.test('2', t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
-  // acorn v4 has no regular dependencies.
   // The mock registry packument for acorn lists higher versions than the
   // tarballs it has available, so we must be careful with the spec we use.
-  const spec = '"acorn@<4.0.5"'
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  const pkgName = 'acorn'
+  const vSpec = '<4.0.5'
+  const pkgSpec = `"${pkgName}@${vSpec}"`
+  const resolvedVer = '4.0.4'
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, pkgSpec ])
   .then(() => readdir(dlPath))
   .then(list => {
-    t1.equal(list.length, 3, 'Nothing more or less than what is expected')
-    t1.ok(list.includes('acorn-4.0.4.tar.gz'), 'Target package tarball was downloaded')
-    t1.ok(list.includes('dltracker.json'), 'dltracker.json file was created')
-    t1.ok(list.includes('dl-temp'), 'temp dir for cache was created')
+    const expected = [
+      'dl-temp', 'dltracker.json', `${pkgName}-${resolvedVer}.tar.gz`
+    ]
+    t1.same(
+      list.sort(), expected.sort(),
+      'all and no more than expected items at download location'
+    )
 
     return runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+      [ '--offline', '--offline-dir='+dlPath, pkgSpec ],
+      { cwd: installPath }
     )
   })
   .then(() => readdir(path.join(installPath, 'node_modules')))
   .then(list => {
-    t1.ok(list.includes('acorn'))
-    // TODO: ???
+    t1.ok(list.includes(pkgName))
   })
-  .then(() => {
-    // TODO: verify somehow (maybe there's a convenient npm.command that does that?)
-    // * look for the installed package in the dependencies of the package.json,
-      // and verify the spec
-    // * verify the package is in node_modules
-    // * validate the package-lock.json somehow?
-    // The following has output that looks like the contents of a simple
-    // package-lock.json file - is that where ls gets its info from?
-    // In which case, why not just examine the contents of the package-lock.json?
-    return runNpmCmd(
-      testNpm, 'ls', [ '--all', '--json' ], { cwd: installPath }
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data =>
+    t1.match(data.packages, {
+      '': {
+        name: installDirName, version: '1.0.0',
+        dependencies: { acorn: vSpec }
+      },
+      'node_modules/acorn': { version: resolvedVer }
+    })
+  )
+})
+
+tap.test('dl with before option', t1 => {
+  // We use a different dl path for the expected fail, because an empty file
+  // will be created there as a result of the attempt, and we don't want the
+  // clutter at our success path:
+  const failDirName = 'bad-dl'
+  const testBase = makeProjectDirectory(t1, dlDirName, failDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const failPath = path.join(testBase, failDirName)
+  const expected = [ 'dl-temp', 'dltracker.json', 'acorn-4.0.4.tar.gz' ]
+  // The mock registry packument for acorn lists higher versions than the
+  // tarballs it has available, so implicitly asking for 'latest' should
+  // result in an error:
+  return t1.rejects(
+    runNpmCmd(testNpm, 'download', ['acorn'], { cwd: failPath }),
+    /npm ERR! 404 Not Found/,
+    'mock registry does not have the latest of target package'
+  )
+  // Now we choose a date that gets us one that it has on hand.
+  .then(() => runNpmCmd(
+    testNpm, 'download',
+    [ 'acorn', '--before', '2017', '--dl-dir='+dlPath ]
+  ))
+  .then(() => readdir(dlPath))
+  .then(list => {
+    t1.same(
+      list.sort(), expected.sort(),
+      '--before option works with download command'
     )
   })
-
-  // TODO:
-  // * Set up the integration test suite to be done without coverage!
-    // (Coverage is covered by unit test suites.)
-    // Instead, investigate npm tests for the cases to be addressed, then add
-    // our own for download.
-  // * have a directory with a package.json as a fixture
-  // * copy it to a test base directory for each test
-  // * process.chdir() to it before running a command
-  // * See this directory for what packages are available through the mock registry:
-      // fixtures/arborist/fixtures/registry-mocks/content/
-
-  // LESSON:
-  // * npm commands run programmatically *must* be given an array as the 1st arg
-    // (containing args meant to be passed to the command), and *must* be given
-    // a callback (unless promisified).
-  // * If you want to see `testNpm root -g` give the staging location,
-      // testNpm.config.set('global', true)
-  // * If you want to see `testNpm root` give the root of a specific project,
-      // process.chdir(<PROJECT_PATH>)
 })
 
 // Case 3: package with a flat set of regular deps
-// TODO: rewrite the treatment of this case to be like case 4
 tap.test('3', t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
@@ -661,7 +680,6 @@ tap.test('6', t1 => {
     .then(() => checkProjectRootPostInstall(t2, installPath))
     .then(() => readdir(path.join(installPath, 'node_modules')))
     .then(list => {
-//console.log('Case 6-baseline node_modules contents:', list)
       t2.equal(list.length, 2, 'Nothing more or less than what is expected')
       t2.ok(list.includes(tgtName), `package ${tgtName} is installed`)
       // So what's the only other entry?
@@ -688,7 +706,6 @@ tap.test('6', t1 => {
     // Does *not* include peer deps by default
     .then(() => readdir(dlPath))
     .then(list => {
-//console.log('Case 6a download dir contents:', list)
       t2.equal(list.length, 3, 'Nothing more or less than what is expected')
       t2.ok(list.includes(`${tgtName}-${tgtVer}.tar.gz`), 'Target package tarball was downloaded')
       t2.ok(list.includes('dltracker.json'), 'dltracker.json file was created')
@@ -709,7 +726,6 @@ tap.test('6', t1 => {
       })
     })
     .then(() => readdir(installPath)).then(list => {
-//console.log('Case 6a install dir contents:', list)
       t2.same(list, [ 'package.json' ], 'install destination has nothing new')
     })
     // Try again with --force, but it still won't work:
@@ -719,16 +735,13 @@ tap.test('6', t1 => {
       { cwd: installPath }
     ))
     .catch(err => {
-//console.log('Case 6a error after install --force:', err)
       t2.match(err.message, /^Command failed:/)
-// TODO: find out where this warning is coming from, and what it means:
       t2.match(err.stderr, /\bnpm WARN ERESOLVE overriding peer dependency/)
       t2.match(err.stderr, RE_resolvePeerFailureWarning1)
       t2.match(err.stderr, RE_resolvePeerFailureWarning2)
       t2.match(err.stderr, RE_missingPeerError)
     })
     .then(() => readdir(installPath)).then(list => {
-//console.log('Case 6a install dir contents after install --force:', list)
       t2.same(list, [ 'package.json' ], 'install destination has nothing new')
     })
   })
@@ -767,28 +780,6 @@ tap.test('6', t1 => {
     .then(() => checkPackageLock(
       t2, installPath, pkgs, tgtName, { omit: ['peer'] }
     ))
-
-  // TODO:
-  // This is a nagging problem. The npm documentation says nothing about omit=peer
-  // being overridden by anything but include=peer on the same command line; yet
-  // npm install is still insisting on trying to obtain the peer dependency, and
-  // causing an error when it can't. SO, two things to try:
-  // 1. Do a straight npm install of the target package from the mock registry,
-  //   and see what happens -- DONE
-  // 2. Change the case where omit=peer is used, to be the one where the peer dep
-  //   got downloaded with the target package, and see what happens.
-  // My theory is that the install with omit=peer would work fine where the dest
-  // already has the peer dep installed (could be wrong, if npm wants to check for
-  // a later version to satisfy the range spec); maybe it would even work fine if
-  // the registry record/downloaded tarball is available...
-  // OBSERVATIONS:
-  // 1) Even if the peer dependency is already installed, offline installation of
-  //   the package that has a peer dep, with --omit=peer, fails with an error
-  //   indicating that npm is unable to resolve the dependency tree. Clearly npm
-  //   wants some manifest info (e.g., from the registry).
-  // 2) If the option --force is given with the above, installation succeeds with
-  //   only a brief warning about "Recommended protections disabled."
-
   })
 
   // Third: with include=peer, download succeeds in fetching all the peer deps;
@@ -829,7 +820,6 @@ tap.test('6', t1 => {
     .then(() => checkProjectRootPostInstall(t2, installPath))
     .then(() => readdir(path.join(installPath, 'node_modules')))
     .then(list => {
-//console.log('Case 6d node_modules contents:', list)
       t2.equal(list.length, 2, 'Nothing more or less than what is expected')
       t2.ok(list.includes(tgtName), `package ${tgtName} is installed`)
       // So what's the only other entry?
@@ -918,27 +908,15 @@ tap.test('8', t1 => {
     }
   }
 
-  // NOTE about the commented-out lines below: KEEP them until the next
-  // registry package test case is written, because it will be useful to
-  // copy them in for development.
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  //.then(() => readdir(dlPath)).then(list =>
-    //console.log('Case 8 download dir contents:', list)
-  //)
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
     { cwd: installPath }
   ))
-  //.then(() => readdir(path.join(installPath, 'node_modules')))
-  //.then(list => console.log('Case 8 post-install node_modules contents:', list))
   .then(() => checkInstalled(
     t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
   ))
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data =>
-  //  console.log('Case 8 package-lock contents of packages:', data.packages)
-  //)
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
 })
 
@@ -947,30 +925,18 @@ tap.test('git 1', async t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
-  const host = 'localhost:' + gitHostPort
-  const spec = `git://${host}/${repoName1}`
+  const spec = 'git://' + gitRepoId1
   const expectedHash = gitCommits[repoName1][3] // the last one for the target repo
 
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
   .then(() => readdir(dlPath))
   .then(list => {
-//console.log('After download of git pkg, we have:', list)
-    // TODO: these notes go to a journal entry that ends with the discovery that
-    // pacote and cacache are discarding the last component of the path passed
-    // for cache, and creating the cache in the parent directory instead!
-    // But how did I fix this?
-
-    // Interesting results in our download directory when we fetch a git repo
-    // that has a prepare script:
-    // * _cacache: probably a directory
-    // * _update-notifier-last-checked
-    // So we can't expect to find only the tarball and the dltracker.json!
     t1.equal(list.length, 3, 'Nothing more or less than expected')
     t1.ok(list.includes('dltracker.json'), 'dltracker.json file was created')
     t1.ok(list.includes('dl-temp'), 'temp dir for cache was created')
 
-    const tarball = [ // TODO: use the cfg value in the arg to encode...
-      encodeURIComponent(`${host}/${repoName1}#`), expectedHash, '\.tar\.gz'
+    const tarball = [
+      encodeURIComponent(gitRepoId1 + '#'), expectedHash, '\.tar\.gz'
     ].join('')
     t1.ok(
       list.includes(tarball),
@@ -985,12 +951,10 @@ tap.test('git 1', async t1 => {
   .then(() => checkProjectRootPostInstall(t1, installPath))
   .then(() => readdir(path.join(installPath, 'node_modules')))
   .then(list => {
-//console.log('installation target node_modules contents:', list)
     const expected = [ '.package-lock.json', 'top-repo' ]
     t1.same(list, expected, 'Nothing more or less than expected in node_modules')
     return readdir(path.join(installPath, 'node_modules', repoName1))
   }).then(list => {
-//console.log('target package dir contents:', list)
     const expected = [ 'README.md', 'index.js', 'package.json' ]
     t1.same(
       list.sort(), expected.sort(),
@@ -999,7 +963,6 @@ tap.test('git 1', async t1 => {
   })
   .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
   .then(data => {
-//console.log('Case git 1 package-lock contents of packages:', data.packages)
     const expected = {
       '': {
         name: installDirName, version: '1.0.0',
@@ -1019,8 +982,7 @@ tap.test('git 2', async t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
-  const host = 'localhost:' + gitHostPort
-  const spec = `git://${host}/${repoName1}#v1.0.0`
+  const spec = `git://${gitRepoId1}#v1.0.0`
   // Expect the commit that got tagged as side effect of `npm version`:
   const expectedHash = gitCommits[repoName1][2]
 
@@ -1028,7 +990,7 @@ tap.test('git 2', async t1 => {
   .then(() => readdir(dlPath))
   .then(list => {
     const tarball = [
-      encodeURIComponent(`${host}/${repoName1}#`), expectedHash, '\.tar\.gz'
+      encodeURIComponent(gitRepoId1 + '#'), expectedHash, '\.tar\.gz'
     ].join('')
     t1.ok(
       list.includes(tarball),
@@ -1042,8 +1004,7 @@ tap.test('git 3', async t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
-  const host = 'localhost:' + gitHostPort
-  const spec = `git://${host}/${repoName1}#semver:^1`
+  const spec = `git://${gitRepoId1}#semver:^1`
   // Expect the commit that got tagged as side effect of `npm version`:
   const expectedHash = gitCommits[repoName1][2]
 
@@ -1051,7 +1012,7 @@ tap.test('git 3', async t1 => {
   .then(() => readdir(dlPath))
   .then(list => {
     const tarball = [
-      encodeURIComponent(`${host}/${repoName1}#`), expectedHash, '\.tar\.gz'
+      encodeURIComponent(gitRepoId1 + '#'), expectedHash, '\.tar\.gz'
     ].join('')
     t1.ok(
       list.includes(tarball),
@@ -1105,27 +1066,18 @@ tap.test('url 1', t1 => {
   }
 
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  //.then(() => readdir(dlPath)).then(list =>
-    //console.log('Case Remote download dir contents:', list)
-  //)
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
     { cwd: installPath }
   ))
-  //.then(() => readdir(path.join(installPath, 'node_modules')))
-  //.then(list => console.log('Case Remote post-install node_modules contents:', list))
   .then(() => checkInstalled(
     t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
   ))
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data =>
-    //console.log('Case Remote package-lock contents of packages:', data.packages)
-  //)
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
 })
 
-tap.test('pj 1', t1 => {
+tap.test('package-json', t1 => {
   const pjFilePath = path.join(cfg.pjPath, 'package.json')
   const pjForDownload = {
     name: 'do-not-care', version: '0.0.0',
@@ -1180,7 +1132,7 @@ tap.test('pj 1', t1 => {
     })
   })
  
-  t1.test('package-json option no path', t2 => {
+  t1.test('package-json option, no path', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     process.chdir(cfg.pjPath)
@@ -1197,7 +1149,7 @@ tap.test('pj 1', t1 => {
     .finally(() => process.chdir(startDir))
   })
  
-  t1.test('pj option no path', t2 => {
+  t1.test('pj option, no path', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     process.chdir(cfg.pjPath)
@@ -1214,7 +1166,7 @@ tap.test('pj 1', t1 => {
     .finally(() => process.chdir(startDir))
   })
  
-  t1.test('J option no path', t2 => {
+  t1.test('J option', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     process.chdir(cfg.pjPath)
@@ -1234,44 +1186,53 @@ tap.test('pj 1', t1 => {
   t1.end()
 })
 
-tap.test('pj 2', t1 => {
+tap.test('other options', t1 => {
   const pjFilePath = path.join(cfg.pjPath, 'package.json')
   const pjForDownload = {
     name: 'do-not-care', version: '0.0.0',
     dependencies: {
-      'abbrev': '*', // no deps. expect to get 1.1.1
-      'acorn-jsx': '^3.0.0' // expect 3.0.1. dep acorn@^3.0.4; expect 3.3.0
+      'abbrev': '*', // No deps. Expect to get 1.1.1
+      'acorn-jsx': '^3.0.0' // expect 3.0.1. Dep acorn@^3.0.4; expect 3.3.0
     },
     peerDependencies: {
-      'balanced-match': 'latest', // no deps. expect to get 1.0.0
-      'bcrypt-pbkdf': '*' // expect 1.0.2. dep tweetnacl@^0.14.3; expect 0.14.5
+      'balanced-match': 'latest', // No deps. Expect to get 1.0.0
+      'bcrypt-pbkdf': '*' // expect 1.0.2. Dep tweetnacl@^0.14.3; expect 0.14.5
     },
     optionalDependencies: {
-      'commander': '2_x', // no deps. expect to get 2.20.3
-      'combined-stream': '^1' // expect 1.0.8. dep delayed-stream@~1.0.0; expect 1.0.0
+      'commander': '2_x', // No deps. Expect to get 2.20.3
+      'combined-stream': '^1' // expect 1.0.8. Dep delayed-stream@~1.0.0; expect 1.0.0
     },
     devDependencies: {
-      'diff': '^1', // no deps. expect to get 1.4.0
-      'dashdash': '^1' // expect 1.14.1; dep assert-plus@^1.0.0; expect 1.0.0
+      'diff': '^1', // No deps. Expect to get 1.4.0
+      'dashdash': '^1' // expect 1.14.1. Dep assert-plus@^1.0.0; expect 1.0.0
     }
   }
+  const overheadItems = [ 'dl-temp', 'dltracker.json' ]
+  const regTGZs = [
+    'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz'
+  ]
+  const peerTGZs = [
+    'balanced-match-1.0.0.tar.gz', 'bcrypt-pbkdf-1.0.2.tar.gz',
+    'tweetnacl-0.14.5.tar.gz'
+  ]
+  const optTGZs = [
+    'commander-2.20.3.tar.gz', 'combined-stream-1.0.8.tar.gz',
+    'delayed-stream-1.0.0.tar.gz'
+  ]
+  const devTGZs = [
+    'diff-1.4.0.tar.gz', 'dashdash-1.14.1.tar.gz', 'assert-plus-1.0.0.tar.gz'
+  ]
   const startDir = process.cwd()
 
   t1.before(() => writeFile(pjFilePath, JSON.stringify(pjForDownload)))
 
   t1.teardown(() => unlink(pjFilePath))
 
+  // devDependencies are not downloaded by default
   t1.test('dl include dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [
-      'dl-temp', 'dltracker.json',
-      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz',
-      'diff-1.4.0.tar.gz', 'dashdash-1.14.1.tar.gz', 'assert-plus-1.0.0.tar.gz',
-      // optional deps are fetched by default!
-      'commander-2.20.3.tar.gz', 'combined-stream-1.0.8.tar.gz',
-      'delayed-stream-1.0.0.tar.gz'
-    ]
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1287,18 +1248,32 @@ tap.test('pj 2', t1 => {
     .finally(() => process.chdir(startDir))
   })
 
+  // optionalDependencies are downloaded by default, but show that using
+  // --include=optional does not hurt
+  t1.test('dl include optional', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--include=optional' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // devDependencies are not downloaded by default
   t1.test('dl include peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [
-      'dl-temp', 'dltracker.json',
-      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz',
-      'balanced-match-1.0.0.tar.gz', 'bcrypt-pbkdf-1.0.2.tar.gz',
-      'tweetnacl-0.14.5.tar.gz',
-      // optional deps are fetched by default!
-      'commander-2.20.3.tar.gz', 'combined-stream-1.0.8.tar.gz',
-      'delayed-stream-1.0.0.tar.gz'
-    ]
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...peerTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1314,13 +1289,54 @@ tap.test('pj 2', t1 => {
     .finally(() => process.chdir(startDir))
   })
 
-  t1.test('dl omit optional', t2 => {
+  // Show that all dependencies can be fetched in one run
+  t1.test('dl include dev and peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      'dl-temp', 'dltracker.json',
-      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz'
+      ...overheadItems, ...regTGZs, ...optTGZs, ...peerTGZs, ...devTGZs
     ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '-J', '--dl-dir='+dlPath, '--include=dev', '--include=peer' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // devDependencies are not downloaded by default, but show that using
+  // --omit=dev does not hurt
+  t1.test('dl omit dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--omit=dev' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  t1.test('dl omit optional', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1336,21 +1352,163 @@ tap.test('pj 2', t1 => {
     .finally(() => process.chdir(startDir))
   })
 
-  t1.test('dl omit optional omit and include dev', t2 => {
+  // peerDependencies are not downloaded by default, but show that using
+  // --omit=peer does not hurt
+  t1.test('dl omit peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [
-      'dl-temp', 'dltracker.json',
-      'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz',
-      'diff-1.4.0.tar.gz', 'dashdash-1.14.1.tar.gz', 'assert-plus-1.0.0.tar.gz'
-    ]
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--omit=peer' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // --include overrides --omit of the same dep kind
+  t1.test('dl omit and include dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
       testNpm, 'download', [
-        '-J', '--dl-dir='+dlPath,
-        '--omit=optional', '--include=dev', '--omit=dev'
+        '-J', '--dl-dir='+dlPath, '--include=dev', '--omit=dev'
       ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // --include overrides --omit of the same dep kind
+  t1.test('dl omit and include peer', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...peerTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [
+        '-J', '--dl-dir='+dlPath, '--include=peer', '--omit=peer'
+      ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // (deprecated) alias for --include=dev
+  t1.test('dl also dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--also=dev' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // (deprecated) alias for --omit=dev
+  t1.test('dl only prod', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--only=prod' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // Like --include=dev vs --omit=dev, --also=dev should override --only=prod
+  t1.test('dl also and only', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '-J', '--dl-dir='+dlPath, '--only=prod', '--also=dev' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // Like --include=dev, --also=dev should override --omit=dev
+  t1.test('dl also and omit dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '-J', '--dl-dir='+dlPath, '--also=dev', '--omit=dev' ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      t2.same(
+        list.sort(), expected.sort(),
+        'download dir contains only expected items'
+      )
+    })
+    .finally(() => process.chdir(startDir))
+  })
+
+  // Just as vs --omit=dev, --include=dev should override --only=prod
+  t1.test('dl only prod and include dev', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+
+    process.chdir(cfg.pjPath)
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '-J', '--dl-dir='+dlPath, '--only=prod', '--include=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1365,18 +1523,86 @@ tap.test('pj 2', t1 => {
   t1.end()
 })
 
-// JOURNAL entry introduction to preserve the following:
-// I have a set of tests to have `npm download` use a package.json file to identify
-// packages to download. There are tests that use --package-json or --pj with an
-// explicitly-named path; then more that chdir to the path that has the package.json,
-// and iterate through those and the -J option.
-// I decided to set up the pj path once for all in the t1, then have t2s iterate
-// through the tests, each t2 creating its own download directory (via t2.fixture).
-// TODO: On Windows, the above is resulting in a EBUSY error when tap attempts
-// to remove the tempdir created for t1 - probably because t2 chdirs into that
-// tempdir and reads the file there. Solution: don't give responsibility for
-// cfg.pjPath to tap; instead, create it at init time next to the other dirs in
-// staging.
-// TODO: The tap documentation says that t.end() "is not necessary ... if the test
-// function returns a Promise." So try commenting out the 'finally's; then see if
-// it runs OK on both Linux and Windows.
+tap.test('dl multiple cmdline specs', t1 => {
+  const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const testData = {
+    'psl': { spec: '^1', version: '1.8.0' },
+    'abbrev': { spec: '*', version: '1.1.1' },
+    'diff': { spec: '^1', version: '1.4.0' }
+  }
+  const pjFilePath = path.join(cfg.pjPath, 'package.json')
+  const pjForDownload = {
+    name: 'do-not-care', version: '0.0.0',
+    dependencies: { 'psl': testData['psl'].spec }
+  }
+  const specs = []
+  const tarballs = []
+  const overheadItems = [ 'dl-temp', 'dltracker.json' ]
+  const startDir = process.cwd()
+
+  for (const name in testData) {
+    const item = testData[name]
+    // Don't double-request the package.json dep
+    if (!(name in pjForDownload.dependencies))
+      specs.push(`${name}@${item.spec}`)
+    tarballs.push(`${name}-${item.version}.tar.gz`)
+  }
+  process.chdir(cfg.pjPath)
+  return writeFile(pjFilePath, JSON.stringify(pjForDownload))
+  .then(() => runNpmCmd(
+    testNpm, 'download', [ '--dl-dir='+dlPath, '-J' ].concat(specs)
+  ))
+  .then(() => readdir(dlPath))
+  .then(list => {
+    t1.same(
+      list.sort(), overheadItems.concat(tarballs).sort(),
+      'download dir contains only expected items'
+    )
+  })
+  .finally(() => {
+    process.chdir(startDir)
+    return unlink(pjFilePath)
+  })
+})
+
+// TODO:
+// * npm-shrinkwrap.json and package-lock.json - what needs to be done?
+// How about this: for dl, use a package.json, then see what happens when
+// we offline-install in a project dir that has a npm-shrinkwrap.json.
+// Might need to be crafted with special kinks... ?
+// * install from a package.json
+// * try install with --before; maybe expect an error?
+
+/*
+  // 1. Download the target package
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  // 2. Verify the contents of the download directory
+  //   a. View the console output:
+  .then(() => readdir(dlPath)).then(list =>
+    console.log('Case X download dir contents:', list)
+  )
+  //   b. Substitute automatic checking for the above:
+  .then(() => checkDownloads(t1, pkgs, dlPath))
+  // 3. Install the target package
+  .then(() => runNpmCmd(
+    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
+    { cwd: installPath }
+  ))
+  // 4. Verify the installation by checking node_modules
+  //   a. View the console output:
+  .then(() => readdir(path.join(installPath, 'node_modules')))
+  .then(list => console.log('Case X post-install node_modules contents:', list))
+  //   b. Substitute automatic checking for the above:
+  .then(() => checkInstalled(
+    t1, pkgs, installPath//, { debug: 'Case X path-contents map:' }
+  ))
+  // 5. Verify the contents of package-lock.json
+  //   a. View the console output:
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data =>
+    console.log('Case X package-lock contents of packages:', data.packages)
+  )
+  //   b. Substitute automatic checking for the above:
+  .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
+*/
