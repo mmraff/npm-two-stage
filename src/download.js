@@ -21,10 +21,9 @@ const {
 } = require('./download/item-agents')
 
 class Download extends BaseCommand {
-// TODO: load-all-commands should be made part of our integration test:
   /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get description () {
-    return 'Download package(s) and dependencies as tarballs'
+    return 'Download packages and dependencies as tarballs'
   }
 
   /* istanbul ignore next - see test/lib/load-all-commands.js */
@@ -36,16 +35,23 @@ class Download extends BaseCommand {
   static get params () {
     return [
       'dl-dir',
+      // We can't include the package-json option here, because nopt failed to
+      // handle its definition correctly when there was one; and base-command
+      // requires a definition in utils/config/definitions.js for any item
+      // that appears here.
+      //'package-json', 
+      'package-lock',
       'include',
       'omit',
       'only',
-      'package-json',
-      'package-lock'
+      'before'
     ]
   }
 
   /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get usage () {
+    // NOTE anything in this array gets automatically prefixed with
+    // 'npm download ' for output.
     return [
       '[<@scope>/]<pkg>',
       '[<@scope>/]<pkg>@<tag>',
@@ -55,23 +61,6 @@ class Download extends BaseCommand {
       '<git-host>:<git-user>/<repo-name>',
       '<git:// url>',
       '<tarball url>',
-/*
-// TODO: make sure the following output somehow gets conveyed in the usage.
-// This won't work. See base-command.js.
-      [
-        '',
-        'Multiple items can be named as above on the same command line.',
-        'Alternatively, dependencies can be drawn from a package.json file:',
-        '',
-        '  npm download --package-json[=<path-with-a-package.json>]',
-        '  npm download --pj[=<path-with-a-package.json>]',
-        '  npm download -J',
-        '',
-        'If <path-with-a-package.json> is not given, the package.json file is',
-        'expected to be in the current directory.',
-        'The last form assumes this.'
-      ].join('\n'),
-*/
     ]
   }
 
@@ -83,14 +72,11 @@ class Download extends BaseCommand {
     log.silly('download', 'args:', args)
 
     const self = this
-    // TODO: flatOpts is currently experimental. We're adding it because of
-    // the need to set an alternate (mock) registry for testing.
     const flatOpts = {
       ...this.npm.flatOptions,
       log: this.npm.log,
       auditLevel: null, // Not used in pacote! TODO: eliminate?
       workspaces: this.workspaceNames // TODO: ditto.
-      // TODO: look into adding cache property, tempCache as the value
     }
     const cmdOpts = {
       dlDir: this.npm.config.get('dl-dir'),
@@ -121,12 +107,6 @@ class Download extends BaseCommand {
     // definitions.js interprets it as 'Alias for --package-lock' for now.
     // Therefore, --shrinkwrap=false => --package-lock=false.
     // --package-lock default is true.
-    // We have not yet dealt with package-lock.json here. TODO: Should we?
-    // TODO: Get answer to the question: when we get a manifest from the
-    // npmjs repository, and it has a _shrinkwrap property, does that ever
-    // come from a package-lock.json instead of a npm-shrinkwrap.json?
-    // The answer will determine if we add code to read a package-lock.json
-    // from a git repo clone.
     if (!this.npm.config.get('package-lock')) cmdOpts.noShrinkwrap = true
 
     const optPj =
