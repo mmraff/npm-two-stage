@@ -2816,6 +2816,23 @@ t.test('offline cases', async t => {
     t.equal(tree.children.get(name).resolved, resolvedSpec)
   })
 
+  t.test('alias spec', async t => {
+    const plainSpec = dlData1.name + '@' + dlData1.version
+    const alias = 'dld2'
+    const aliasSpec = `${alias}@npm:${plainSpec}`
+    const newArb = new Arborist({ ...OPT, path: installPath, offline: true })
+    newArb.dltTypeMap = mockDlt.typeMap
+    newArb.dlTracker = dlTracker
+    const tree = await newArb.buildIdealTree({ add: [ aliasSpec ] })
+    const newChild = newArb.idealTree.children.get(alias)
+    t.hasStrict(newChild, {
+      packageName: dlData1.name, version: dlData1.version,
+      location: 'node_modules/' + alias,
+      path: join(installPath, 'node_modules', alias),
+      resolved: dlData1._resolved
+    })
+  })
+
   t.test('package spec that download tracker does not recognize', async t => {
     const newArb = new Arborist({ ...OPT, path: installPath, offline: true })
     newArb.dltTypeMap = mockDlt.typeMap
@@ -2824,4 +2841,3 @@ t.test('offline cases', async t => {
     t.rejects(newArb.buildIdealTree({ add: [ spec ] }))
   })
 })
-

@@ -546,11 +546,15 @@ module.exports = cls => class IdealTreeBuilder extends cls {
     if (spec.type == 'file' || spec.type == 'directory')
       throw new Error(`package type '${spec.type}' must not be used here`)
 
-    if (spec.type === 'tag' && spec.fetchSpec === 'latest') {
+    if (spec.type === 'alias') {
+      spec = spec.subSpec
+    }
+    else if (spec.type === 'tag' && spec.fetchSpec === 'latest') {
       // Easier to work with:
       spec.fetchSpec = '*'
       spec.type = 'range'
     }
+
     const dltType = this.dltTypeMap[spec.type]
     /* istanbul ignore if: should be impossible */
     if (!dltType)
