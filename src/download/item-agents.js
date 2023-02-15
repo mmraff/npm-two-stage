@@ -275,13 +275,12 @@ class UrlItemAgent extends ItemAgent {
 }
 
 const handleItem = (spec, opts) => {
-  const parsed = npa(spec)
+  let parsed = npa(spec)
+  if (parsed.type == 'alias') {
+    parsed = parsed.subSpec
+  }
   const dlType = dltFactory.typeMap[parsed.type]
   let agent
-  if (parsed.type == 'alias') {
-    opts.flatOpts.log.warn('download', `skipping alias spec "${spec}"`)
-    return Promise.resolve([])
-  }
   switch (dlType) {
     case 'git':
       agent = new GitItemAgent(parsed, opts)

@@ -271,17 +271,22 @@ tap.test('handleItem', t1 => {
     t2.end()
   })
   t1.test('given an alias spec', t2 => {
-    const aliasSpec = 'myalias@npm:dontcare@42'
+    const aliasSpec = 'myalias@npm:' + versionData0.spec
     const opts = makeOpts()
     opts.topLevel = true
     mockLog.purge()
+    mockPacote.setTestConfig({
+      [versionData0.spec]: versionData0.manifest
+    })
     return itemAgents.handleItem(aliasSpec, opts)
     .then(result => {
-      t2.same(result, [])
-      t2.same(mockLog.getList()[0], {
-        level: 'warn', prefix: 'download',
-        message: `skipping alias spec "${aliasSpec}"`
-      })
+      const pkg = versionData0.manifest
+      t2.strictSame(result, [{ spec: versionData0.spec, name: pkg.name }])
+      expectDlTrackerData(
+        t2, opts.dlTracker,
+        'semver', { name: pkg.name, version: pkg.version },
+        'Aliased package data should be stored as expected'
+      )
     })
   })
   t1.test('given a known registry package spec', t2 => {
