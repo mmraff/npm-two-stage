@@ -166,7 +166,7 @@ tap.before(() =>
     itemAgents = require(assets.libDownload + '/item-agents.js')
     npf = require(assets.libDownload + '/npm-package-filename')
     mockDlt = require(assets.libDownload + '/dltracker')
-    mockLog = require(assets.nodeModules + '/npmlog') // TODO: might not be needed
+    mockLog = require(assets.nodeModules + '/npmlog')
     mockPacote = require(assets.nodeModules + '/pacote')
 
     tap.teardown(() => rimrafAsync(assets.fs('rootName')))
@@ -180,19 +180,18 @@ tap.before(() =>
 */
 
 const makeOpts = (pkgDir) =>  ({
-  dlTracker: mockDlt.createSync(pkgDir), // TODO: add this function to mock dltracker
-  flatOpts: {},
+  dlTracker: mockDlt.createSync(pkgDir),
+  flatOpts: { log: mockLog },
   cmd: {}
 })
   /*
-    NOTES:
-    * item-agents makes no use of the log, and no mention of the cache,
-      though they are passed in opts to other services (e.g., pacote)
-    * it makes explicit mention of opts.flatOpts, but an empty object should suffice
+    DEV NOTES:
+    * item-agents makes no mention of the cache, though it is passed in opts
+      to other services (e.g., pacote)
+    * it makes explicit mention of opts.flatOpts, but an empty object could suffice
     * it makes explicit mention of opts.dlTracker, *and* the ItemAgents use it!
       (contains(), add(), and path)
     * it uses opts.cmd fields: includeDev, includePeer, noShrinkwrap, noOptional
-    * createAgent() (called by handleItem) uses opts.where
   */
 
 function expectDlTrackerData(t, dlTracker, type, keyData, msg) {
@@ -271,12 +270,21 @@ tap.test('handleItem', t1 => {
     t2.rejects(() => itemAgents.handleItem('must/be/a/directory', opts))
     t2.end()
   })
+  t1.test('given an alias spec', t2 => {
+    const aliasSpec = 'myalias@npm:dontcare@42'
+    const opts = makeOpts()
+    opts.topLevel = true
+    mockLog.purge()
+    return itemAgents.handleItem(aliasSpec, opts)
+    .then(result => {
+      t2.same(result, [])
+      t2.same(mockLog.getList()[0], {
+        level: 'warn', prefix: 'download',
+        message: `skipping alias spec "${aliasSpec}"`
+      })
+    })
+  })
   t1.test('given a known registry package spec', t2 => {
-  /*
-    TODO: this chain of tests expects to use the same dlTracker, so we must
-    somehow get the initial dlTracker and ensure that it goes into the opts
-    each time (or just delete the topLevel flag after 1st use?)
-  */
     const opts = makeOpts()
     mockPacote.setTestConfig({
       [versionData0.spec]: versionData0.manifest

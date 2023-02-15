@@ -274,26 +274,28 @@ class UrlItemAgent extends ItemAgent {
   }
 }
 
-function createAgent(rawSpec, opts) {
-  const parsed = npa(rawSpec)
-  const dlType = dltFactory.typeMap[parsed.type]
-  switch (dlType) {
-    case 'git': return new GitItemAgent(parsed, opts)
-
-    case 'semver':
-    case 'tag': return new RegistryItemAgent(parsed, opts)
-
-    case 'url': return new UrlItemAgent(parsed, opts)
-
-    default: throw new TypeError('Unknown spec type: ' + parsed.type)
-  }
-}
-
 const handleItem = (spec, opts) => {
+  const parsed = npa(spec)
+  const dlType = dltFactory.typeMap[parsed.type]
   let agent
-  try { agent = createAgent(spec, opts) }
-  catch (err) { return Promise.reject(err) }
-  return agent.run()
+  if (parsed.type == 'alias') {
+    opts.flatOpts.log.warn('download', `skipping alias spec "${spec}"`)
+    return Promise.resolve([])
+  }
+  switch (dlType) {
+    case 'git':
+      agent = new GitItemAgent(parsed, opts)
+      break
+    case 'semver':
+    case 'tag':
+      agent = new RegistryItemAgent(parsed, opts)
+      break
+    case 'url':
+      agent = new UrlItemAgent(parsed, opts)
+      break
+  }
+  return agent ? agent.run() :
+    Promise.reject(new Error('Unhandled spec type: ' + parsed.type))
 }
 
 // Tame those nested arrays
