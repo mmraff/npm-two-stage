@@ -83,14 +83,20 @@ const makeProjectDirectory = (t, dlDirName, installDirName) => {
   })
 }
 
-const runNpmCmd = async (npmBin, cmd, argList, opts) => {
-  // For almost all calls, we need npm to be configured with
+const runNpmCmd = async (npmBin, cmd, argList, opts, prepend) => {
+  // NOTES
+  // * For almost all calls, we need npm to be configured with
   //   globalPrefix=staging, registry=registry, ...
-  // If environment var PREFIX is set, npm load will set globalPrefix to that.
-  // NOTE that in download.js, we set the cache to a custom location:
-  // 'dl-temp-cache' in the dl-dir.
+  // * If environment var PREFIX is set, npm load will set globalPrefix to that.
+  // * In download.js, we set the cache to a custom location:
+  //   'dl-temp/cache' in the dl-dir.
   if (!argList) argList = []
-  argList.push('--registry', registry)
+  // Defective behavior has been seen from @npmcli/config. We have adapted
+  // download.js to handle some of that, so we need this flexibility in the
+  // arrangement of the command line arguments in order to test error cases:
+  if (prepend) argList.unshift('--registry', registry)
+  else argList.push('--registry', registry)
+
   if (!opts) opts = { env: {} }
   if (!opts.env) opts.env = {}
   // So far, it seems there's no need to do anything special on Windows...
@@ -317,9 +323,9 @@ tap.before(() => {
   const cache = path.resolve(rootPath, testCacheName)
   const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest')
   let pkgPath
-  // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting EBUSY
-  // error from rmdir on teardown, even though the tap doc for fixtures says
-  // "The fixture directory cleanup will always happen after any
+  // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
+  // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
+  // says "The fixture directory cleanup will always happen after any
   //  user-scheduled t.teardown() functions, as of tap v14.11.0."
   // Funny, now that removal is done *during* teardown, the problem is gone.
   cfg.git.hostBase = path.resolve(staging, 'srv', gitHostBaseName)
@@ -369,7 +375,14 @@ tap.before(() => {
   .then(() => remoteServer.start(cfg.remote.base))//, { debug: true }))
   .then(num => {
     cfg.remote.port = num
-    cfg.remote.id2 = `localhost:${num}/skizziks/remote2-1.1.0.tgz`
+    cfg.remote.items = [
+      { name: 'remote1', version: '1.0.0' },
+      { name: 'remote2', version: '1.1.0' }
+    ]
+    for (const item of cfg.remote.items) {
+      const file = `${item.name}-${item.version}.tgz`
+      item.id = `localhost:${num}/skizziks/${file}`
+    }
     cfg.pjPath = path.join(staging, 'tmp', 'dl-pj')
     return mkdir(cfg.pjPath, { recursive: true })
   })
@@ -378,7 +391,7 @@ tap.teardown(() => {
   return new Promise(resolve => mockRegistryProxy.stop(() => resolve()))
   .then(() => gitServer.stop())
   .then(() => remoteServer.stop())
-  .then(() => rimrafAsync(staging))
+  .then(() => rimrafAsync(staging)) // TEMP COMMENT-OUT! TODO
 })
 
 // Path component names we'll be using a lot
@@ -386,15 +399,25 @@ const dlDirName = 'tarballs'
 const installDirName = 'install-tgt'
 
 tap.test('quick help', t1 => {
-  return runNpmCmd(testNpm, 'download', [ '-h' ])
+  const targetDir = t1.testdir()
+  return runNpmCmd(testNpm, 'download', [ '-h' ], { cwd: targetDir })
   .then(({stdout, stderr}) => {
     t1.match(
       stdout,
-      /^npm download\n\nDownload packages and dependencies as tarballs\n/,
+      /^npm download\n\nDownload package\(s\) and dependencies as tarballs\n/,
       'quick help output for download command as expected'
     )
     t1.equal(stderr, '', 'no error output from quick help')
   })
+})
+
+tap.test('dl no args', t1 => {
+  const targetDir = t1.testdir()
+  t1.rejects(
+    runNpmCmd(testNpm, 'download', [], { cwd: targetDir }),
+    /npm ERR! No packages named for download\./
+  )
+  t1.end()
 })
 
 // TODO: Decide whether to keep this test.
@@ -460,24 +483,31 @@ tap.test('2', t1 => {
   )
 })
 
-tap.test('dl with before option', t1 => {
+// The --before option works as expected with the download command.
+// It was designed to work the way it does with the install command;
+// but it's inappropriate to use it with install --offline.
+// Though it may do the right thing in some cases, this set of tests
+// reveals a pitfall in that usage.
+tap.test('before option', t1 => {
+  const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const installPath = path.join(testBase, installDirName)
   // We use a different dl path for the expected fail, because an empty file
   // will be created there as a result of the attempt, and we don't want the
   // clutter at our success path:
   const failDirName = 'bad-dl'
-  const testBase = makeProjectDirectory(t1, dlDirName, failDirName)
-  const dlPath = path.join(testBase, dlDirName)
   const failPath = path.join(testBase, failDirName)
   const expected = [ 'dl-temp', 'dltracker.json', 'acorn-4.0.4.tar.gz' ]
   // The mock registry packument for acorn lists higher versions than the
   // tarballs it has available, so implicitly asking for 'latest' should
   // result in an error:
-  return t1.rejects(
+  return mkdir(failPath)
+  .then(() => t1.rejects(
     runNpmCmd(testNpm, 'download', ['acorn'], { cwd: failPath }),
     /npm ERR! 404 Not Found/,
     'mock registry does not have the latest of target package'
-  )
-  // Now we choose a date that gets us one that it has on hand.
+  ))
+  // Now we choose a date that gets us the latest one it has.
   .then(() => runNpmCmd(
     testNpm, 'download',
     [ 'acorn', '--before', '2017', '--dl-dir='+dlPath ]
@@ -489,6 +519,31 @@ tap.test('dl with before option', t1 => {
       '--before option works with download command'
     )
   })
+  // Now we fetch the earlier available version.
+  .then(() => runNpmCmd(
+    testNpm, 'download',
+    [ 'acorn', '--before', '2016-08', '--dl-dir='+dlPath ]
+  ))
+  // Verify that we have both versions
+  .then(() => readdir(dlPath))
+  .then(list => {
+    t1.same(list.sort(), expected.concat(['acorn-3.3.0.tar.gz']).sort())
+  })
+  // Now we try to get npm install to pick the earlier version in the
+  // offline stage:
+  .then(() => runNpmCmd(
+    testNpm, 'install',
+    [ '--offline', '--offline-dir='+dlPath, 'acorn', '--before', '2016-08' ],
+    { cwd: installPath }
+  ))
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data =>
+    t1.equal(
+      data.packages['node_modules/acorn'].version, '4.0.4',
+      'installed the latest version instead of the requested one'
+    )
+  )
+  .catch(err => console.log(err))
 })
 
 // Case 3: package with a flat set of regular deps
@@ -1046,12 +1101,11 @@ tap.test('url 1', t1 => {
   const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
-  const tgtName = 'remote1'
-  const tgtVer = '1.0.0'
-  const spec = `http://localhost:${cfg.remote.port}/skizziks/${tgtName}-${tgtVer}.tgz`
+  const remoteItem = cfg.remote.items[0]
+  const spec = 'http://' + remoteItem.id
   const pkgs = {
-    [tgtName]: {
-      [tgtVer]: {
+    [remoteItem.name]: {
+      [remoteItem.version]: {
         rawSpec: spec,
         deps: {
           'acorn-jsx': '^3.0.0',
@@ -1074,18 +1128,20 @@ tap.test('url 1', t1 => {
   .then(() => checkInstalled(
     t1, pkgs, installPath//, { debug: 'Case 8 path-contents map:' }
   ))
-  .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
+  .then(() => checkPackageLock(t1, installPath, pkgs, remoteItem.name))
 })
 
 tap.test('package-json', t1 => {
+  const remoteItem = cfg.remote.items[1]
+  const spec = 'http://' + remoteItem.id
   const pjFilePath = path.join(cfg.pjPath, 'package.json')
-  const pjForDownload = {
+  const pjContent = {
     name: 'do-not-care', version: '0.0.0',
     dependencies: {
       'acorn': '^3.0.4',
       'commander': '2_x',
       [repoName1]: `git://${gitRepoId1}#v1.0.0`,
-      'remote2': `http://${cfg.remote.id2}`
+      [remoteItem.name]: 'http://' + remoteItem.id
     }
   }
   const repoTarball2 = [
@@ -1094,19 +1150,20 @@ tap.test('package-json', t1 => {
   const expected = [
     'dl-temp', 'dltracker.json',
     'acorn-3.3.0.tar.gz', 'commander-2.20.3.tar.gz',
-    repoTarball2, encodeURIComponent(cfg.remote.id2)
+    repoTarball2, encodeURIComponent(remoteItem.id)
   ]
   const startDir = process.cwd()
 
-  t1.before(() => writeFile(pjFilePath, JSON.stringify(pjForDownload)))
+  t1.before(() => writeFile(pjFilePath, JSON.stringify(pjContent)))
 
   t1.teardown(() => unlink(pjFilePath))
- 
-  t1.test('package-json option with path', t2 => {
+
+  // package-json option with path
+  t1.test('A', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json='+cfg.pjPath ]
+      testNpm, 'download', [ '--package-json='+cfg.pjPath ], { cwd: dlPath }
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1116,12 +1173,12 @@ tap.test('package-json', t1 => {
       )
     })
   })
- 
-  t1.test('pj option with path', t2 => {
+  // pj option with path
+  t1.test('B', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '--pj='+cfg.pjPath ]
+      testNpm, 'download', [ '--pj='+cfg.pjPath ], { cwd: dlPath }
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1131,41 +1188,59 @@ tap.test('package-json', t1 => {
       )
     })
   })
- 
-  t1.test('package-json option, no path', t2 => {
-    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
-    const dlPath = path.join(testBase, dlDirName)
-    process.chdir(cfg.pjPath)
-    return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json' ]
-    )
-    .then(() => readdir(dlPath))
-    .then(list => {
-      t2.same(
-        list.sort(), expected.sort(),
-        'download dir contains all expected items'
-      )
-    })
-    .finally(() => process.chdir(startDir))
-  })
- 
-  t1.test('pj option, no path', t2 => {
+  // package-json option at end of args, no path
+  t1.test('C', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     process.chdir(cfg.pjPath)
-    return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '--pj' ]
+    return t2.rejects(
+      runNpmCmd(
+        testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json' ], {}, true
+      ),
+      /\nnpm ERR! package-json option must be given a path/
     )
-    .then(() => readdir(dlPath))
-    .then(list => {
-      t2.same(
-        list.sort(), expected.sort(),
-        'download dir contains all expected items'
-      )
-    })
     .finally(() => process.chdir(startDir))
   })
- 
+  // package-json option, no path, but followed by another option (--registry)
+  t1.test('D', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    process.chdir(cfg.pjPath)
+    return t2.rejects(
+      runNpmCmd(
+        testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json' ]
+      ),
+      /\nnpm ERR! package-json option must be given a path/
+    )
+    .finally(() => process.chdir(startDir))
+  })
+  // pj option, no path
+  t1.test('E', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    process.chdir(cfg.pjPath)
+    return t2.rejects(
+      runNpmCmd(
+        testNpm, 'download', [ '--dl-dir='+dlPath, '--pj' ], {}, true
+      ),
+      /\nnpm ERR! package-json option must be given a path/
+    )
+    .finally(() => process.chdir(startDir))
+  })
+  // pj option, no path, but followed by another option (--registry)
+  t1.test('F', t2 => {
+    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
+    const dlPath = path.join(testBase, dlDirName)
+    process.chdir(cfg.pjPath)
+    return t2.rejects(
+      runNpmCmd(
+        testNpm, 'download', [ '--dl-dir='+dlPath, '--pj' ],
+      ),
+      /\nnpm ERR! package-json option must be given a path/
+    )
+    .finally(() => process.chdir(startDir))
+  })
+
   t1.test('J option', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
@@ -1182,13 +1257,15 @@ tap.test('package-json', t1 => {
     })
     .finally(() => process.chdir(startDir))
   })
+  // A test where -J is followed by another argument can be found below in
+  // 'dl multiple cmdline specs'
 
   t1.end()
 })
 
 tap.test('other options', t1 => {
   const pjFilePath = path.join(cfg.pjPath, 'package.json')
-  const pjForDownload = {
+  const pjContent = {
     name: 'do-not-care', version: '0.0.0',
     dependencies: {
       'abbrev': '*', // No deps. Expect to get 1.1.1
@@ -1224,7 +1301,7 @@ tap.test('other options', t1 => {
   ]
   const startDir = process.cwd()
 
-  t1.before(() => writeFile(pjFilePath, JSON.stringify(pjForDownload)))
+  t1.before(() => writeFile(pjFilePath, JSON.stringify(pjContent)))
 
   t1.teardown(() => unlink(pjFilePath))
 
@@ -1532,7 +1609,7 @@ tap.test('dl multiple cmdline specs', t1 => {
     'diff': { spec: '^1', version: '1.4.0' }
   }
   const pjFilePath = path.join(cfg.pjPath, 'package.json')
-  const pjForDownload = {
+  const pjContent = {
     name: 'do-not-care', version: '0.0.0',
     dependencies: { 'psl': testData['psl'].spec }
   }
@@ -1544,12 +1621,12 @@ tap.test('dl multiple cmdline specs', t1 => {
   for (const name in testData) {
     const item = testData[name]
     // Don't double-request the package.json dep
-    if (!(name in pjForDownload.dependencies))
+    if (!(name in pjContent.dependencies))
       specs.push(`${name}@${item.spec}`)
     tarballs.push(`${name}-${item.version}.tar.gz`)
   }
   process.chdir(cfg.pjPath)
-  return writeFile(pjFilePath, JSON.stringify(pjForDownload))
+  return writeFile(pjFilePath, JSON.stringify(pjContent))
   .then(() => runNpmCmd(
     testNpm, 'download', [ '--dl-dir='+dlPath, '-J' ].concat(specs)
   ))
@@ -1566,43 +1643,104 @@ tap.test('dl multiple cmdline specs', t1 => {
   })
 })
 
-// TODO:
-// * npm-shrinkwrap.json and package-lock.json - what needs to be done?
-// How about this: for dl, use a package.json, then see what happens when
-// we offline-install in a project dir that has a npm-shrinkwrap.json.
-// Might need to be crafted with special kinks... ?
-// * install from a package.json
-// * try install with --before; maybe expect an error?
+tap.test('install from pj', t1 => {
+  const gitSpec = `git://${gitRepoId1}#v1.0.0`
+  const remoteItem = cfg.remote.items[1]
+  const urlSpec = `http://${remoteItem.id}`
+  const testBase = t1.testdir({
+    [dlDirName]: {},
+    [installDirName]: {
+      'package.json': JSON.stringify({
+        name: installDirName, version: '1.0.0',
+        dependencies: {
+          'acorn': '^3.0.4',
+          'commander': '2_x',
+          [repoName1]: gitSpec,
+          [remoteItem.name]: urlSpec
+        }
+      })
+    }
+  })
+  const dlPath = path.join(testBase, dlDirName)
+  const installPath = path.join(testBase, installDirName)
+  // TODO: make sure the following comment goes into the README:
+  // WARNING: if there are special characters in a spec (e.g. '^', '<'),
+  // then the spec *must* be quoted on the command line, else an error
+  // from npm is likely. Not necessary to do this in a package.json.
+  const specList = [ '"acorn@^3.0.4"', 'commander@2_x', gitSpec, urlSpec ]
 
-/*
-  // 1. Download the target package
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
-  // 2. Verify the contents of the download directory
-  //   a. View the console output:
-  .then(() => readdir(dlPath)).then(list =>
-    console.log('Case X download dir contents:', list)
+  return runNpmCmd(
+    testNpm, 'download', [ '--dl-dir='+dlPath ].concat(specList)
   )
-  //   b. Substitute automatic checking for the above:
-  .then(() => checkDownloads(t1, pkgs, dlPath))
-  // 3. Install the target package
   .then(() => runNpmCmd(
-    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
+    testNpm, 'install',
+    // No spec --> refer to the package.json in cwd
+    [ '--offline', '--offline-dir='+dlPath ],
     { cwd: installPath }
   ))
-  // 4. Verify the installation by checking node_modules
-  //   a. View the console output:
   .then(() => readdir(path.join(installPath, 'node_modules')))
-  .then(list => console.log('Case X post-install node_modules contents:', list))
-  //   b. Substitute automatic checking for the above:
-  .then(() => checkInstalled(
-    t1, pkgs, installPath//, { debug: 'Case X path-contents map:' }
-  ))
-  // 5. Verify the contents of package-lock.json
-  //   a. View the console output:
+  .then(list => {
+    const expected = [
+      '.bin', '.package-lock.json', 'acorn', 'commander',
+      repoName1, remoteItem.name
+    ]
+    t1.same(list.sort(), expected.sort())
+  })
   .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data =>
-    console.log('Case X package-lock contents of packages:', data.packages)
+  .then(data => {
+    const lockExpected = {
+      '': {
+        name: installDirName, version: '1.0.0',
+        dependencies: {
+          'acorn': '^3.0.4',
+          'commander': '2_x',
+          [repoName1]: gitSpec,
+          [remoteItem.name]: urlSpec
+        }
+      },
+      'node_modules/acorn': { version: '3.3.0' },
+      'node_modules/commander': { version: '2.20.3' },
+      ['node_modules/' + repoName1]: { version: '1.0.0' },
+      ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
+    }
+    t1.match(data.packages, lockExpected)
+  })
+  .catch(err => console.log('install-from-pj case:', err))
+})
+
+tap.test('alias spec', t1 => {
+  const testBase = makeProjectDirectory(t1, dlDirName, installDirName)
+  const dlPath = path.join(testBase, dlDirName)
+  const installPath = path.join(testBase, installDirName)
+  const pkgName = 'acorn'
+  const alias = pkgName + '3'
+  const plainSpec = pkgName + '@3'
+  const aliasSpec = `${alias}@npm:${plainSpec}`
+  const expandedVer = '3.3.0'
+  const saveSpec = `${pkgName}@^${expandedVer}`
+  return runNpmCmd(
+    testNpm, 'download', [ '--dl-dir='+dlPath, aliasSpec ]
   )
-  //   b. Substitute automatic checking for the above:
-  .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
-*/
+  .then(() => runNpmCmd(
+    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, aliasSpec ],
+    { cwd: installPath }
+  ))
+  .then(() => getJsonFileData(path.join(installPath, 'package.json')))
+  .then(pkg => {
+    t1.match(pkg.dependencies, { [alias]: 'npm:' + saveSpec })
+  })
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data => {
+    const lockExpected = {
+      '': {
+        name: installDirName, version: '1.0.0',
+        dependencies: { [alias]: 'npm:' + saveSpec }
+      },
+      ['node_modules/' + alias]: {
+        name: pkgName, version: expandedVer,
+        resolved: `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${expandedVer}.tgz`
+      }
+    }
+    t1.match(data.packages, lockExpected)
+  })
+})
