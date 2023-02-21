@@ -5,8 +5,15 @@ const testConfig = {
   processDependencies: {}
 }
 
+const lastOpts = {}
+const purgeOpts = () => { for (const prop in lastOpts) delete lastOpts[prop] }
+
+module.exports.getLastOpts = () => ({ ...lastOpts })
+
 module.exports.handleItem = (spec, opts) => {
 //console.log(`$$$ mock itemAgents.handleItem: for spec ${spec}, given opts`, opts)
+  purgeOpts()
+  Object.assign(lastOpts, opts)
   const testData = testConfig.handleItem[spec]
   if (!testData) return Promise.reject(
     new Error(`mock itemAgents.handleItem does not recognize spec '${spec}'`)
@@ -15,6 +22,8 @@ module.exports.handleItem = (spec, opts) => {
 }
 
 module.exports.processDependencies = (manifest, opts) => {
+  purgeOpts()
+  Object.assign(lastOpts, opts)
   const spec = manifest.name + '@' + manifest.version
   const testData = testConfig.processDependencies[spec]
   if (!testData) return Promise.reject(

@@ -21,9 +21,10 @@ const {
 } = require('./download/item-agents')
 
 class Download extends BaseCommand {
+// TODO: load-all-commands should be made part of our integration test:
   /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get description () {
-    return 'Download packages and dependencies as tarballs'
+    return 'Download package(s) and dependencies as tarballs'
   }
 
   /* istanbul ignore next - see test/lib/load-all-commands.js */
@@ -35,23 +36,16 @@ class Download extends BaseCommand {
   static get params () {
     return [
       'dl-dir',
-      // We can't include the package-json option here, because nopt failed to
-      // handle its definition correctly when there was one; and base-command
-      // requires a definition in utils/config/definitions.js for any item
-      // that appears here.
-      //'package-json', 
-      'package-lock',
       'include',
       'omit',
       'only',
-      'before'
+      'package-json',
+      'package-lock'
     ]
   }
 
   /* istanbul ignore next - see test/lib/load-all-commands.js */
   static get usage () {
-    // NOTE anything in this array gets automatically prefixed with
-    // 'npm download ' for output.
     return [
       '[<@scope>/]<pkg>',
       '[<@scope>/]<pkg>@<tag>',
@@ -61,6 +55,23 @@ class Download extends BaseCommand {
       '<git-host>:<git-user>/<repo-name>',
       '<git:// url>',
       '<tarball url>',
+/*
+// TODO: make sure the following output somehow gets conveyed in the usage.
+// This won't work. See base-command.js.
+      [
+        '',
+        'Multiple items can be named as above on the same command line.',
+        'Alternatively, dependencies can be drawn from a package.json file:',
+        '',
+        '  npm download --package-json[=<path-with-a-package.json>]',
+        '  npm download --pj[=<path-with-a-package.json>]',
+        '  npm download -J',
+        '',
+        'If <path-with-a-package.json> is not given, the package.json file is',
+        'expected to be in the current directory.',
+        'The last form assumes this.'
+      ].join('\n'),
+*/
     ]
   }
 
@@ -107,21 +118,41 @@ class Download extends BaseCommand {
     // definitions.js interprets it as 'Alias for --package-lock' for now.
     // Therefore, --shrinkwrap=false => --package-lock=false.
     // --package-lock default is true.
-    if (!this.npm.config.get('package-lock')) cmdOpts.noShrinkwrap = true
+    // We have not yet dealt with package-lock.json here. TODO: Should we?
+    // TODO: Get answer to the question: when we get a manifest from the
+    // npmjs repository, and it has a _shrinkwrap property, does that ever
+    // come from a package-lock.json instead of a npm-shrinkwrap.json?
+    // The answer will determine if we add code to read a package-lock.json
+    // from a git repo clone.
+    if (this.npm.config.get('package-lock') == false)
+      cmdOpts.noShrinkwrap = true
 
-    const optPj =
-      this.npm.config.get('package-json') ||
-      this.npm.config.get('pj') || this.npm.config.get('J')
+    const pkgJson = this.npm.config.get('package-json')
+    const J = this.npm.config.get('J')
+
+    // nopt and/or @npmcli/config is mishandling the arg processing, causing a
+    // double-hyphen cmdline option without an argument to consume the next
+    // cmdline option as its argument. Handle this case by examining the value
+    // of package-json, looking for a hyphen as the 1st character:
+    let optPj
+    if (pkgJson) {
+      if (typeof pkgJson !== 'string' || pkgJson.startsWith('-'))
+        return cb(new Error('package-json option must be given a path'))
+      optPj = pkgJson == '.' ? './' : pkgJson // For consistency
+    }
+    else if (J) {
+      /* istanbul ignore if - we're not hitting this given current config. */
+      if (typeof J !== 'boolean')
+        return cb(new Error('@npmcli/config is mishandling args: J is set to ' + J))
+      optPj = './'
+    }
     if (optPj) {
-      cmdOpts.packageJson = typeof optPj == 'boolean' ? './' : optPj
-      const pjFilePattern = /package\.json$/
-      if (pjFilePattern.test(cmdOpts.packageJson))
-        cmdOpts.packageJson = cmdOpts.packageJson.replace(pjFilePattern, '')
+      cmdOpts.packageJson = optPj.replace(/(^|[/\\])package\.json$/, '')
       if (!cmdOpts.packageJson) cmdOpts.packageJson = './'
     }
 
     if (!cmdOpts.packageJson && (!args || args.length == 0)) {
-      return cb(new SyntaxError([
+      return cb(new Error([
         'No packages named for download.',
         'Maybe you want to use the package-json option?',
         'Try: npm download -h'
