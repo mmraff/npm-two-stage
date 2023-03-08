@@ -13,6 +13,8 @@ const fileMap = {
   'dl_reconstruct-map_test.js': 'src/download/reconstruct-map.js',
   'dl_dltracker_test.js': 'src/download/dltracker.js',
   'dl_read-from-tarball_test.js': 'src/download/read-from-tarball.js',
+  'dl_alt-yarn-lock_test.js': 'src/download/alt-yarn-lock.js',
+  'dl_lock-deps_test.js': 'src/download/lock-deps.js',
   'dl_git-tracker-keys_test.js': 'src/download/git-tracker-keys.js',
   'dl_alt-git_test.js': 'test/tempAssets2/npm/lib/download/alt-git.js',
   'dl_item-agents_test.js': 'test/tempAssets1/npm/lib/download/item-agents.js',
