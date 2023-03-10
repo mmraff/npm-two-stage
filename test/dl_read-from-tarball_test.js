@@ -137,6 +137,10 @@ tap.test('Contains not the top priority, but the single alternative', t1 => {
   })
 })
 
+// The next 2 tests demonstrate that the search goes on to the end if the
+// top priority is not found before lower priorities on the list, but that
+// we still get the content of the highest available priority.
+
 tap.test('Lower priority found after non-topmost priority entry', t1 => {
   const bestAvailable = 'package.json'
   const acceptable = 'package-lock.json'
@@ -146,7 +150,29 @@ tap.test('Lower priority found after non-topmost priority entry', t1 => {
   )
   .then(data => {
     t1.equal(data.name, bestAvailable)
-    t1.notOk(data.content.toString().includes('"lockfileVersion":'))
+    t1.notOk(
+      data.content.toString().includes('"lockfileVersion":'),
+      'package.json does not contain a "lockfileVersion" property'
+    )
   })
 })
 
+// To verify that the buffer gets written correctly when it's not the first
+// to be allocated for content (start index for data chunks gets reset to 0)
+tap.test('Lower priority found after non-topmost priority entry', t1 => {
+  const bestAvailable = 'package-lock.json' // last entry in the tarball
+  const acceptable = 'package.json'
+  return readTar(
+    path.join(fixtures, 'created-by-real-tar.tgz'),
+    [ 'npm-shrinkwrap.json', bestAvailable, acceptable ]
+  )
+  .then(data => {
+    const text = data.content.toString()
+    t1.equal(data.name, bestAvailable)
+    t1.doesNotThrow(() => JSON.parse(text))
+    t1.ok(
+      text.includes('"lockfileVersion":'),
+      'package-lock.json contains a "lockfileVersion" property'
+    )
+  })
+})

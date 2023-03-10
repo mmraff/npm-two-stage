@@ -58,6 +58,7 @@ module.exports = (tarball, priorityList) => new Promise((resolve, reject) => {
     // There does not seem to be a way to release a buffer, except by
     // reassigning the variable, and leaving the old value to gc 
     content = Buffer.allocUnsafe(entry.size)
+    start = 0
     entry.on('data', data => {
       data.copy(content, start, 0, data.length)
       start += data.length
