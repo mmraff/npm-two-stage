@@ -2206,3 +2206,13 @@ define('package-json', {
   flatten,
 })
 
+define('lockfile-dir', {
+  default: null,
+  type: [null, String],
+  usage: '--lockfile-dir=<path/that/has/lockfile>',
+  description: `
+    Refer to dependencies listed in a lockfile for what to download
+    (precedence: npm-shrinkwrap.json; package-lock.json; yarn.lock).
+  `,
+  flatten,
+})

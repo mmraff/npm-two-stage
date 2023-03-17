@@ -152,6 +152,8 @@ Array [
   "workspaces",
   "yes",
   "dl-dir",
+  "package-json",
+  "lockfile-dir",
 ]
 `
 
@@ -1052,6 +1054,16 @@ exports[`test/utils_config_definitions_test.js TAP > config description for loca
 When passed to \`npm config\` this refers to which config file to use.
 `
 
+exports[`test/utils_config_definitions_test.js TAP > config description for lockfile-dir 1`] = `
+#### \`lockfile-dir\`
+
+* Default: null
+* Type: null or String
+
+Refer to dependencies listed in a lockfile for what to download (precedence:
+npm-shrinkwrap.json; package-lock.json; yarn.lock).
+`
+
 exports[`test/utils_config_definitions_test.js TAP > config description for loglevel 1`] = `
 #### \`loglevel\`
 
@@ -1239,6 +1251,16 @@ exports[`test/utils_config_definitions_test.js TAP > config description for pack
 * Type: String (can be set multiple times)
 
 The package to install for [\`npm exec\`](/commands/npm-exec)
+`
+
+exports[`test/utils_config_definitions_test.js TAP > config description for package-json 1`] = `
+#### \`package-json\`
+
+* Default: null
+* Type: null, true, or String
+
+Refer to dependencies listed in a package.json file for what to download.
+The -J form assumes that the package.json file is in the current directory.
 `
 
 exports[`test/utils_config_definitions_test.js TAP > config description for package-lock 1`] = `
