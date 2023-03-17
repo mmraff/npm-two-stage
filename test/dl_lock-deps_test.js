@@ -388,3 +388,131 @@ tap.test('extract', t1 => {
 
   t1.end()
 })
+
+tap.test('readFromDir', t1 => {
+  t1.test('input that causes errors', t2 => {
+    t2.rejects(lockDeps.readFromDir(), SyntaxError)
+    for (const arg of [ undefined, null, '' ])
+      t2.rejects(lockDeps.readFromDir(arg), SyntaxError)
+    for (const arg of [ false, 42, {}, () => {} ])
+      t2.rejects(lockDeps.readFromDir(arg), TypeError)
+    t2.end()
+  })
+
+  const basePath = path.join(__dirname, arboristFxtsRel)
+  const messages = []
+  const logger = {
+    info: (cmd, ...args) => {
+      messages.push({ level: 'info', cmd, msg: args.join(' ') })
+    },
+    warn: (cmd, ...args) => {
+      messages.push({ level: 'warn', cmd, msg: args.join(' ') })
+    }
+  }
+
+  t1.test('Directory contains valid npm-shrinkwrap', t2 => {
+    const shrwrPath = path.join(basePath, 'test-package-with-shrinkwrap')
+    return lockDeps.readFromDir(shrwrPath, logger)
+    .then(deps => {
+console.log('readFromDir: npm-shrinkwrap case:', deps)
+      t2.same(messages, [], 'Nothing logged when npm-shrinkwrap is found')
+    })
+  })
+
+  t1.test('No npm-shrinkwrap, but valid package-lock', t2 => {
+    const pkgLkPath = path.join(basePath, 'mkdirp-pinned')
+    messages.splice(0)
+    return lockDeps.readFromDir(pkgLkPath, logger)
+    .then(deps => {
+console.log('readFromDir: package-lock case:', deps)
+      const cmd = 'download'
+      t2.same(
+        messages, [
+          {
+            level: 'info', cmd,
+            msg: 'Failed to read npm-shrinkwrap.json at given lockfile-dir'
+          },
+          {
+            level: 'info', cmd, msg: 'Error code: ENOENT'
+          }
+        ], 'Messages logged when npm-shrinkwrap is not found'
+      )
+    })
+  })
+
+  t1.test('No npm-shrinkwrap or package-lock, but valid yarn.lock', t2 => {
+    const yarnLkPath = path.join(basePath, 'yarn-lock-mkdirp')
+    messages.splice(0)
+    return lockDeps.readFromDir(yarnLkPath, logger)
+    .then(deps => {
+console.log('readFromDir: yarn.lock case:', deps)
+      const cmd = 'download'
+      t2.same(
+        messages, [
+          {
+            level: 'info', cmd,
+            msg: 'Failed to read npm-shrinkwrap.json at given lockfile-dir'
+          },
+          {
+            level: 'info', cmd, msg: 'Error code: ENOENT'
+          },
+          {
+            level: 'info', cmd,
+            msg: 'Failed to read package-lock.json at given lockfile-dir'
+          },
+          {
+            level: 'info', cmd, msg: 'Error code: ENOENT'
+          }
+        ], 'Messages logged when no npm-shrinkwrap or package-lock found'
+      )
+    })
+  })
+
+  t1.test('No lockfiles at given path', t2 => {
+    messages.splice(0)
+    return lockDeps.readFromDir(fixtures, logger)
+    .then(deps => {
+console.log('readFromDir: no lockfiles case:', deps)
+      const cmd = 'download'
+      t2.same(
+        messages, [
+          {
+            level: 'info', cmd,
+            msg: 'Failed to read npm-shrinkwrap.json at given lockfile-dir'
+          },
+          {
+            level: 'info', cmd, msg: 'Error code: ENOENT'
+          },
+          {
+            level: 'info', cmd,
+            msg: 'Failed to read package-lock.json at given lockfile-dir'
+          },
+          {
+            level: 'info', cmd, msg: 'Error code: ENOENT'
+          },
+          {
+            level: 'info', cmd,
+            msg: 'Failed to read yarn.lock at given lockfile-dir'
+          },
+          {
+            level: 'info', cmd, msg: 'Error code: ENOENT'
+          },
+          {
+            level: 'warn', cmd,
+            msg: 'No usable lockfile at ' + fixtures
+          }
+        ], 'Messages logged when no lockfile found at all'
+      )
+
+      // Again, without the logger (for coverage)
+      messages.splice(0)
+      return lockDeps.readFromDir(fixtures)
+    })
+    .then(deps => {
+      t2.same(deps, [], 'Logger may be omitted without harm')
+      t2.same(messages, [])
+    })
+  })
+
+  t1.end()
+})

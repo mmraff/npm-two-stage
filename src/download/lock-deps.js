@@ -1,3 +1,6 @@
+const path = require('path')
+const readFileAsync = require('util').promisify(require('fs').readFile)
+
 const validate = require('validate-npm-package-name')
 const YarnLock = require('./alt-yarn-lock')
 
@@ -121,4 +124,40 @@ module.exports.extract = (tarball, opts = {}) => {
     name === 'yarn.lock' ? fromYarnLock(content.toString())
       : fromPackageLock(content.toString())
   )
+}
+
+module.exports.readFromDir = (dir, logger) => {
+  const dirErrMsg = 'Path where lock file(s) can be found is required'
+  if (dir === undefined || dir === null || dir === '')
+    return Promise.reject(new SyntaxError(dirErrMsg))
+  if (typeof dir !== 'string')
+    return Promise.reject(new TypeError(dirErrMsg))
+  if (!logger) {
+    logger = { info: () => {}, warn: () => {} }
+  }
+
+  const opts = { encoding: 'utf8' }
+  return readFileAsync(path.join(dir, 'npm-shrinkwrap.json'), opts)
+  .then(contents => fromPackageLock(contents))
+  .catch(err => {
+    logger.info('download',
+      'Failed to read npm-shrinkwrap.json at given lockfile-dir')
+    logger.info('download', 'Error code:', err.code)
+    return readFileAsync(path.join(dir, 'package-lock.json'), opts)
+    .then(contents => fromPackageLock(contents))
+    .catch(err => {
+      logger.info('download',
+        'Failed to read package-lock.json at given lockfile-dir')
+      logger.info('download', 'Error code:', err.code)
+      return readFileAsync(path.join(dir, 'yarn.lock'), opts)
+      .then(contents => fromYarnLock(contents))
+      .catch(err => {
+        logger.info('download',
+          'Failed to read yarn.lock at given lockfile-dir')
+        logger.info('download', 'Error code:', err.code)
+        logger.warn('download', 'No usable lockfile at', dir)
+        return []
+      })
+    })
+  })
 }
