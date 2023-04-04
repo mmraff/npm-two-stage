@@ -29,9 +29,12 @@ const fromPackageLock = module.exports.fromPackageLock = (lockText) => {
   if (typeof lockText !== 'string') throw new TypeError(argErrMsg)
 
   const lockData = JSON.parse(lockText)
-  if (!('lockfileVersion' in lockData))
-    throw new Error('Input does not look like lock file data')
-
+  // Removed validation of the contents from here:
+  // lockfileVersion 1 can have no 'dependencies' section, and
+  // of course has no 'packages' (that's lockfileVersion 2);
+  // and I've seen an old package-lock that had no lockfileVersion!
+  // What would  be the point of requiring the 'name' and 'version'
+  // fields at the top level? So, never mind.
   const results = []
   const pkgs = lockData.packages
   if (pkgs) {

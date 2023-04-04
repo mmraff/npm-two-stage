@@ -21,15 +21,7 @@ tap.test('fromPackageLock', t1 => {
       () => lockDeps.fromPackageLock("I don't know what JSON is"),
       'Unexpected token I in JSON at position 1'
     )
-    // Parseable, but missing something we require in a package-lock (lockfileVersion):
-    const s = JSON.stringify({
-      name: "no-name", version: "1.0.0",
-      dependencies: { "a": "*", "b": "1.2.3" }
-    })
-    t2.throws(
-      () => lockDeps.fromPackageLock(s),
-      'Input does not look like lock file data'
-    )
+
     t2.end()
   })
 
@@ -414,7 +406,6 @@ tap.test('readFromDir', t1 => {
     const shrwrPath = path.join(basePath, 'test-package-with-shrinkwrap')
     return lockDeps.readFromDir(shrwrPath, logger)
     .then(deps => {
-console.log('readFromDir: npm-shrinkwrap case:', deps)
       t2.same(messages, [], 'Nothing logged when npm-shrinkwrap is found')
     })
   })
@@ -424,7 +415,6 @@ console.log('readFromDir: npm-shrinkwrap case:', deps)
     messages.splice(0)
     return lockDeps.readFromDir(pkgLkPath, logger)
     .then(deps => {
-console.log('readFromDir: package-lock case:', deps)
       const cmd = 'download'
       t2.same(
         messages, [
@@ -445,7 +435,6 @@ console.log('readFromDir: package-lock case:', deps)
     messages.splice(0)
     return lockDeps.readFromDir(yarnLkPath, logger)
     .then(deps => {
-console.log('readFromDir: yarn.lock case:', deps)
       const cmd = 'download'
       t2.same(
         messages, [
@@ -472,7 +461,6 @@ console.log('readFromDir: yarn.lock case:', deps)
     messages.splice(0)
     return lockDeps.readFromDir(fixtures, logger)
     .then(deps => {
-console.log('readFromDir: no lockfiles case:', deps)
       const cmd = 'download'
       t2.same(
         messages, [
