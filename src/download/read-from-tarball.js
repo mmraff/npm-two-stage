@@ -19,7 +19,7 @@ module.exports = (tarball, priorityList) => new Promise((resolve, reject) => {
     return reject(new TypeError(arg1Msg))
   if (!priorityList)
     return reject(new SyntaxError(arg2Msg))
-  if (!(priorityList instanceof Array))
+  if (!Array.isArray(priorityList))
     return reject(new TypeError(arg2Msg))
   if (!priorityList.length)
     return reject(new SyntaxError(arg2Msg))

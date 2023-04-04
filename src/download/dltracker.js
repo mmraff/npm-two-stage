@@ -143,7 +143,7 @@ function expectPackageData(type, data) {
         throw new SyntaxError("git commit must be a 40-character hex string")
 
       if ('refs' in data) {
-        if (!(data.refs instanceof Array))
+        if (!Array.isArray(data.refs))
           throw new TypeError("git-type metadata property 'refs' must be an array")
         if (!data.refs.length) {
           throw new SyntaxError("git-type metadata refs must contain at least one tag")
