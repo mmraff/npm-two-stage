@@ -247,6 +247,7 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
       const versions = pkgs[name]
       for (const v in versions) {
         const data = versions[v]
+        if (data.peer && opts.omit.includes('peer')) continue
         let modPath = 'node_modules/' + name
         if (data.parent) modPath = `node_modules/${data.parent}/${modPath}`
         expected[modPath] = { version: v }
@@ -255,7 +256,7 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
           expected[modPath].dependencies = data.deps
         if (data.peerDeps)
           expected[modPath].peerDependencies = data.peerDeps
-        if (data.peer && !opts.omit.includes('peer'))
+        if (data.peer)
           expected[modPath].peer = data.peer
       }
     }
@@ -391,7 +392,7 @@ tap.teardown(() => {
   return new Promise(resolve => mockRegistryProxy.stop(() => resolve()))
   .then(() => gitServer.stop())
   .then(() => remoteServer.stop())
-  .then(() => rimrafAsync(staging)) // TEMP COMMENT-OUT! TODO
+  .then(() => rimrafAsync(staging))
 })
 
 // Path component names we'll be using a lot
@@ -420,13 +421,9 @@ tap.test('dl no args', t1 => {
   t1.end()
 })
 
-// TODO: Decide whether to keep this test.
-// It's good for nothing more than proving that an error from pacote gets
-// passed through the download() callback.
-// Well, OK, it also proves that it takes more than an invalid package spec
-// to break download - up to the point when it receives a reply from pacote.
-// Are there any other pacote errors that we can cause in a test?
 // Case 1: request for non-existent package
+// Proves that it takes more than an invalid package spec to break download
+// ... up to the point when it receives a reply from pacote.
 tap.test('1', t1 => {
   const targetDir = t1.testdir()
   // Package name chosen to ensure that it won't be found.
@@ -463,7 +460,7 @@ tap.test('2', t1 => {
 
     return runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, pkgSpec ],
+      [ '--offline', '--offline-dir', dlPath, pkgSpec ],
       { cwd: installPath }
     )
   })
@@ -533,7 +530,7 @@ tap.test('before option', t1 => {
   // offline stage:
   .then(() => runNpmCmd(
     testNpm, 'install',
-    [ '--offline', '--offline-dir='+dlPath, 'acorn', '--before', '2016-08' ],
+    [ '--offline', '--offline-dir', dlPath, 'acorn', '--before', '2016-08' ],
     { cwd: installPath }
   ))
   .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
@@ -586,7 +583,7 @@ tap.test('3', t1 => {
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install',
-    [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+    [ '--offline', '--offline-dir', dlPath, spec ], { cwd: installPath }
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
@@ -648,7 +645,7 @@ tap.test('4', t1 => {
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install',
-    [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+    [ '--offline', '--offline-dir', dlPath, spec ], { cwd: installPath }
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
@@ -678,7 +675,7 @@ tap.test('5', t1 => {
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install',
-    [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+    [ '--offline', '--offline-dir', dlPath, spec ], { cwd: installPath }
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
   .then(() => checkPackageLock(t1, installPath, pkgs, tgtName))
@@ -690,8 +687,14 @@ tap.test('6', t1 => {
   const tgtVer = '1.5.1'
   const spec = `${tgtName}@${tgtVer}`
   const peerName = 'ajv'
-  const peerVer = '6.12.6'
+  const peerVer = '4.11.2'
   const peerRange = '>=4.10.0'
+  // Dev note: without the following dateLimitOption, we would get v6 of the
+  // peer dep, which has a dependency on a package (uri-js) that contains a
+  // yarn.lock file that demands a transitive dependency version that the
+  // mock registry does not have - so we would get a 404 error instead of
+  // useful results.
+  const dateLimitOption = '--before 2017-02'
   const RE_resolvePeerFailureWarning1 =
     /\bnpm WARN Could not resolve dependency:/
   const RE_resolvePeerFailureWarning2 =
@@ -707,18 +710,16 @@ tap.test('6', t1 => {
     [peerName]: {
       [peerVer]: {
         peer: true, deps: {
-          'fast-deep-equal': '^3.1.1',
-          'fast-json-stable-stringify': '^2.0.0',
-          'json-schema-traverse': '^0.4.1',
-          'uri-js': '^4.2.2'
+          'co': '^4.6.0',
+          'json-stable-stringify': '^1.0.1'
         }
       }
     },
-    'fast-deep-equal': { '3.1.3': { peer: true } },
-    'fast-json-stable-stringify': { '2.1.0': { peer: true } },
-    'json-schema-traverse': { '0.4.1': { peer: true } },
-    'punycode': { '2.1.1': { peer: true } },
-    'uri-js': { '4.4.0': { peer: true, deps: { 'punycode': '^2.1.0' } } }
+    'co': { '4.6.0': { peer: true } },
+    'json-stable-stringify': {
+      '1.0.1': { peer: true, deps: { 'jsonify': '~0.0.0' } }
+    },
+    'jsonify': { '0.0.0': { peer: true } }
   }
 
   t1.test('6-baseline', t2 => {
@@ -730,7 +731,7 @@ tap.test('6', t1 => {
     // peer simply by adding omit=peer to the command line.
     return runNpmCmd(
       testNpm, 'install',
-      [ '--omit=peer', spec ], { cwd: installPath }
+      [ '--omit=peer', dateLimitOption, spec ], { cwd: installPath }
     )
     .then(() => checkProjectRootPostInstall(t2, installPath))
     .then(() => readdir(path.join(installPath, 'node_modules')))
@@ -747,18 +748,19 @@ tap.test('6', t1 => {
   // the use of --include=peer and --omit=peer
   // ( this might turn into a section about all kinds of non-regular dependencies!)
 
-  // First: without include=peer, download succeeds, but install fails for lack
-  // of the peer dep of the target package, because npm defaults to trying to
-  // install peer deps, even if unrequested
+  // First: with omit=peer, download succeeds, but install fails for lack of
+  // the peer dep of the target package, because npm default is to install
+  // peer deps, even if unrequested
   t1.test('6a', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const installPath = path.join(testBase, installDirName)
 
+    // Would include peer deps by default, so we must explicitly omit
     return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, spec ]
+      testNpm, 'download',
+      [ '--dl-dir', dlPath, '--omit=peer', dateLimitOption, spec ]
     )
-    // Does *not* include peer deps by default
     .then(() => readdir(dlPath))
     .then(list => {
       t2.equal(list.length, 3, 'Nothing more or less than what is expected')
@@ -768,12 +770,12 @@ tap.test('6', t1 => {
 
       return runNpmCmd(
         testNpm, 'install',
-        [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+        [ '--offline', '--offline-dir', dlPath, spec ], { cwd: installPath }
       )
+      .then(() => t2.fail('peer dep unavailable, install without --force should reject'))
       // Fails because npm install tries to include peer deps by default
       .catch(err => {
         t2.match(err.message, /^Command failed:/)
-// TODO: find out where this warning is coming from, and what it means:
         t2.match(err.stderr, /^npm WARN ERESOLVE overriding peer dependency/)
         t2.match(err.stderr, RE_resolvePeerFailureWarning1)
         t2.match(err.stderr, RE_resolvePeerFailureWarning2)
@@ -786,9 +788,10 @@ tap.test('6', t1 => {
     // Try again with --force, but it still won't work:
     .then(() => runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, '--omit=peer', '--force', spec ],
+      [ '--offline', '--offline-dir', dlPath, '--omit=peer', '--force', spec ],
       { cwd: installPath }
     ))
+    .then(() => t2.fail('peer dep unavailable, install with --force should reject'))
     .catch(err => {
       t2.match(err.message, /^Command failed:/)
       t2.match(err.stderr, /\bnpm WARN ERESOLVE overriding peer dependency/)
@@ -810,17 +813,19 @@ tap.test('6', t1 => {
     const installPath = path.join(testBase, installDirName)
 
     return runNpmCmd(
-      testNpm, 'install', [ `${peerName}@"${peerRange}"` ],
+      testNpm, 'install', [
+        dateLimitOption, `${peerName}@"${peerRange}"`
+      ],
       { cwd: installPath }
     )
     .then(() => runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, spec ]
+      testNpm, 'download', [ '--dl-dir='+dlPath, dateLimitOption, spec ]
     ))
     // If there was no --force in the following, offline install would fail
     // with the error "ERESOLVE unable to resolve dependency tree":
     .then(() => runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, '--omit=peer', '--force', spec ],
+      [ '--offline', '--offline-dir', dlPath, '--omit=peer', '--force', spec ],
       { cwd: installPath }
     ))
     .then(() => checkInstalled(t2, pkgs, installPath))
@@ -845,12 +850,14 @@ tap.test('6', t1 => {
     const installPath = path.join(testBase, installDirName)
 
     return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '--include=peer', spec ]
+      testNpm, 'download', [
+        '--dl-dir='+dlPath, dateLimitOption, '--include=peer', spec
+      ]
     )
     .then(() => checkDownloads(t2, pkgs, dlPath))
     .then(() => runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+      [ '--offline', '--offline-dir', dlPath, spec ], { cwd: installPath }
     ))
     // All peer deps get installed, by default
     .then(() => checkInstalled(t2, pkgs, installPath))
@@ -865,11 +872,13 @@ tap.test('6', t1 => {
     const installPath = path.join(testBase, installDirName)
 
     return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '--include=peer', spec ]
+      testNpm, 'download', [
+        '--dl-dir='+dlPath, dateLimitOption, '--include=peer', spec
+      ]
     )
     .then(() => runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, '--omit=peer', spec ],
+      [ '--offline', '--offline-dir', dlPath, '--omit=peer', spec ],
       { cwd: installPath }
     ))
     .then(() => checkProjectRootPostInstall(t2, installPath))
@@ -922,7 +931,7 @@ tap.test('7', t1 => {
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
-    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
+    testNpm, 'install', [ '--offline', '--offline-dir', dlPath, spec ],
     { cwd: installPath }
   ))
   .then(() => checkInstalled(t1, pkgs, installPath))
@@ -966,7 +975,7 @@ tap.test('8', t1 => {
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
-    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
+    testNpm, 'install', [ '--offline', '--offline-dir', dlPath, spec ],
     { cwd: installPath }
   ))
   .then(() => checkInstalled(
@@ -1000,7 +1009,7 @@ tap.test('git 1', async t1 => {
 
     return runNpmCmd(
       testNpm, 'install',
-      [ '--offline', '--offline-dir='+dlPath, spec ], { cwd: installPath }
+      [ '--offline', '--offline-dir', dlPath, spec ], { cwd: installPath }
     )
   })
   .then(() => checkProjectRootPostInstall(t1, installPath))
@@ -1122,7 +1131,7 @@ tap.test('url 1', t1 => {
   return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
-    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, spec ],
+    testNpm, 'install', [ '--offline', '--offline-dir', dlPath, spec ],
     { cwd: installPath }
   ))
   .then(() => checkInstalled(
@@ -1305,11 +1314,14 @@ tap.test('other options', t1 => {
 
   t1.teardown(() => unlink(pjFilePath))
 
-  // devDependencies are not downloaded by default
+  // devDependencies are not downloaded by default.
+  // Show that all dependencies can be fetched in one run:
   t1.test('dl include dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+    const expected = [
+      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1330,7 +1342,7 @@ tap.test('other options', t1 => {
   t1.test('dl include optional', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1346,7 +1358,8 @@ tap.test('other options', t1 => {
     .finally(() => process.chdir(startDir))
   })
 
-  // devDependencies are not downloaded by default
+  // peerDependencies are downloaded by default, but show that using
+  // --include=peer does not hurt
   t1.test('dl include peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
@@ -1366,35 +1379,12 @@ tap.test('other options', t1 => {
     .finally(() => process.chdir(startDir))
   })
 
-  // Show that all dependencies can be fetched in one run
-  t1.test('dl include dev and peer', t2 => {
-    const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
-    const dlPath = path.join(testBase, dlDirName)
-    const expected = [
-      ...overheadItems, ...regTGZs, ...optTGZs, ...peerTGZs, ...devTGZs
-    ]
-
-    process.chdir(cfg.pjPath)
-    return runNpmCmd(
-      testNpm, 'download',
-      [ '-J', '--dl-dir='+dlPath, '--include=dev', '--include=peer' ]
-    )
-    .then(() => readdir(dlPath))
-    .then(list => {
-      t2.same(
-        list.sort(), expected.sort(),
-        'download dir contains only expected items'
-      )
-    })
-    .finally(() => process.chdir(startDir))
-  })
-
   // devDependencies are not downloaded by default, but show that using
   // --omit=dev does not hurt
   t1.test('dl omit dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1413,7 +1403,7 @@ tap.test('other options', t1 => {
   t1.test('dl omit optional', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs ]
+    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1429,8 +1419,6 @@ tap.test('other options', t1 => {
     .finally(() => process.chdir(startDir))
   })
 
-  // peerDependencies are not downloaded by default, but show that using
-  // --omit=peer does not hurt
   t1.test('dl omit peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
@@ -1454,7 +1442,9 @@ tap.test('other options', t1 => {
   t1.test('dl omit and include dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+    const expected = [
+      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1498,7 +1488,9 @@ tap.test('other options', t1 => {
   t1.test('dl also dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+    const expected = [
+      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1518,7 +1510,7 @@ tap.test('other options', t1 => {
   t1.test('dl only prod', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1538,7 +1530,9 @@ tap.test('other options', t1 => {
   t1.test('dl also and only', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+    const expected = [
+      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1559,7 +1553,9 @@ tap.test('other options', t1 => {
   t1.test('dl also and omit dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+    const expected = [
+      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1580,7 +1576,9 @@ tap.test('other options', t1 => {
   t1.test('dl only prod and include dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...devTGZs ]
+    const expected = [
+      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
@@ -1675,7 +1673,7 @@ tap.test('install from pj', t1 => {
   .then(() => runNpmCmd(
     testNpm, 'install',
     // No spec --> refer to the package.json in cwd
-    [ '--offline', '--offline-dir='+dlPath ],
+    [ '--offline', '--offline-dir', dlPath ],
     { cwd: installPath }
   ))
   .then(() => readdir(path.join(installPath, 'node_modules')))
@@ -1722,7 +1720,7 @@ tap.test('alias spec', t1 => {
     testNpm, 'download', [ '--dl-dir='+dlPath, aliasSpec ]
   )
   .then(() => runNpmCmd(
-    testNpm, 'install', [ '--offline', '--offline-dir='+dlPath, aliasSpec ],
+    testNpm, 'install', [ '--offline', '--offline-dir', dlPath, aliasSpec ],
     { cwd: installPath }
   ))
   .then(() => getJsonFileData(path.join(installPath, 'package.json')))
@@ -1744,3 +1742,10 @@ tap.test('alias spec', t1 => {
     t1.match(data.packages, lockExpected)
   })
 })
+
+// TODO:
+// * --lockfile-dir option with an npm-shrinkwrap.json;
+// * "" with a package-lock.json;
+// * "" with a yarn.lock, with/without a package.json
+// * make request that leads to a package with a npm-shrinkwrap in it
+// * make request that leads to a package with a yarn.lock in it
