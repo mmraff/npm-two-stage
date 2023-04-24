@@ -78,7 +78,7 @@ tap.test('Input is head fragment of a gzipped file', t1 => {
   )
 })
 
-tap.test('Input is a broken tarball', t1 => {
+tap.test('Input is an otherwise broken tarball', t1 => {
   return t1.rejects(
     readTar(path.join(fixtures, 'first-half.tgz'), [ 'LICENSE' ]),
     { message: /^zlib: unexpected end of file/, code: 'Z_BUF_ERROR' }
@@ -110,7 +110,7 @@ tap.test('Tarball does not contain the single target file', t1 => {
     readTar(
       path.join(fixtures, 'created-by-npm-pack.tgz'), [ 'package-lock.json' ]
     ),
-    { message: /^Target not found/, code: 'ENOTFOUND' }
+    { message: /^Target not found/, code: 'ENOMATCH' }
   )
 })
 
@@ -120,7 +120,7 @@ tap.test('Tarball does not have any of multiple target files', t1 => {
       path.join(fixtures, 'created-by-npm-pack.tgz'),
       [ 'package-lock.json', 'yarn.lock' ]
     ),
-    { message: /^Targets not found/, code: 'ENOTFOUND' }
+    { message: /^Targets not found/, code: 'ENOMATCH' }
   )
 })
 

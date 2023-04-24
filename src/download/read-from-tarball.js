@@ -84,7 +84,7 @@ module.exports = (tarball, priorityList) => new Promise((resolve, reject) => {
   .once('close', function() {
     if (!content && !error) {
       error = new Error(`Target${priorityList.length > 1 ? 's' : ''} not found`)
-      error.code = 'ENOTFOUND'
+      error.code = 'ENOMATCH'
     }
   })
 
