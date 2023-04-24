@@ -8,12 +8,21 @@ const AltGitFetcher = require('./alt-git')
 const dltFactory = require('./dltracker')
 const npf = require('./npm-package-filename')
 const gitTrackerKeys = require('./git-tracker-keys')
+const lockDeps = require('./lock-deps')
 
 function DuplicateSpecError() {}
 DuplicateSpecError.prototype = Object.create(Error.prototype)
 
 const _pacoteOpts = Symbol('download.ItemAgent._pacoteOpts')
 const _processItem = Symbol('download.ItemAgent._processItem')
+
+const checkLockfileDep = (item, cmdOpts) =>
+  (item.inBundle ||
+    (item.peer && cmdOpts.noPeer) ||
+    (item.dev && !cmdOpts.includeDev) ||
+    ((item.optional || (item.devOptional && !cmdOpts.includeDev))
+      && cmdOpts.noOptional)
+  ) ? false : true
 
 class ItemAgent {
   constructor(spec, opts) {
@@ -69,7 +78,18 @@ class ItemAgent {
     this.fetchKey2 = null
 
     return this[_processItem]()
-    .then(manifest => processDependencies(manifest, this.opts))
+    .then(manifest => {
+      // opts.lockfile==true indicates this processing is for a dependency
+      // listed in a lockfile of some kind, where the entire tree of deps
+      // is iterated; therefore no dependency recursion should happen.
+      if (this.opts.lockfile) return []
+      const tarballPath = path.join(this.dlTracker.path, this.dlData.filename)
+      return lockDeps.extract(tarballPath).then(deps => {
+        return deps.length ?
+          processDependencies(deps, { ...this.opts, lockfile: true })
+          : processDependencies(manifest, { ...this.opts })
+      })
+    })
     .then(results => {
       // results include dependencies, not the package that depends on them.
       // We wait until after processing its dependency tree before we add
@@ -302,82 +322,77 @@ function xformResult(res) {
   return res.reduce((acc, val) => acc.concat(val), [])
 }
 
-function processDependencies(manifest, opts) {
-  // opts.shrinkwrap==true indicates that this processing is for a dependency
-  // listed in a shrinkwrap file, where the entire tree of dependencies is
-  // iterated; therefore no dependency recursion should happen.
-  if (opts.shrinkwrap)
-    return Promise.resolve([])
+function getOperations(depList, opts) {
+  if (depList === undefined || depList === null)
+    throw new SyntaxError('Dependency list required')
+  if (!Array.isArray(depList))
+    throw new TypeError('Dependency list must be an Array')
+  if (opts === undefined || opts === null)
+    throw new SyntaxError('Options object required')
+  if (typeof opts !== 'object')
+    throw new TypeError('Options must be given as an object')
+  if (!('dlTracker' in opts && 'flatOpts' in opts && 'cmd' in opts))
+    throw new SyntaxError('Required in opts: dlTracker, flatOpts, and cmd')
 
-  /*
-    TODO: the following note may be true about scripts.prepare, but it's not
-    true that we don't need devDependencies of non-git dependencies in all
-    scripts cases: there's preinstall, install, and postinstall (see the doc
-    on package-lock.json, under Configuring npm)
-  */
-  // IMPORTANT NOTE about scripts.prepare...
-  // No need to worry about the devDependencies required for scripts.prepare,
-  // because it only applies in the case of package type 'git', and it's
-  // already handled by pacote when it calls pack() for the local clone of
-  // the repo.
-  const bundleDeps = manifest.bundledDependencies || manifest.bundleDependencies || []
-  const resolvedDeps = []
-  const optionalSet = new Set()
   const operations = []
 
-  if (manifest._shrinkwrap && !opts.cmd.noShrinkwrap) {
-    /*
-      WARNING: shrinkwrap.dependencies is a legacy feature (lockfileVersion 1),
-      maintained "in order to support switching between npm v6 and npm v7."
-      So here we're relying on a legacy feature, which is safe for operating on
-      packages published up to the time of npm 7 (and necessary for operating
-      on those published earlier than that); *however*, "npm v7 ignores this
-      section entirely if a packages section is present"... and that implies
-      that it would be wise to develop an approach here that follows suit, even
-      if only for ease of migration to the next version, npm 8.
-      FINDING: if a package is listed in the "requires" section of a record in
-      package-lock.json, it means it's definitely a regular dependency.
-      This is important because records for regular deps of devDependencies are
-      listed with "dev": true, which is confusing to human eyes.
-    */
-    /* istanbul ignore next: a shrinkwrap without a dependencies section is
-       not currently worth concern */
-    const shrDeps = manifest._shrinkwrap.dependencies || {}
-    for (let name in shrDeps) {
-      let dep = shrDeps[name]
-      if (bundleDeps.includes(name)) continue // No need to fetch a bundled package
-      // Cases in which we're not interested in devDependencies:
-      if (dep.dev && !(opts.cmd.includeDev && opts.topLevel))
-        continue
-      // When user said --omit=optional
-      if (dep.optional && opts.cmd.noOptional)
-        continue
+  if (depList.length) {
+    if (typeof depList[0] === 'string') {
+      // This block is strictly for a list of specs given on command line.
+      // Note there is no catch to distinguish optional dep fetch failures.
+      for (const item of depList) {
+        if (typeof item !== 'string') {
+          operations.push(Promise.reject(new TypeError(
+            `Item of type ${typeof item} inconsistent with first item of list`
+          )))
+        }
+        else operations.push(handleItem(item, { ...opts }))
+      }
+    }
+    else { // depList derived from a lockfile
+      for (const item of depList) {
+        if (typeof item !== 'object' ||
+            !('name' in item && 'version' in item)) {
+          operations.push(Promise.reject(new TypeError(
+            'Expected an object with name and version properties'
+          )))
+          continue
+        }
+        if (!checkLockfileDep(item, opts.cmd)) continue
+        if (item.dev && !opts.topLevel) continue
+        const spec = item.name + '@' + item.version
+        operations.push(
+          handleItem(spec, { ...opts })
+          .catch(err => {
+            if (item.optional || item.devOptional) {
+              return [{ spec, failedOptional: true }]
+            }
+            throw err
+          })
+        )
+      }
+    }
+  }
+  return operations
+}
 
-      const pkgId = `${name}@${dep.version}`
-      resolvedDeps.push(pkgId)
-      if (dep.optional) optionalSet.add(pkgId)
-    }
-    for (const item of resolvedDeps) {
-      operations.push(
-        handleItem(item, {
-          shrinkwrap: true,
-          cmd: opts.cmd,
-          dlTracker: opts.dlTracker,
-          flatOpts: opts.flatOpts
-        })
-        .then(arr => xformResult(arr))
-        .catch(err => {
-          if (optionalSet.has(item)) {
-            return [{ spec: item, failedOptional: true }]
-          }
-          throw err
-        })
-      )
-    }
+function processDependencies(dataSrc, opts) {
+  // NOTE: As it stands, the only ways we get in here are:
+  // * by the package.json handling in download.js (--package-json option),
+  //   where dataSrc is a manifest;
+  // * by ItemAgent.run(), which either gives a manifest, or an array of deps
+  //   obtained from a lockfile
+  if (Array.isArray(dataSrc)) { // dep data from a lockfile
+    const operations = getOperations(dataSrc, opts)
     return Promise.all(operations)
   }
-  else { // No shrinkwrap in this manifest
-    const regDeps = manifest.dependencies || {}
+  else { // dataSrc is a manifest
+    const operations = []
+    const resolvedDeps = []
+    const optionalSet = new Set()
+    const bundleDeps =
+      dataSrc.bundledDependencies || dataSrc.bundleDependencies || []
+    const regDeps = dataSrc.dependencies || {}
     for (let name in regDeps) {
       if (!bundleDeps.includes(name))
         resolvedDeps.push(`${name}@${regDeps[name]}`)
@@ -385,14 +400,14 @@ function processDependencies(manifest, opts) {
     if (opts.topLevel && opts.cmd.includeDev) {
       /* istanbul ignore next: when --include=dev, we don't care about the case
          of a package with no devDependencies */
-      const devDeps = manifest.devDependencies || {}
+      const devDeps = dataSrc.devDependencies || {}
       for (let name in devDeps) {
         if (!bundleDeps.includes(name))
           resolvedDeps.push(`${name}@${devDeps[name]}`)
       }
     }
-    if (opts.cmd.includePeer) {
-      const peerDeps = manifest.peerDependencies || {}
+    if (!opts.cmd.noPeer) {
+      const peerDeps = dataSrc.peerDependencies || {}
       for (let name in peerDeps) {
         if (!bundleDeps.includes(name))
           resolvedDeps.push(`${name}@${peerDeps[name]}`)
@@ -400,7 +415,7 @@ function processDependencies(manifest, opts) {
     }
     /* istanbul ignore else */
     if (!opts.cmd.noOptional) {
-      const optDeps = manifest.optionalDependencies || {}
+      const optDeps = dataSrc.optionalDependencies || {}
       for (let name in optDeps) {
         if (!bundleDeps.includes(name)) {
           const pkgId = `${name}@${optDeps[name]}`
@@ -409,12 +424,14 @@ function processDependencies(manifest, opts) {
         }
       }
     }
+    // We don't call getOperations here because this is the only case in
+    // which we have to work with optionalSet:
     for (const item of resolvedDeps) {
       operations.push(
         handleItem(item, {
           cmd: opts.cmd, dlTracker: opts.dlTracker, flatOpts: opts.flatOpts
         })
-        .then(arr => xformResult(arr))
+        //.then(arr => xformResult(arr)) // Verify: this is already done in handleItem
         .catch(err => {
           if (optionalSet.has(item)) {
             return [{ spec: item, failedOptional: true }]
@@ -428,7 +445,7 @@ function processDependencies(manifest, opts) {
 }
 
 module.exports = {
-  handleItem,
+  getOperations,
   processDependencies,
   xformResult
 }

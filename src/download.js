@@ -1,5 +1,4 @@
 // built-in packages
-const fs = require('fs')
 const path = require('path')
 const url = require('url')
 const util = require('util')
@@ -13,9 +12,10 @@ const rimraf = require('rimraf')
 // npm/download internals
 const BaseCommand = require('./base-command')
 const dltFactory = require('./download/dltracker')
+const lockDeps = require('./download/lock-deps')
 const npf = require('./download/npm-package-filename')
 const {
-  handleItem,
+  getOperations,
   processDependencies,
   xformResult
 } = require('./download/item-agents')
@@ -55,23 +55,6 @@ class Download extends BaseCommand {
       '<git-host>:<git-user>/<repo-name>',
       '<git:// url>',
       '<tarball url>',
-/*
-// TODO: make sure the following output somehow gets conveyed in the usage.
-// This won't work. See base-command.js.
-      [
-        '',
-        'Multiple items can be named as above on the same command line.',
-        'Alternatively, dependencies can be drawn from a package.json file:',
-        '',
-        '  npm download --package-json[=<path-with-a-package.json>]',
-        '  npm download --pj[=<path-with-a-package.json>]',
-        '  npm download -J',
-        '',
-        'If <path-with-a-package.json> is not given, the package.json file is',
-        'expected to be in the current directory.',
-        'The last form assumes this.'
-      ].join('\n'),
-*/
     ]
   }
 
@@ -98,10 +81,9 @@ class Download extends BaseCommand {
     const optOmit = this.npm.config.get('omit')
     if (!optInclude.includes('optional') && optOmit.includes('optional'))
       cmdOpts.noOptional = true
+    if (!optInclude.includes('peer') && optOmit.includes('peer'))
+      cmdOpts.noPeer = true
     if (optInclude.includes('dev')) cmdOpts.includeDev = true
-    if (optInclude.includes('peer')) cmdOpts.includePeer = true
-    // definitions.js addresses problem of '--omit' args also given
-    // as '--include' args, so we don't worry about that here.
 
     // --only: deprecated.
     // There's support for it (in definitions.js), but the only values
@@ -118,12 +100,6 @@ class Download extends BaseCommand {
     // definitions.js interprets it as 'Alias for --package-lock' for now.
     // Therefore, --shrinkwrap=false => --package-lock=false.
     // --package-lock default is true.
-    // We have not yet dealt with package-lock.json here. TODO: Should we?
-    // TODO: Get answer to the question: when we get a manifest from the
-    // npmjs repository, and it has a _shrinkwrap property, does that ever
-    // come from a package-lock.json instead of a npm-shrinkwrap.json?
-    // The answer will determine if we add code to read a package-lock.json
-    // from a git repo clone.
     if (this.npm.config.get('package-lock') == false)
       cmdOpts.noShrinkwrap = true
 
@@ -151,10 +127,26 @@ class Download extends BaseCommand {
       if (!cmdOpts.packageJson) cmdOpts.packageJson = './'
     }
 
-    if (!cmdOpts.packageJson && (!args || args.length == 0)) {
+    // Same issue as above for the lockfile directory option
+    const lockfileDir = this.npm.config.get('lockfile-dir')
+    if (lockfileDir) {
+      if (typeof lockfileDir !== 'string' || lockfileDir.startsWith('-'))
+        return cb(new Error('lockfile-dir option must be given a path'))
+      cmdOpts.lockfileDir = lockfileDir === '.' ? './' : lockfileDir
+      if (lockfileDir.endsWith('npm-shrinkwrap.json'))
+        cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])npm-shrinkwrap\.json$/, '')
+      else if (lockfileDir.endsWith('package-lock.json'))
+        cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])package-lock\.json$/, '')
+      else if (lockfileDir.endsWith('yarn.lock'))
+        cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])yarn.lock$/, '')
+      if (!cmdOpts.lockfileDir) cmdOpts.lockfileDir = './'
+    }
+
+    if (!cmdOpts.packageJson && !cmdOpts.lockfileDir &&
+        (!args || args.length == 0)) {
       return cb(new Error([
         'No packages named for download.',
-        'Maybe you want to use the package-json option?',
+        'Maybe you want to use the package-json or lockfile-dir option?',
         'Try: npm download -h'
       ].join('\n')))
     }
@@ -187,6 +179,7 @@ class Download extends BaseCommand {
     .then(() => {
       if (!cmdOpts.packageJson) return []
 
+      // Get an annotated version of the package.json at the given local path
       return pacote.manifest(cmdOpts.packageJson, { ...flatOpts })
       .then(mani => {
         return processDependencies(mani, {
@@ -198,35 +191,52 @@ class Download extends BaseCommand {
         .then(results => {
           const pjResults = xformResult(results)
           statsMsgs = getItemResultsStats('package.json', pjResults)
-          return pjResults
+          return [ pjResults ]
         })
       })
     })
-    .then(pjResults => {
-      if (args.length) {
-        const operations = []
-        for (const item of args)
-          operations.push(
-            handleItem(item, {
-              topLevel: true,
-              cmd: cmdOpts,
-              dlTracker: self.dlTracker,
-              flatOpts
-            })
-            .then(results => {
-              statsMsgs += getItemResultsStats(item, results)
-              return results
-            })
-          )
+    .then(prevResults => {
+      const baseDir = cmdOpts.lockfileDir
+      if (!baseDir) return prevResults
+
+      // Note there are warnings logged but no error if no lockfile is found
+      // at the given lockfileDir
+      return lockDeps.readFromDir(baseDir, log)
+      .then(deps => {
+        if (!deps.length) return prevResults
+
+        const operations = getOperations(deps, {
+          lockfile: true, topLevel: true,
+          cmd: cmdOpts, dlTracker: self.dlTracker, flatOpts
+        })
         return Promise.all(operations).then(results => {
-          if (pjResults.length) results = pjResults.concat(results)
+          const lockResults = xformResult(results)
+          statsMsgs += getItemResultsStats('lockfile', lockResults)
+          return prevResults.concat([ lockResults ])
+        })
+      })
+    })
+    .then(pjLockResults => {
+      if (!args.length) return pjLockResults
+
+      const operations = getOperations(args, {
+        topLevel: true,
+        cmd: cmdOpts, dlTracker: self.dlTracker, flatOpts
+      })
+      for (let i = 0; i < operations.length; ++i)
+        // We take advantage of the fact that operations[i] corresponds to
+        // args[i], because no command line spec gets filtered out
+        operations[i] = operations[i].then(results => {
+          statsMsgs += getItemResultsStats(args[i], results)
           return results
         })
-      }
-      else return pjResults
+      return Promise.all(operations).then(results => {
+        return pjLockResults.concat(results)
+      })
     })
     .then(results => {
-      // results is an array of arrays, 1 for each spec on the command line.
+      // results is an array of arrays, 1 for each spec on the command line
+      // (+1 for package-json opt if any; +1 for lockfile opt if any)
       rimraf(tempCache, function(rimrafErr) {
         /* istanbul ignore if: a condition not worth the overhead of testing */
         if (rimrafErr)
@@ -253,7 +263,7 @@ function getItemResultsStats(item, results) {
   filtered = filtered.filter(res => !res.failedOptional)
   const failedOptCount = (results.length - filtered.length) - dupCount
   if (filtered.length) {
-    if (item == 'package.json')
+    if (item == 'package.json' || item == 'lockfile')
       stats.push(util.format(
         '\nDownloaded tarballs to satisfy %i dependenc%s derived from %s',
         filtered.length,
