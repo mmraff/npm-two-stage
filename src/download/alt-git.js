@@ -230,55 +230,29 @@ class AltGitFetcher extends Fetcher {
     if (this.package) // The already-annotated manifest
       return Promise.resolve(this.package)
 
-    /*
-      For a hosted repo with a resolved spec (a commit hash), GitFetcher
-      resorts to using the FileFetcher method, which gets a tarball.
-      We don't do that here because a tarball does not give us a rev doc,
-      which we'd really like to have. Force a clone, or get from cache.
-    */
-    /*
-      THIS NOTE IS UNIMPORTANT, I think. Just a mild concern.
-      Note that the DirFetcher created in [_clone] (to create a tarball to
-      put in the cache) also calls readPackageJson on the same directory,
-      so that it can run scripts from the package.json "scripts" section
-      in DirFetcher[_prepareDir].
-    */
+    // For a hosted repo with a resolved spec (a commit hash), GitFetcher
+    // resorts to using the FileFetcher method, which gets a tarball.
+    // We don't do that here because a tarball does not give us a rev doc,
+    // which we'd really like to have. Force a clone, or get from cache.
+
+    // THIS NOTE IS UNIMPORTANT, I think. Just a mild concern.
+    // Note that the DirFetcher created in [_clone] (to create a tarball to
+    // put in the cache) also calls readPackageJson on the same directory,
+    // so that it can run scripts from the package.json "scripts" section
+    // in DirFetcher[_prepareDir].
+
     const handler = (dir) =>
       readPackageJson(path.join(dir, 'package.json'))
-      .then(mani => {
-        return (this.opts.noShrinkwrap ?
-          Promise.resolve(null) :
-          readfile(path.join(dir, 'npm-shrinkwrap.json'), 'utf8')
-          .then(str => {
-            // Strip BOM, if any
-            /* istanbul ignore next */
-            if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1)
-            try { mani._shrinkwrap = JSON.parse(str) }
-            catch (err) {
-              this.log.warn(
-                'AltGitFetcher.manifest',
-                `failed to parse shrinkwrap file found in ${this.spec.raw}`
-              )
-              // But don't abort; caller will simply fall back to looking in
-              // the "dependencies" section of the manifest.
-            }
-          })
-          .catch(err => {
-            /* istanbul ignore if */
-            if (err.code != 'ENOENT') throw err
-          })
-        )
-        .then(() => this.package = Object.assign(
-          {
-            ...mani,
-            _integrity: this.integrity && String(this.integrity),
-            _resolved: this.resolved,
-            _from: this.from,
-            _sha: this.resolvedSha
-          },
-          this.opts.multipleRefs ? { _allRefs: this.allRefs } : {}
-        ))
-      })
+      .then(mani => this.package = Object.assign(
+        {
+          ...mani,
+          _integrity: this.integrity && String(this.integrity),
+          _resolved: this.resolved,
+          _from: this.from,
+          _sha: this.resolvedSha
+        },
+        this.opts.multipleRefs ? { _allRefs: this.allRefs } : {}
+      ))
 
     return this[_clone](handler)
   }

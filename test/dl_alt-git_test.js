@@ -351,71 +351,7 @@ tap.test('spec leads to package with a prepare script', t => {
     })
   })
 })
-tap.test('spec leads to repo with a valid shrinkwrap file', t => {
-  const sha = testConfigs[0].revsDoc.refs.master.sha
-  const fullSpec = testConfigs[0].spec + '#' + sha
-  const npaSpec = npa(fullSpec)
-  mockReadPkgJson.setTestConfig({
-    [fullSpec]: testConfigs[0].manifest
-  })
-  const data = Object.assign({}, testConfigs[0])
-  data.pkgJson = Object.assign({}, data.pkgJson)
-  data.shrinkwrapPath = path.join(__dirname, 'fixtures/data/valid-shrinkwrap.json')
-  mockNpmCliGit.setTestConfig({
-    [npaSpec.hosted.sshurl()]: data
-  })
-  mockLog.purge()
-  const gitFetcher = new AltGitFetcher(
-    fullSpec, stdOpts
-  )
-  
-  gitFetcher.manifest().then(mani => {
-    t.same(mockLog.getList(), [])
-    return loadJsonFile(data.shrinkwrapPath)
-    .then(shrWrapData =>  {
-      t.same(mani._shrinkwrap, shrWrapData)
-    // This time, say that we don't want the shrinkwrap (coverage)
-      const dupGitFetcher = new AltGitFetcher(
-        fullSpec, Object.assign({ noShrinkwrap: true }, stdOpts)
-      )
-      dupGitFetcher.manifest().then(mani2 => {
-        t.not('_shrinkwrap' in mani2, true,
-          'manifest does not contain shrinkwrap data if omission is requested'
-        )
-        t.same(mockLog.getList(), [])
-        t.end()
-      })
-    })
-  })
-})
-tap.test('spec leads to repo with an invalid shrinkwrap file', t => {
-  const sha = testConfigs[0].revsDoc.refs.master.sha
-  const fullSpec = testConfigs[0].spec + '#' + sha
-  const npaSpec = npa(fullSpec)
-  mockReadPkgJson.setTestConfig({
-    [fullSpec]: testConfigs[0].manifest
-  })
-  const data = Object.assign({}, testConfigs[0])
-  data.pkgJson = Object.assign({}, data.pkgJson)
-  data.badShrinkwrap = true
-  mockNpmCliGit.setTestConfig({
-    [npaSpec.hosted.sshurl()]: data
-  })
-  mockLog.purge()
-  const gitFetcher = new AltGitFetcher(
-    fullSpec, stdOpts
-  )
-  gitFetcher.manifest().then(mani => {
-    t.not('_shrinkwrap' in mani, true,
-      'manifest does not contain shrinkwrap data if shrinkwrap file is invalid'
-    )
-    t.match(mockLog.getList(), [{
-      level: 'warn', prefix: 'AltGitFetcher.manifest',
-      message: /^failed to parse shrinkwrap file/
-    }])
-    t.end()
-  })
-})
+
 tap.test('stream from cloned repo has an error', t => {
   const npaSpec = npa(testConfigs[0].spec)
   mockReadPkgJson.setTestConfig({
