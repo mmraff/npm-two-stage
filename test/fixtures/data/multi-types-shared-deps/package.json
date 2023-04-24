@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "a": "^0.2.4"
+  },
+  "peerDependencies": {
+    "p": "~0.4.13"
+  },
+  "optionalDependencies": {
+    "o": "^0.1.2"
+  },
+  "devDependencies": {
+    "d": "^1.0.2"
+  }
+}

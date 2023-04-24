@@ -1,0 +1,18 @@
+{
+  "name": "root",
+  "version": "0.0.1",
+  "description": "temp root package for testing",
+  "license": "ISC",
+  "dependencies": {
+    "a": "~1.0.0"
+  },
+  "optionalDependencies": {
+    "o": "^3.0.0"
+  },
+  "devDependencies": {
+    "d": ">=2"
+  },
+  "peerDependencies": {
+    "p": "latest"
+  }
+}
