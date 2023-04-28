@@ -22,6 +22,31 @@ const evaluateAlias = data => {
 
 const argErrMsg = 'Text from a lock file is required'
 
+const collectDeps_v1 = (deps, resultList) => {
+  for (const name in deps) {
+    const src = deps[name]
+    if (!src.version) continue
+    const data = { name, version: src.version }
+    // If it's a git or remote spec, version is the resolved spec.
+    evaluateAlias(data)
+    const flags = [ 'dev', 'optional', 'peer' ]
+    for (const prop of flags)
+      if (src[prop]) data[prop] = true
+    // TODO: move this out to a journal entry that gathers together all observations
+    // about shrinkwrap files, especially old ones:
+    // I have yet to find a lockfile in the wild that has the 'bundled'
+    // flag on a top-level "dependencies" item - it seems as though it
+    // only occurs in items in the nested "dependencies" section of a
+    // dependency that bundles - and that does seem to make sense.
+    // The only sign of bundling in the metadata of that top-level dep
+    // is in its package.json ("bundleDependencies").
+    if (src.bundled) data.inBundle = true
+    resultList.push(data)
+    if (src.dependencies)
+      collectDeps_v1(src.dependencies, resultList)
+  }
+}
+
 // To gather the dependency data we need from a package-lock.json
 // or npm-shrinkwrap.json, adapting to versions 1-3
 const fromPackageLock = module.exports.fromPackageLock = (lockText) => {
@@ -33,7 +58,7 @@ const fromPackageLock = module.exports.fromPackageLock = (lockText) => {
   // Removed validation of the contents from here:
   // lockfileVersion 1 can have no 'dependencies' section, and
   // of course has no 'packages' (that's lockfileVersion 2);
-  // and I've seen an old package-lock that had no lockfileVersion!
+  // and I've seen old package-lock files that had no lockfileVersion!
   // What would  be the point of requiring the 'name' and 'version'
   // fields at the top level? So, never mind.
   const results = []
@@ -62,33 +87,14 @@ const fromPackageLock = module.exports.fromPackageLock = (lockText) => {
   }
   else {
     const deps = lockData.dependencies || {}
-    for (const name in deps) {
-      const src = deps[name]
-      const data = { name, version: src.version }
-      // If it's a git or remote spec, version is the resolved spec.
-      evaluateAlias(data)
-      const flags = [ 'dev', 'optional', 'peer' ]
-      for (const prop of flags)
-        if (src[prop]) data[prop] = true
-
-      // I have yet to find a lockfile in the wild that has the 'bundled'
-      // flag on a top-level "dependencies" item - it seems as though it
-      // only occurs in items in the nested "dependencies" section of a
-      // dependency that bundles - and that does seem to make sense.
-      // The only sign of bundling in the metadata of that top-level dep
-      // is in its package.json ("bundleDependencies").
-      // But I don't have the faith to expect it will never happen, so...
-      /* istanbul ignore next */
-      if (src.bundled) data.inBundle = true
-      results.push(data)
-    }
+    collectDeps_v1(deps, results)
   }
   return results
 }
 
 // To gather the dependency data we need from a yarn.lock v1.
-// This function has bloated out with multiple Sets and Maps and
-// nested functions, etc., because we must do extra work, simply for
+// This function has lately become bloated with multiple Sets and Maps
+// and nested functions, etc., because we must do extra work, simply for
 // the fact that a yarn.lock v1 is so deficient in information:
 // * it does not distinguish devDependency items from regular dependencies;
 // * it does not have any feature that flags items as 'peer', 'optional',
