@@ -110,6 +110,8 @@ const runNpmCmd = async (npmBin, cmd, argList, opts, prepend) => {
   // rejects as error e with e.stdout and e.stderr
 }
 
+const dlOverheadItems = [ 'dl-temp', 'dltracker.json' ]
+
 const RE_RMV_PROTO = /^[a-z]+:\/\/(.+)$/
 const RE_TARBALL_EXT = /\.(tar\.gz|tgz)$/
 
@@ -447,7 +449,7 @@ tap.test('2', t1 => {
   const vSpec = '<4.0.5'
   const pkgSpec = `"${pkgName}@${vSpec}"`
   const resolvedVer = '4.0.4'
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, pkgSpec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, pkgSpec ])
   .then(() => readdir(dlPath))
   .then(list => {
     const expected = [
@@ -507,7 +509,7 @@ tap.test('before option', t1 => {
   // Now we choose a date that gets us the latest one it has.
   .then(() => runNpmCmd(
     testNpm, 'download',
-    [ 'acorn', '--before', '2017', '--dl-dir='+dlPath ]
+    [ 'acorn', '--before', '2017', '--dl-dir', dlPath ]
   ))
   .then(() => readdir(dlPath))
   .then(list => {
@@ -519,7 +521,7 @@ tap.test('before option', t1 => {
   // Now we fetch the earlier available version.
   .then(() => runNpmCmd(
     testNpm, 'download',
-    [ 'acorn', '--before', '2016-08', '--dl-dir='+dlPath ]
+    [ 'acorn', '--before', '2016-08', '--dl-dir', dlPath ]
   ))
   // Verify that we have both versions
   .then(() => readdir(dlPath))
@@ -579,7 +581,7 @@ tap.test('3', t1 => {
     'string_decoder': { '0.10.31': {} },
     'util-deprecate': { '1.0.2': {} }
   }
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install',
@@ -641,7 +643,7 @@ tap.test('4', t1 => {
       }
     }
   }
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install',
@@ -671,7 +673,7 @@ tap.test('5', t1 => {
     '@types/prop-types': { '15.7.3': {} },
     'csstype': { '3.0.5': {} }
   }
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install',
@@ -819,7 +821,7 @@ tap.test('6', t1 => {
       { cwd: installPath }
     )
     .then(() => runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, dateLimitOption, spec ]
+      testNpm, 'download', [ '--dl-dir', dlPath, dateLimitOption, spec ]
     ))
     // If there was no --force in the following, offline install would fail
     // with the error "ERESOLVE unable to resolve dependency tree":
@@ -851,7 +853,7 @@ tap.test('6', t1 => {
 
     return runNpmCmd(
       testNpm, 'download', [
-        '--dl-dir='+dlPath, dateLimitOption, '--include=peer', spec
+        '--dl-dir', dlPath, dateLimitOption, '--include=peer', spec
       ]
     )
     .then(() => checkDownloads(t2, pkgs, dlPath))
@@ -873,7 +875,7 @@ tap.test('6', t1 => {
 
     return runNpmCmd(
       testNpm, 'download', [
-        '--dl-dir='+dlPath, dateLimitOption, '--include=peer', spec
+        '--dl-dir', dlPath, dateLimitOption, '--include=peer', spec
       ]
     )
     .then(() => runNpmCmd(
@@ -928,7 +930,7 @@ tap.test('7', t1 => {
     }
   }
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir', dlPath, spec ],
@@ -972,7 +974,7 @@ tap.test('8', t1 => {
     }
   }
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir', dlPath, spec ],
@@ -992,7 +994,7 @@ tap.test('git 1', async t1 => {
   const spec = 'git://' + gitRepoId1
   const expectedHash = gitCommits[repoName1][3] // the last one for the target repo
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => readdir(dlPath))
   .then(list => {
     t1.equal(list.length, 3, 'Nothing more or less than expected')
@@ -1050,7 +1052,7 @@ tap.test('git 2', async t1 => {
   // Expect the commit that got tagged as side effect of `npm version`:
   const expectedHash = gitCommits[repoName1][2]
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => readdir(dlPath))
   .then(list => {
     const tarball = [
@@ -1072,7 +1074,7 @@ tap.test('git 3', async t1 => {
   // Expect the commit that got tagged as side effect of `npm version`:
   const expectedHash = gitCommits[repoName1][2]
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => readdir(dlPath))
   .then(list => {
     const tarball = [
@@ -1093,7 +1095,7 @@ tap.test('git 4', async t1 => {
   const expectedHash = gitCommits[repoName1][1]
   const spec = `git://${gitRepoId1}#${expectedHash}`
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => readdir(dlPath))
   .then(list => {
     const tarball = [
@@ -1128,7 +1130,7 @@ tap.test('url 1', t1 => {
     'tweetnacl': { '0.14.5': {} }
   }
 
-  return runNpmCmd(testNpm, 'download', [ '--dl-dir='+dlPath, spec ])
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => checkDownloads(t1, pkgs, dlPath))
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir', dlPath, spec ],
@@ -1204,7 +1206,7 @@ tap.test('package-json', t1 => {
     process.chdir(cfg.pjPath)
     return t2.rejects(
       runNpmCmd(
-        testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json' ], {}, true
+        testNpm, 'download', [ '--dl-dir', dlPath, '--package-json' ], {}, true
       ),
       /\nnpm ERR! package-json option must be given a path/
     )
@@ -1217,7 +1219,7 @@ tap.test('package-json', t1 => {
     process.chdir(cfg.pjPath)
     return t2.rejects(
       runNpmCmd(
-        testNpm, 'download', [ '--dl-dir='+dlPath, '--package-json' ]
+        testNpm, 'download', [ '--dl-dir', dlPath, '--package-json' ]
       ),
       /\nnpm ERR! package-json option must be given a path/
     )
@@ -1230,7 +1232,7 @@ tap.test('package-json', t1 => {
     process.chdir(cfg.pjPath)
     return t2.rejects(
       runNpmCmd(
-        testNpm, 'download', [ '--dl-dir='+dlPath, '--pj' ], {}, true
+        testNpm, 'download', [ '--dl-dir', dlPath, '--pj' ], {}, true
       ),
       /\nnpm ERR! package-json option must be given a path/
     )
@@ -1243,7 +1245,7 @@ tap.test('package-json', t1 => {
     process.chdir(cfg.pjPath)
     return t2.rejects(
       runNpmCmd(
-        testNpm, 'download', [ '--dl-dir='+dlPath, '--pj' ],
+        testNpm, 'download', [ '--dl-dir', dlPath, '--pj' ],
       ),
       /\nnpm ERR! package-json option must be given a path/
     )
@@ -1255,7 +1257,7 @@ tap.test('package-json', t1 => {
     const dlPath = path.join(testBase, dlDirName)
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '--dl-dir='+dlPath, '-J' ]
+      testNpm, 'download', [ '--dl-dir', dlPath, '-J' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1293,7 +1295,6 @@ tap.test('other options', t1 => {
       'dashdash': '^1' // expect 1.14.1. Dep assert-plus@^1.0.0; expect 1.0.0
     }
   }
-  const overheadItems = [ 'dl-temp', 'dltracker.json' ]
   const regTGZs = [
     'abbrev-1.1.1.tar.gz', 'acorn-jsx-3.0.1.tar.gz', 'acorn-3.3.0.tar.gz'
   ]
@@ -1320,12 +1321,12 @@ tap.test('other options', t1 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
     ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--include=dev' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--include=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1342,11 +1343,13 @@ tap.test('other options', t1 => {
   t1.test('dl include optional', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs ]
+    const expected = [
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--include=optional' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--include=optional' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1363,11 +1366,13 @@ tap.test('other options', t1 => {
   t1.test('dl include peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...peerTGZs ]
+    const expected = [
+      ...dlOverheadItems, ...regTGZs, ...optTGZs, ...peerTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--include=peer' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--include=peer' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1384,11 +1389,13 @@ tap.test('other options', t1 => {
   t1.test('dl omit dev', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs ]
+    const expected = [
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--omit=dev' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--omit=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1403,11 +1410,11 @@ tap.test('other options', t1 => {
   t1.test('dl omit optional', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs ]
+    const expected = [ ...dlOverheadItems, ...regTGZs, ...peerTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--omit=optional' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--omit=optional' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1422,11 +1429,11 @@ tap.test('other options', t1 => {
   t1.test('dl omit peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs ]
+    const expected = [ ...dlOverheadItems, ...regTGZs, ...optTGZs ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--omit=peer' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--omit=peer' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1443,13 +1450,13 @@ tap.test('other options', t1 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
     ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
       testNpm, 'download', [
-        '-J', '--dl-dir='+dlPath, '--include=dev', '--omit=dev'
+        '-J', '--dl-dir', dlPath, '--include=dev', '--omit=dev'
       ]
     )
     .then(() => readdir(dlPath))
@@ -1466,12 +1473,14 @@ tap.test('other options', t1 => {
   t1.test('dl omit and include peer', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...optTGZs, ...peerTGZs ]
+    const expected = [
+      ...dlOverheadItems, ...regTGZs, ...optTGZs, ...peerTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
       testNpm, 'download', [
-        '-J', '--dl-dir='+dlPath, '--include=peer', '--omit=peer'
+        '-J', '--dl-dir', dlPath, '--include=peer', '--omit=peer'
       ]
     )
     .then(() => readdir(dlPath))
@@ -1489,12 +1498,12 @@ tap.test('other options', t1 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
     ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--also=dev' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--also=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1510,11 +1519,13 @@ tap.test('other options', t1 => {
   t1.test('dl only prod', t2 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
-    const expected = [ ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs ]
+    const expected = [
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs
+    ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
-      testNpm, 'download', [ '-J', '--dl-dir='+dlPath, '--only=prod' ]
+      testNpm, 'download', [ '-J', '--dl-dir', dlPath, '--only=prod' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1531,13 +1542,13 @@ tap.test('other options', t1 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
     ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
       testNpm, 'download',
-      [ '-J', '--dl-dir='+dlPath, '--only=prod', '--also=dev' ]
+      [ '-J', '--dl-dir', dlPath, '--only=prod', '--also=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1554,13 +1565,13 @@ tap.test('other options', t1 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
     ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
       testNpm, 'download',
-      [ '-J', '--dl-dir='+dlPath, '--also=dev', '--omit=dev' ]
+      [ '-J', '--dl-dir', dlPath, '--also=dev', '--omit=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1577,13 +1588,13 @@ tap.test('other options', t1 => {
     const testBase = makeProjectDirectory(t2, dlDirName, installDirName)
     const dlPath = path.join(testBase, dlDirName)
     const expected = [
-      ...overheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
+      ...dlOverheadItems, ...regTGZs, ...peerTGZs, ...optTGZs, ...devTGZs
     ]
 
     process.chdir(cfg.pjPath)
     return runNpmCmd(
       testNpm, 'download',
-      [ '-J', '--dl-dir='+dlPath, '--only=prod', '--include=dev' ]
+      [ '-J', '--dl-dir', dlPath, '--only=prod', '--include=dev' ]
     )
     .then(() => readdir(dlPath))
     .then(list => {
@@ -1613,7 +1624,7 @@ tap.test('dl multiple cmdline specs', t1 => {
   }
   const specs = []
   const tarballs = []
-  const overheadItems = [ 'dl-temp', 'dltracker.json' ]
+  const dlOverheadItems = [ 'dl-temp', 'dltracker.json' ]
   const startDir = process.cwd()
 
   for (const name in testData) {
@@ -1626,12 +1637,12 @@ tap.test('dl multiple cmdline specs', t1 => {
   process.chdir(cfg.pjPath)
   return writeFile(pjFilePath, JSON.stringify(pjContent))
   .then(() => runNpmCmd(
-    testNpm, 'download', [ '--dl-dir='+dlPath, '-J' ].concat(specs)
+    testNpm, 'download', [ '--dl-dir', dlPath, '-J' ].concat(specs)
   ))
   .then(() => readdir(dlPath))
   .then(list => {
     t1.same(
-      list.sort(), overheadItems.concat(tarballs).sort(),
+      list.sort(), dlOverheadItems.concat(tarballs).sort(),
       'download dir contains only expected items'
     )
   })
@@ -1668,7 +1679,7 @@ tap.test('install from pj', t1 => {
   const specList = [ '"acorn@^3.0.4"', 'commander@2_x', gitSpec, urlSpec ]
 
   return runNpmCmd(
-    testNpm, 'download', [ '--dl-dir='+dlPath ].concat(specList)
+    testNpm, 'download', [ '--dl-dir', dlPath ].concat(specList)
   )
   .then(() => runNpmCmd(
     testNpm, 'install',
@@ -1717,7 +1728,7 @@ tap.test('alias spec', t1 => {
   const expandedVer = '3.3.0'
   const saveSpec = `${pkgName}@^${expandedVer}`
   return runNpmCmd(
-    testNpm, 'download', [ '--dl-dir='+dlPath, aliasSpec ]
+    testNpm, 'download', [ '--dl-dir', dlPath, aliasSpec ]
   )
   .then(() => runNpmCmd(
     testNpm, 'install', [ '--offline', '--offline-dir', dlPath, aliasSpec ],
@@ -1743,9 +1754,252 @@ tap.test('alias spec', t1 => {
   })
 })
 
-// TODO:
-// * --lockfile-dir option with an npm-shrinkwrap.json;
-// * "" with a package-lock.json;
-// * "" with a yarn.lock, with/without a package.json
-// * make request that leads to a package with a npm-shrinkwrap in it
-// * make request that leads to a package with a yarn.lock in it
+tap.test('lockfile-dir option', t1 => {
+  // A fixtures directory that has all 3 kinds of lockfile
+  const srcDir = path.join(__dirname, 'fixtures/data/lockfiles')
+  const lockfileDir = path.join(staging, 'tmp/lockfiles')
+  const tbs = {
+    shrinkwrap: {
+      reg: [
+        "braces-3.0.2.tar.gz",
+        "fill-range-7.0.1.tar.gz",
+        "is-number-7.0.0.tar.gz",
+        "to-regex-range-5.0.1.tar.gz"
+      ],
+      dev: [
+        "anymatch-3.1.1.tar.gz",
+        "normalize-path-3.0.0.tar.gz",
+        "picomatch-2.2.2.tar.gz",
+      ]
+    },
+    pkgLock: {
+      reg: [
+        "ansicolors-0.3.2.tar.gz",
+        "cardinal-2.1.1.tar.gz",
+        "esprima-4.0.1.tar.gz",
+        "redeyed-2.1.1.tar.gz"
+      ],
+      dev: [
+        "anymatch-3.1.1.tar.gz",
+        "normalize-path-3.0.0.tar.gz",
+        "picomatch-2.2.2.tar.gz"
+      ]
+    },
+    yarnLock: {
+      reg: [
+        "anymatch-3.1.1.tar.gz",
+        "normalize-path-3.0.0.tar.gz",
+        "picomatch-2.2.2.tar.gz"
+      ],
+      dev: [
+        "braces-3.0.2.tar.gz",
+        "fill-range-7.0.1.tar.gz",
+        "is-number-7.0.0.tar.gz",
+        "to-regex-range-5.0.1.tar.gz"
+      ]
+    }
+  }
+
+  t1.before(() => graft(srcDir, path.join(staging, 'tmp')))
+
+  t1.test('npm-shrinkwrap', t2 => {
+    const dlPath = t2.testdir()
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '--lockfile-dir', lockfileDir, '--dl-dir', dlPath ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      const tarballs = tbs.shrinkwrap.reg
+      t2.same(
+        list.sort(), dlOverheadItems.concat(tarballs).sort(),
+        'download dir contains only expected items, src: npm-shrinkwrap'
+      )
+    })
+  })
+
+  t1.test('npm-shrinkwrap include dev', t2 => {
+    const dlPath = t2.testdir()
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '--lockfile-dir', lockfileDir, '--include=dev', '--dl-dir', dlPath ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      const tarballs = tbs.shrinkwrap.reg.concat(tbs.shrinkwrap.dev)
+      t2.same(
+        list.sort(), dlOverheadItems.concat(tarballs).sort(),
+        'download dir contains only expected items, src: npm-shrinkwrap'
+      )
+    })
+  })
+
+  t1.test('package-lock', t2 => {
+    const dlPath = t2.testdir()
+    return unlink(path.join(lockfileDir, 'npm-shrinkwrap.json'))
+    .then(() => runNpmCmd(
+      testNpm, 'download',
+      [ '--lockfile-dir', lockfileDir, '--dl-dir', dlPath ]
+    ))
+    .then(() => readdir(dlPath))
+    .then(list => {
+      const tarballs = tbs.pkgLock.reg
+      t2.same(
+        list.sort(), dlOverheadItems.concat(tarballs).sort(),
+        'download dir contains only expected items, src: package-lock'
+      )
+    })
+  })
+
+  t1.test('package-lock include dev', t2 => {
+    const dlPath = t2.testdir()
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '--lockfile-dir', lockfileDir, '--include=dev', '--dl-dir', dlPath ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      const tarballs = tbs.pkgLock.reg.concat(tbs.pkgLock.dev)
+      t2.same(
+        list.sort(), dlOverheadItems.concat(tarballs).sort(),
+        'download dir contains only expected items, src: package-lock'
+      )
+    })
+  })
+
+  t1.test('yarnlock', t2 => {
+    const dlPath = t2.testdir()
+    return unlink(path.join(lockfileDir, 'package-lock.json'))
+    .then(() => runNpmCmd(
+      testNpm, 'download',
+      [ '--lockfile-dir', lockfileDir, '--dl-dir', dlPath ]
+    ))
+    .then(() => readdir(dlPath))
+    .then(list => {
+      const tarballs = tbs.yarnLock.reg
+      t2.same(
+        list.sort(), dlOverheadItems.concat(tarballs).sort(),
+        'download dir contains only expected items, src: yarn.lock'
+      )
+    })
+  })
+
+  t1.test('yarnlock include dev', t2 => {
+    const dlPath = t2.testdir()
+    return runNpmCmd(
+      testNpm, 'download',
+      [ '--lockfile-dir', lockfileDir, '--include=dev', '--dl-dir', dlPath ]
+    )
+    .then(() => readdir(dlPath))
+    .then(list => {
+      const tarballs = tbs.yarnLock.reg.concat(tbs.yarnLock.dev)
+      t2.same(
+        list.sort(), dlOverheadItems.concat(tarballs).sort(),
+        'download dir contains only expected items, src: yarn.lock'
+      )
+    })
+  })
+
+  t1.test('yarnlock but no package.json', t2 => {
+    const dlPath = t2.testdir()
+    return unlink(path.join(lockfileDir, 'package.json'))
+    .then(() =>
+      runNpmCmd(
+        testNpm, 'download',
+        [ '--lockfile-dir', lockfileDir, '--dl-dir', dlPath ]
+      )
+      .then(({ stdout, stderr }) => {
+        t2.match(stderr, new RegExp(
+          [
+            '',
+            'Failed to read package\.json at given lockfile-dir',
+            'Error code: ENOENT',
+            'A package\.json is required to aid in processing a yarn\.lock',
+            '.+', 'No usable lockfile at '
+          ].join('\nnpm WARN download ')
+        ))
+      })
+    )
+  })
+
+  t1.test('No lockfiles at given location', t2 => {
+    const dlPath = t2.testdir()
+    return unlink(path.join(lockfileDir, 'yarn.lock'))
+    .then(() =>
+      runNpmCmd(
+        testNpm, 'download',
+        [ '--lockfile-dir', lockfileDir, '--dl-dir', dlPath ]
+      )
+      .then(({ stdout, stderr }) => {
+        t2.match(stderr, /\nnpm WARN download No usable lockfile at /)
+      })
+    )
+  })
+
+  t1.end()
+})
+
+tap.test('top level item has a shrinkwrap', t1 => {
+  const dlPath = t1.testdir()
+  const remoteTarball = 'shrinkwrap-v1-test-0.0.1.tgz'
+  const pkgId = `localhost:${cfg.remote.port}/skizziks/${remoteTarball}`
+  const spec = 'http://' + pkgId
+  const regDepFiles = [
+    encodeURIComponent(pkgId),
+    'ansicolors-0.3.2.tar.gz',
+    'cardinal-2.1.1.tar.gz',
+    'esprima-2.2.0.tar.gz',
+    'esprima-4.0.1.tar.gz',
+    'redeyed-2.1.1.tar.gz'
+  ]
+
+  return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
+  .then(() => readdir(dlPath))
+  .then(list => {
+    t1.same(
+      list.sort(), dlOverheadItems.concat(regDepFiles).sort(),
+      'download dir contains only expected items, src: package-lock'
+    )
+  })
+})
+
+tap.test('dependency has a yarn.lock', t1 => {
+  const remoteTarball = 'yarnlock-peer-deps-0.0.1.tgz'
+  const pkgId = `localhost:${cfg.remote.port}/skizziks/${remoteTarball}`
+  const urlSpec = 'http://' + pkgId
+  const pjDirName = 'pjDir'
+  const testBase = t1.testdir({
+    [dlDirName]: {},
+    [pjDirName]: {
+      'package.json': JSON.stringify({
+        name: pjDirName, version: '1.0.0',
+        dependencies: {
+          'yarnlock-peer-deps': urlSpec
+        }
+      })
+    }
+  })
+  const dlPath = path.join(testBase, dlDirName)
+  const pjPath = path.join(testBase, pjDirName)
+  const regDepFiles = [
+    encodeURIComponent(pkgId),
+    'ansi-regex-5.0.0.tar.gz',
+    'cli-table3-0.6.1.tar.gz',
+    'colors-1.4.0.tar.gz',
+    'emoji-regex-8.0.0.tar.gz',
+    'is-fullwidth-code-point-3.0.0.tar.gz',
+    'string-width-4.2.0.tar.gz',
+    'strip-ansi-6.0.0.tar.gz'
+  ]
+
+  return runNpmCmd(
+    testNpm, 'download', [ '--pj', pjPath, '--dl-dir', dlPath ]
+  )
+  .then(() => readdir(dlPath))
+  .then(list => {
+    t1.same(
+      list.sort(), dlOverheadItems.concat(regDepFiles).sort(),
+      'download dir contains only expected items, src: yarn.lock'
+    )
+  })
+})
