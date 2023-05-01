@@ -5,6 +5,7 @@ const promisify = require('util').promisify
 
 // 3rd party dependencies
 const fs = require('graceful-fs')
+const retry = require('promise-retry')
 const semver = require('semver')
 const npf = require('./npm-package-filename') // CHANGED from '@offliner/npm-package-filename'
 
@@ -255,7 +256,7 @@ function create(where, opts) {
         log.error('DownloadTracker', `Unusable map file, error code ${err.code}`)
         throw err
       }
-      log.warn('DownloadTracker', 'Could not find a map file; trying to reconstruct...')
+      log.info('DownloadTracker', 'Could not find a map file; trying to reconstruct...')
       return reconstructMap(pkgDir, log).then(map => {
         Object.assign(tables, map)
         return publicSelf
@@ -479,7 +480,15 @@ function create(where, opts) {
       type = 'semver'
 
     // First, need to verify existence of item in download directory.
-    return auditOne(type, data, pkgDir)
+    return retry(tryAgain =>
+      auditOne(type, data, pkgDir)
+      .catch(err => {
+        /* istanbul ignore if */
+        if (err.code === 'EFZEROLEN') return tryAgain(err)
+        throw err
+      }),
+      { retries: 2, minTimeout: 500, maxTimeout: 2000 }
+    )
     .then(() => {
       const map = tables[type]
       const copy = {}

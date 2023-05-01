@@ -231,7 +231,7 @@ tap.test('create() correct use resolves to a Download Tracker instance', t1 => {
     const logMsgs = mockLog.getList()
     t1.equal(logMsgs.length, 1)
     t1.same(logMsgs[0], {
-      level: 'warn', prefix: 'DownloadTracker',
+      level: 'info', prefix: 'DownloadTracker',
       message: 'Could not find a map file; trying to reconstruct...'
     })
   })
