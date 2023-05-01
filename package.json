@@ -24,9 +24,9 @@
   "engines": {
     "node": ">=10"
   },
-  "directories": {
-    "src": "src"
-  },
+  "files": [
+    "src/"
+  ],
   "scripts": {
     "test": "tap test/*_test.js",
     "integration-test": "tap --no-coverage --no-coverage-report test/integration.js"
