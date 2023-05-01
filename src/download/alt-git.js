@@ -1,7 +1,7 @@
 /*
   Based on pacote/lib/git.js.
-  Added requires: ssri, util.promisify, promisify(fs.readFile).
-  Added method: [_istream].
+  Added requires: ssri
+  Added method: [_istream]
   We use this only to get the manifest from a git repo, but in the process,
   we clone, and we also cache a tarball made from the clone.
 */
@@ -17,9 +17,6 @@ const cacache = require('cacache')
 const readPackageJson = require('read-package-json-fast')
 const npm = require('pacote/lib/util/npm.js')
 const ssri = require('ssri')
-
-const { promisify } = require('util')
-const readfile = promisify(require('fs').readFile)
 
 const _tarballFromResolved = Symbol.for('pacote.Fetcher._tarballFromResolved')
 const _addGitSha = Symbol('_addGitSha')
