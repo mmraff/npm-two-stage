@@ -64,17 +64,45 @@ tap.test('Input file not found', t1 => {
   )
 })
 
-tap.test('Input is not a gzipped tarball', t1 => {
+tap.test('Input file is empty', t1 => {
+  return t1.rejects(
+    readTar(path.join(fixtures, 'empty'), [ 'LICENSE' ]),
+    { message: /^Not a gzipped file:/, code: 'EFTYPE' }
+  )
+})
+
+tap.test('Input file is smaller than a gzip header', t1 => {
+  return t1.rejects(
+    readTar(path.join(fixtures, 'head-fragment.tgz'), [ 'LICENSE' ]),
+    { message: /^Not a gzipped file:/, code: 'EFTYPE' }
+  )
+})
+
+tap.test('Input is not gzipped', t1 => {
   return t1.rejects(
     readTar(path.join(fixtures, 'bzipped.tar.bz2'), [ 'LICENSE' ]),
     { message: /^Not a gzipped file:/, code: 'EFTYPE' }
   )
 })
 
-tap.test('Input is head fragment of a gzipped file', t1 => {
+tap.test('Input has a fake gzip header but is not gzipped', t1 => {
   return t1.rejects(
-    readTar(path.join(fixtures, 'head-fragment.tgz'), [ 'LICENSE' ]),
-    { message: /^Truncated gzipped file:/, code: 'EFTRUNC' }
+    readTar(path.join(fixtures, 'fake.tgz'), [ 'LICENSE' ]),
+    { message: /^zlib: invalid literal\/lengths set/, code: 'Z_DATA_ERROR' }
+  )
+})
+
+tap.test('Input is gzipped, but not a tarball', t1 => {
+  return t1.rejects(
+    readTar(path.join(fixtures, 'rand-bytes.bin.gz'), [ 'LICENSE' ]),
+    { message: /^Invalid entry for a tar archive/, code: 'EFTYPE' }
+  )
+})
+
+tap.test('Input is a tarball with no entries', t1 => {
+  return t1.rejects(
+    readTar(path.join(fixtures, 'no-entries.tar.gz'), [ 'LICENSE' ]),
+    { message: /^Does not look like a tar archive/, code: 'EFTYPE' }
   )
 })
 
