@@ -1,10 +1,11 @@
 /node_modules/
-/.nyc_output/
 /SCRATCH/
 /JOURNAL/
 /STOWED/
 /TEMP*/
 /test/staging/
+/coverage/
+/.nyc_output/
 TODO.txt
 logs
 *.log
