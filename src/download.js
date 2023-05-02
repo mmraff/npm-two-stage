@@ -237,7 +237,7 @@ class Download extends BaseCommand {
     .then(results => {
       // results is an array of arrays, 1 for each spec on the command line
       // (+1 for package-json opt if any; +1 for lockfile opt if any)
-      rimraf(tempCache, function(rimrafErr) {
+      rimraf(path.dirname(tempCache), function(rimrafErr) {
         /* istanbul ignore if: a condition not worth the overhead of testing */
         if (rimrafErr)
           log.warn('download', 'failed to delete the temp dir ' + tempCache)
