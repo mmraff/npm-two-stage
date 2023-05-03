@@ -5,7 +5,6 @@ const promisify = require('util').promisify
 
 // 3rd party dependencies
 const fs = require('graceful-fs')
-const retry = require('promise-retry')
 const semver = require('semver')
 const npf = require('./npm-package-filename') // CHANGED from '@offliner/npm-package-filename'
 
@@ -480,15 +479,7 @@ function create(where, opts) {
       type = 'semver'
 
     // First, need to verify existence of item in download directory.
-    return retry(tryAgain =>
-      auditOne(type, data, pkgDir)
-      .catch(err => {
-        /* istanbul ignore if */
-        if (err.code === 'EFZEROLEN') return tryAgain(err)
-        throw err
-      }),
-      { retries: 2, minTimeout: 500, maxTimeout: 2000 }
-    )
+    return auditOne(type, data, pkgDir)
     .then(() => {
       const map = tables[type]
       const copy = {}
