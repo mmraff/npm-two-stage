@@ -67,21 +67,21 @@ tap.test('Input file not found', t1 => {
 tap.test('Input file is empty', t1 => {
   return t1.rejects(
     readTar(path.join(fixtures, 'empty'), [ 'LICENSE' ]),
-    { message: /^Not a gzipped file:/, code: 'EFTYPE' }
+    { message: 'File of zero length', code: 'EFZEROLEN' }
   )
 })
 
 tap.test('Input file is smaller than a gzip header', t1 => {
   return t1.rejects(
     readTar(path.join(fixtures, 'head-fragment.tgz'), [ 'LICENSE' ]),
-    { message: /^Not a gzipped file:/, code: 'EFTYPE' }
+    { message: 'Not a gzipped file', code: 'EFTYPE' }
   )
 })
 
 tap.test('Input is not gzipped', t1 => {
   return t1.rejects(
     readTar(path.join(fixtures, 'bzipped.tar.bz2'), [ 'LICENSE' ]),
-    { message: /^Not a gzipped file:/, code: 'EFTYPE' }
+    { message: 'Not a gzipped file', code: 'EFTYPE' }
   )
 })
 

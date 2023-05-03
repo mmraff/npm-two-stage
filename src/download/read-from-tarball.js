@@ -33,22 +33,30 @@ module.exports = (tarball, priorityList) =>
     .once('error', onInitError)
     .once('close', onInitClose)
     .once('readable', () => {
-      const b = rstr.read(3)
-      if (
-        !b || b.length < 3 ||
-        b[0] !== 0x1F && b[1] !== 0x8B && b[2] !== 0x08
-      ) {
+      // If file is less than 3 bytes length, we get null for b.
+      // We need to tell the difference between zero length and too short,
+      // so we start by reading 1
+      let b = rstr.read(1)
+      if (!b) {
         error = Object.assign(
-          new Error('Not a gzipped file: ' + tarball), { code: 'EFTYPE' }
+          new Error('File of zero length'),
+          { code: 'EFZEROLEN', path: tarball }
         )
-        rstr.destroy()
+        return rstr.destroy()
       }
-      else {
-        rstr.removeListener('error', onInitError)
-        rstr.removeListener('close', onInitClose)
-        rstr.unshift(b)
-        resolve(rstr)
+      rstr.unshift(b)
+      b = rstr.read(3)
+      if (!b || b[0] !== 0x1F && b[1] !== 0x8B && b[2] !== 0x08) {
+        error = Object.assign(
+          new Error('Not a gzipped file'),
+          { code: 'EFTYPE', path: tarball }
+        )
+        return rstr.destroy()
       }
+      rstr.removeListener('error', onInitError)
+      rstr.removeListener('close', onInitClose)
+      rstr.unshift(b)
+      resolve(rstr)
     })
   })
   .then(rstr =>

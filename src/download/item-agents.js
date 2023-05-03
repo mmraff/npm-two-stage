@@ -3,6 +3,7 @@ const url = require('url')
 
 const npa = require('npm-package-arg')
 const pacote = require('pacote')
+const retry = require('promise-retry')
 
 const AltGitFetcher = require('./alt-git')
 const dltFactory = require('./dltracker')
@@ -84,7 +85,14 @@ class ItemAgent {
       // is iterated; therefore no dependency recursion should happen.
       if (this.opts.lockfile) return []
       const tarballPath = path.join(this.dlTracker.path, this.dlData.filename)
-      return lockDeps.extract(tarballPath).then(deps => {
+      return retry(tryAgain =>
+        lockDeps.extract(tarballPath)
+        .catch(/* istanbul ignore next */ err => {
+          if (err.code === 'EFZEROLEN') return tryAgain(err)
+          throw err
+        }),
+        { retries: 2, minTimeout: 500, maxTimeout: 2000 }
+      ).then(deps => {
         return deps.length ?
           processDependencies(deps, { ...this.opts, lockfile: true })
           : processDependencies(manifest, { ...this.opts })
@@ -96,7 +104,14 @@ class ItemAgent {
       // the parent package to the dlTracker, because of the meaning of the
       // act of adding: it implies that every dependency of the package has
       // already been downloaded and added.
-      return this.dlTracker.add(this.type, this.dlData)
+      return retry(tryAgain =>
+        this.dlTracker.add(this.type, this.dlData)
+        .catch(/* istanbul ignore next */ err => {
+          if (err.code === 'EFZEROLEN') return tryAgain(err)
+          throw err
+        }),
+        { retries: 2, minTimeout: 500, maxTimeout: 2000 }
+      )
       .then(() => {
         ItemAgent.inflight.delete(this.fetchKey2)
         ItemAgent.inflight.delete(fetchKey1)
