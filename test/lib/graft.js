@@ -5,6 +5,7 @@ const copyFileAsync = promisify(fs.copyFile)
 const lstatAsync = promisify(fs.lstat)
 const mkdirAsync = promisify(fs.mkdir)
 const readdirAsync = promisify(fs.readdir)
+const rimrafAsync = promisify('rimraf')
 
 /*
   copyEntries: Copy everything# in src into dest
