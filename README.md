@@ -5,133 +5,152 @@ _________________________
 
 ## Who This Code Is For
 Any node.js developer or configuration manager who has reason to install
-node modules on a system that is not connected to the Internet. Some use cases:
+Javascript modules for node.js on a system that is not connected to the
+Internet. Some use cases:
 - The security policy of an organization requires that the development/usage
- environment is disconnected from the Internet (some call this _Air-Gapped_)
+ environment is disconnected from the Internet
 - A student needs to work with node modules usually installable by npm, but
  there is no Internet connection available to the target system
 
 ## What This Is Not
-This repository is not an entire fork of npm; it's only a set of new files and
-modified versions of a few existing files. They are intended to be superimposed
-on an existing npm installation.
+This project is not an entire fork of npm.
+## What It Is
+It's only a set of new files and modified versions of a few of npm's
+existing files. They are intended to be superimposed on an existing
+npm installation.
 _________________________
 
 ## Introduction
 **npm** is a Javascript package manager and much more. You get it automatically
 with a proper installation of the server-side JavaScript engine
-**[node.js](http://nodejs.org/download/)**.  
-[The official documentation of npm is here](https://docs.npmjs.com/).  
+**[node.js](http://nodejs.org/download/)**.
+ 
+[This link is to the official documentation of npm](https://docs.npmjs.com/).  
+
 When used to install a package, the default behavior of npm is to fetch the
 package and all of its dependencies from one or more remote servers, typically
-the **[npm registry](https://docs.npmjs.com/misc/registry)**, and to install to
-the current platform. This works fine for all users except, e.g., those in the
-use cases above.  
+the **[npm registry](https://docs.npmjs.com/misc/registry)**, and to install
+to the current platform. This works fine for all users except those in use
+cases such as described previously.  
 
-Theoretically, one could manually install some kinds of packages and their trees
-of dependencies by repeating this sequence however many times needed:
-```sh
-mkdir node_modules && cd node_modules
-tar xzf path/to/module-name-version.tar.gz
-mv package module-name && cd module-name
-```
-but for a non-trivial package heirarchy, not only would that be impractical,
-it also would not work for every kind of package.  
-
-With **npm-two-stage** installed over (say) a portable npm installation on a USB
-drive, you simply have `npm download` collect the desired packages and all their
-dependencies into a folder on the USB drive. Then you take the USB drive to the
-target system which also has npm-two-stage installed, and run the offline install
-command line (see below).  
+With **npm-two-stage** installed over a portable npm installation on a USB
+drive, for example, one simply uses `npm download` to collect the desired
+packages and all their dependencies into a folder on the USB drive. Then
+the USB drive is taken to the target system which also has npm-two-stage
+installed, and one runs the offline install command line (see below).  
 _Note that your npm installations modified by npm-two-stage will behave exactly
 the same as unmodified npm if you don't use the `--offline` option._
 _________________________
 
-### Before Attempting Installation or Removal
-*Rewrite in progress*
+## Before Proceeding
+Check that your **npm** installation is one of the versions targeted by
+this project.<br>
+**You are currently viewing the version that targets npm 7.24.0.**
 
 ## To Install
-*Rewrite in progress*
+First install the npm package **@offliner/npm2stage-v7.24.0**, a tool made
+to manage installation and removal of this version of npm-two-stage.
+Once installed, it will provide the command `npm2stage install`.
+Use of that *might* require elevated privileges, depending on the target
+npm location.
 
 ## To Uninstall
-**Only use the same version of this project as was used for installation.**
+The installation management tool named above also provides the command
+`npm2stage uninstall`.
 
-*Rewrite in progress*
+## Before Other Changes To Your npm Installation
+* Note that backup copies of the original files modified by the installation
+ manager are created in the same location. If you ever want to uninstall
+ npm-two-stage, and you want to avoid complications, it's best if you leave
+ the backup files where they are.
+* If you need to update npm or update your node.js installation, you must
+ do that before installing this. If you have already installed npm-two-stage,
+ you should first run the uninstall command of the installation manager.
 _________________________
 
 ## Usage
-<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1 "Aliases are not yet supported in `npm download`. File and directory package specs are meaningless in this context, of course.") that is valid to npm in an install context...
+<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1) that is valid to npm in an install context...
 
 ### Download Stage
-```sh
+```
 npm download PACKAGE_SPEC
 ```
 **-or-**
-```sh
-npm download PACKAGE_SPEC --dl-dir=path/to/put/tarballs
 ```
-will fetch the version of the package that best matches the specification, plus
+npm download PACKAGE_SPEC --dl-dir path/to/put/tarballs
+```
+will fetch the version of the package that best matches the specifier, plus
 all the packages in its dependency tree, as gzipped tar archives, with no
 redundant downloads.  
 * Shorthand `dl` may be substituted for `download`.  
 * Any number of package specifiers can be given on a single command line.  
 * Without the `--dl-dir` option, downloads will go to the current directory.  
 
-Alternatively (or additionally), the option `--package-json`, optionally followed
+#### package-json Option
+Alternatively (or additionally), the option `--package-json`, followed
 by the path of a directory that contains a package.json file, may be given to
-tell `npm download` to refer to the dependencies listed there. If a path is not
-specified, the current directory is assumed.
+tell `npm download` to fetch the dependencies listed there.
 * `--pj` is a convenient abbreviation for `--package-json`.
 * `-J` is equivalent to `--package-json` with no path given, where the
-package.json is expected to be in the current directory.  
+package.json is expected to be in the current directory.
 
-```sh
-npm download --package-json=../path/to/packageJson/dir
+```
+npm download --package-json ../path/to/packageJson/dir
 ```
 will fetch the dependencies listed in the package.json found at the given path
 (and all transitive dependencies), saving them to the current directory.
-```sh
-npm download -J --dl-dir=../path/to/put/tarballs
+```
+npm download -J --dl-dir ../path/to/put/tarballs
 ```
 will fetch the dependencies listed in the package.json found in the current
 directory (and all transitive dependencies), saving them to the given path.
 
-Note that the `=` is required for the `--dl-dir` option, and for the
-`--package-json` | `--pj` option when supplying a path.  
+#### lockfile-dir Option
+Alternatively (or additionally), the option `--lockfile-dir` followed by the
+path of a directory that contains a lock file (npm-shrinkwrap.json,
+package-lock.json, or yarn.lock v1), may be given to tell `npm download` to
+fetch the dependencies listed there.
+* If the lock file is a yarn.lock, only version 1 is supported.
+* If the lock file is a yarn.lock, it *must* be accompanied by a matching
+ package.json file.
+```
+npm download --lockfile-dir ../path/that/contains
+```
+will fetch the dependencies listed in the lock file found at the given path,
+saving them to the current directory.
 
-The command lines examples given above will fetch regular and optional dependencies,
-and shrinkwraps will be honored.
+The command line examples given above will fetch regular, peer, and optional
+dependencies, and packaged lock files will be honored.
 Options are available for changing how dependencies are fetched:
-```sh
+```
   --include=<dev|optional|peer>
   --omit=<dev|optional|peer>
   --only=prod[uction]       ***deprecated***
   --also=dev[elopment]      ***deprecated***
 ```
 
-A file named dltracker.json will be created in the same directory as the
-downloads. This file contains metadata that will be used in the next stage, and
-so it must travel with the package files.  
+A file named dltracker.json will be created in the same directory where the
+downloads are saved. This file contains metadata that will be used in the
+next stage, and so it must travel with the package files.  
 
 If `npm download` is used again to target the same directory, the new metadata
 is merged into the dltracker.json file. This can be done any number of times.  
 
 ### Installation Stage
-```sh
-npm install --offline --offline-dir=path/to/find/tarballs PACKAGE_SPEC
+```
+npm install --offline --offline-dir path/to/find/tarballs PACKAGE_SPEC
 ```
 
-Note that the `=` is required for the `--offline-dir` option.  
-If `PACKAGE_SPEC` is omitted, will do the reasonable thing: look for
+If `PACKAGE_SPEC` is omitted, it will do the reasonable thing: look for
 package.json in the current directory, and try to install the dependencies
 listed there.
 
 _________________________
 ## Footnotes
-<a id="fn1" href="#src1"><sup>1</sup></a> Aliases are not yet supported in `npm download`. File and directory package specs are meaningless in this context, of course.
+<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported in `npm download`. Alias, file, and directory package specs are meaningless in this context, of course.
 
 `npm download --help` will show the supported forms as follows:
-```sh
+```
   npm download [<@scope>/]<pkg>
   npm download [<@scope>/]<pkg>@<tag>
   npm download [<@scope>/]<pkg>@<version>
