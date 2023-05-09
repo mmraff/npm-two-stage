@@ -32,14 +32,6 @@ const collectDeps_v1 = (deps, resultList) => {
     const flags = [ 'dev', 'optional', 'peer' ]
     for (const prop of flags)
       if (src[prop]) data[prop] = true
-    // TODO: move this out to a journal entry that gathers together all observations
-    // about shrinkwrap files, especially old ones:
-    // I have yet to find a lockfile in the wild that has the 'bundled'
-    // flag on a top-level "dependencies" item - it seems as though it
-    // only occurs in items in the nested "dependencies" section of a
-    // dependency that bundles - and that does seem to make sense.
-    // The only sign of bundling in the metadata of that top-level dep
-    // is in its package.json ("bundleDependencies").
     if (src.bundled) data.inBundle = true
     resultList.push(data)
     if (src.dependencies)

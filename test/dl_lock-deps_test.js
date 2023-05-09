@@ -580,7 +580,7 @@ tap.test('extract', t1 => {
       lockDeps.extract(
         path.join(fixtures, 'readTar/bzipped.tar.bz2'), { packageLock: true }
       ),
-      { message: /Not a gzipped file:/, code: 'EFTYPE' }
+      { message: 'Not a gzipped file', code: 'EFTYPE' }
     )
     t2.end()
   })

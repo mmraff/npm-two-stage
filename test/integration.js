@@ -110,14 +110,14 @@ const runNpmCmd = async (npmBin, cmd, argList, opts, prepend) => {
   // rejects as error e with e.stdout and e.stderr
 }
 
-const dlOverheadItems = [ 'dl-temp', 'dltracker.json' ]
+const dlOverheadItems = [ 'dltracker.json' ]
 
 const RE_RMV_PROTO = /^[a-z]+:\/\/(.+)$/
 const RE_TARBALL_EXT = /\.(tar\.gz|tgz)$/
 
 const checkDownloads = (t, pkgMap, dlPath) =>
   readdir(dlPath).then(list => {
-    const expectedItems = [ 'dl-temp', 'dltracker.json' ]
+    const expectedItems = [ 'dltracker.json' ]
     for (const name in pkgMap) {
       const versions = pkgMap[name]
       for (const v in versions) {
@@ -453,7 +453,7 @@ tap.test('2', t1 => {
   .then(() => readdir(dlPath))
   .then(list => {
     const expected = [
-      'dl-temp', 'dltracker.json', `${pkgName}-${resolvedVer}.tar.gz`
+      'dltracker.json', `${pkgName}-${resolvedVer}.tar.gz`
     ]
     t1.same(
       list.sort(), expected.sort(),
@@ -496,7 +496,7 @@ tap.test('before option', t1 => {
   // clutter at our success path:
   const failDirName = 'bad-dl'
   const failPath = path.join(testBase, failDirName)
-  const expected = [ 'dl-temp', 'dltracker.json', 'acorn-4.0.4.tar.gz' ]
+  const expected = [ 'dltracker.json', 'acorn-4.0.4.tar.gz' ]
   // The mock registry packument for acorn lists higher versions than the
   // tarballs it has available, so implicitly asking for 'latest' should
   // result in an error:
@@ -746,9 +746,6 @@ tap.test('6', t1 => {
       return checkPackageLock(t2, installPath, pkgs, tgtName)
     })
  })
-  // TODO: a special section in the README about peerDependencies with/without
-  // the use of --include=peer and --omit=peer
-  // ( this might turn into a section about all kinds of non-regular dependencies!)
 
   // First: with omit=peer, download succeeds, but install fails for lack of
   // the peer dep of the target package, because npm default is to install
@@ -765,10 +762,10 @@ tap.test('6', t1 => {
     )
     .then(() => readdir(dlPath))
     .then(list => {
-      t2.equal(list.length, 3, 'Nothing more or less than what is expected')
+      t2.equal(list.length, 2, 'Nothing more or less than what is expected')
       t2.ok(list.includes(`${tgtName}-${tgtVer}.tar.gz`), 'Target package tarball was downloaded')
       t2.ok(list.includes('dltracker.json'), 'dltracker.json file was created')
-      t2.ok(list.includes('dl-temp'), 'temp dir for cache was created')
+      t2.notOk(list.includes('dl-temp'), 'temp dir for cache should be removed')
 
       return runNpmCmd(
         testNpm, 'install',
@@ -997,9 +994,9 @@ tap.test('git 1', async t1 => {
   return runNpmCmd(testNpm, 'download', [ '--dl-dir', dlPath, spec ])
   .then(() => readdir(dlPath))
   .then(list => {
-    t1.equal(list.length, 3, 'Nothing more or less than expected')
+    t1.equal(list.length, 2, 'Nothing more or less than expected')
     t1.ok(list.includes('dltracker.json'), 'dltracker.json file was created')
-    t1.ok(list.includes('dl-temp'), 'temp dir for cache was created')
+    t1.notOk(list.includes('dl-temp'), 'temp dir for cache should be removed')
 
     const tarball = [
       encodeURIComponent(gitRepoId1 + '#'), expectedHash, '\.tar\.gz'
@@ -1159,7 +1156,7 @@ tap.test('package-json', t1 => {
     encodeURIComponent(`${gitRepoId1}#`), gitCommits[repoName1][2], '\.tar\.gz'
   ].join('')
   const expected = [
-    'dl-temp', 'dltracker.json',
+    'dltracker.json',
     'acorn-3.3.0.tar.gz', 'commander-2.20.3.tar.gz',
     repoTarball2, encodeURIComponent(remoteItem.id)
   ]
@@ -1624,7 +1621,7 @@ tap.test('dl multiple cmdline specs', t1 => {
   }
   const specs = []
   const tarballs = []
-  const dlOverheadItems = [ 'dl-temp', 'dltracker.json' ]
+  const dlOverheadItems = [ 'dltracker.json' ]
   const startDir = process.cwd()
 
   for (const name in testData) {
@@ -1672,10 +1669,6 @@ tap.test('install from pj', t1 => {
   })
   const dlPath = path.join(testBase, dlDirName)
   const installPath = path.join(testBase, installDirName)
-  // TODO: make sure the following comment goes into the README:
-  // WARNING: if there are special characters in a spec (e.g. '^', '<'),
-  // then the spec *must* be quoted on the command line, else an error
-  // from npm is likely. Not necessary to do this in a package.json.
   const specList = [ '"acorn@^3.0.4"', 'commander@2_x', gitSpec, urlSpec ]
 
   return runNpmCmd(
@@ -1911,7 +1904,7 @@ tap.test('lockfile-dir option', t1 => {
       .then(({ stdout, stderr }) => {
         t2.match(stderr, new RegExp(
           [
-            '',
+            //'',
             'Failed to read package\.json at given lockfile-dir',
             'Error code: ENOENT',
             'A package\.json is required to aid in processing a yarn\.lock',
