@@ -83,8 +83,11 @@ will fetch the version of the package that best matches the specifier, plus
 all the packages in its dependency tree, as gzipped tar archives, with no
 redundant downloads.  
 * Shorthand `dl` may be substituted for `download`.  
-* Any number of package specifiers can be given on a single command line.  
 * Without the `--dl-dir` option, downloads will go to the current directory.  
+* Any number of package specifiers can be given on a single command line.  
+* Most version ranges must be put in quotes so that your shell will not
+ misinterpret any special characters in the specifier
+ (e.g. `<`, `>`, `-`).
 
 #### package-json Option
 Alternatively (or additionally), the option `--package-json`, followed
@@ -104,6 +107,8 @@ npm download -J --dl-dir ../path/to/put/tarballs
 ```
 will fetch the dependencies listed in the package.json found in the current
 directory (and all transitive dependencies), saving them to the given path.
+* While `--package-json` must be followed by a path argument, `-J` does not
+ take any argument.
 
 #### lockfile-dir Option
 Alternatively (or additionally), the option `--lockfile-dir` followed by the
@@ -147,7 +152,7 @@ listed there.
 
 _________________________
 ## Footnotes
-<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported in `npm download`. Alias, file, and directory package specs are meaningless in this context, of course.
+<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported by `npm download`. Alias, file, and directory package specs are meaningless in the download context, of course.
 
 `npm download --help` will show the supported forms as follows:
 ```
