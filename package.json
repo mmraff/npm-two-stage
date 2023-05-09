@@ -1,6 +1,6 @@
 {
   "name": "npm-two-stage",
-  "version": "7.0.0",
+  "version": "7.1.0",
   "description": "Divide `npm install` into download and offline-install stages",
   "author": "Matthew Rafferty <mmraff@gmail.com>",
   "license": "Artistic-2.0",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/mmraff/npm-two-stage.git"
   },
-  "homepage": "https://github.com/mmraff/npm-two-stage#readme",
+  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm7.24.2#readme",
   "bugs": {
     "url": "https://github.com/mmraff/npm-two-stage/issues"
   },
@@ -52,9 +52,9 @@
     ]
   },
   "devDependencies": {
-    "@npmcli/arborist": "2.8.3",
+    "@npmcli/arborist": "2.9.0",
     "mkdirp": "^1.0.4",
-    "npm": "7.24.0",
+    "npm": "7.24.2",
     "npm-package-arg": "^8.1.5",
     "rimraf": "^3.0.2",
     "semver": "^7.3.5",

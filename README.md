@@ -45,10 +45,10 @@ _________________________
 ## Before Proceeding
 Check that your **npm** installation is one of the versions targeted by
 this project.<br>
-**You are currently viewing the version that targets npm 7.24.0.**
+**You are currently viewing the version that targets npm 7.24.2.**
 
 ## To Install
-First install the npm package **@offliner/npm2stage-v7.24.0**, a tool made
+First install the npm package **@offliner/npm2stage-v7.24.2**, a tool made
 to manage installation and removal of this version of npm-two-stage.
 Once installed, it will provide the command `npm2stage install`.
 Use of that *might* require elevated privileges, depending on the target

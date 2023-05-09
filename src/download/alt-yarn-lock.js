@@ -2,15 +2,14 @@
   This is @npmcli/arborist/lib/yarn-lock.js stripped down to only what's
   needed for the yarn.lock file parser, and then with a single correction
   applied.
-  NOTE: cannot apply arborist 2.8.5 changes because they require a package
-  (@isaacs/string-locale-compare) that's not bundled with npm 7.24.0.
 */
 
+const localeCompare = require('@isaacs/string-locale-compare')('en')
 const npa = require('npm-package-arg')
 
 // sort a key/value object into a string of JSON stringified keys and vals
 const sortKV = obj => Object.keys(obj)
-  .sort((a, b) => a.localeCompare(b, 'en'))
+  .sort(localeCompare)
   .map(k => `    ${JSON.stringify(k)} ${JSON.stringify(obj[k])}`)
   .join('\n')
 
@@ -140,7 +139,7 @@ class YarnLock {
   toString () {
     return prefix + [...new Set([...this.entries.values()])]
       .map(e => e.toString())
-      .sort((a, b) => a.localeCompare(b, 'en')).join('\n\n') + '\n'
+      .sort(localeCompare).join('\n\n') + '\n'
   }
 
   static get Entry () {
@@ -162,7 +161,7 @@ class YarnLockEntry {
   toString () {
     // sort objects to the bottom, then alphabetical
     return ([...this[_specs]]
-      .sort((a, b) => a.localeCompare(b, 'en'))
+      .sort(localeCompare)
       .map(JSON.stringify).join(', ') +
       ':\n' +
       Object.getOwnPropertyNames(this)
@@ -171,7 +170,7 @@ class YarnLockEntry {
           (a, b) =>
           /* istanbul ignore next - sort call order is unpredictable */
             (typeof this[a] === 'object') === (typeof this[b] === 'object')
-              ? a.localeCompare(b, 'en')
+              ? localeCompare(a, b)
               : typeof this[a] === 'object' ? 1 : -1)
         .map(prop =>
           typeof this[prop] !== 'object'

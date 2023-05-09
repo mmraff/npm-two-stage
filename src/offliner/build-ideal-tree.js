@@ -13,6 +13,7 @@ const N2S_REQ_PREFIX =
   process.env.NPM2STAGE_IN_ARBORIST_TEST ? '..' : '@npmcli/arborist/lib'
 
 // mixin implementing the buildIdealTree method
+const localeCompare = require('@isaacs/string-locale-compare')('en')
 const rpj = require('read-package-json-fast')
 const npa = require('npm-package-arg')
 const pacote = require('pacote')
@@ -862,7 +863,7 @@ This is a one-time fix-up, please be patient...
     // sort physically shallower deps up to the front of the queue,
     // because they'll affect things deeper in, then alphabetical
     this[_depsQueue].sort((a, b) =>
-      (a.depth - b.depth) || a.path.localeCompare(b.path, 'en'))
+      (a.depth - b.depth) || localeCompare(a.path, b.path))
 
     const node = this[_depsQueue].shift()
     const bd = node.package.bundleDependencies
@@ -1007,7 +1008,7 @@ This is a one-time fix-up, please be patient...
     }
 
     const placeDeps = tasks
-      .sort((a, b) => a.edge.name.localeCompare(b.edge.name, 'en'))
+      .sort((a, b) => localeCompare(a.edge.name, b.edge.name))
       .map(({ edge, dep }) => new PlaceDep({
         edge,
         dep,
@@ -1084,8 +1085,13 @@ This is a one-time fix-up, please be patient...
             return
           }
 
-          // lastly, also check for the missing deps of the node we placed
+          // lastly, also check for the missing deps of the node we placed,
+          // and any holes created by pruning out conflicted peer sets.
           this[_depsQueue].push(placed)
+          for (const dep of pd.needEvaluation) {
+            this[_depsSeen].delete(dep)
+            this[_depsQueue].push(dep)
+          }
 
           // pre-fetch any problem edges, since we'll need these soon
           // if it fails at this point, though, dont' worry because it
@@ -1356,7 +1362,7 @@ This is a one-time fix-up, please be patient...
       // we typically only install non-optional peers, but we have to
       // factor them into the peerSet so that we can avoid conflicts
       .filter(e => e.peer && !(e.valid && e.to))
-      .sort(({name: a}, {name: b}) => a.localeCompare(b, 'en'))
+      .sort(({name: a}, {name: b}) => localeCompare(a, b))
 
     for (const edge of peerEdges) {
       // already placed this one, and we're happy with it.
