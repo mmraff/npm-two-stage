@@ -48,8 +48,12 @@ this project.<br>
 **You are currently viewing the version that targets npm 7.24.2.**
 
 ## To Install
-First install the npm package **@offliner/npm2stage-v7.24.2**, a tool made
-to manage installation and removal of this version of npm-two-stage.
+### If an Internet connection is *not* available for the target platform:
+Refer to the [Manual Installation Instructions](docs/MANUAL-INSTALL.md).  
+
+### If the target platform *can* be connected to the Internet:
+First install the npm package **@offliner/npm2stage-v7.24.2**, a command line
+tool made to manage installation and removal of this version of npm-two-stage.
 Once installed, it will provide the command `npm2stage install`.
 Use of that *might* require elevated privileges, depending on the target
 npm location.

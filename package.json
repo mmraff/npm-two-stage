@@ -25,7 +25,8 @@
     "node": ">=10"
   },
   "files": [
-    "src/"
+    "src/",
+    "docs/"
   ],
   "scripts": {
     "test": "tap test/*_test.js",
