@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/mmraff/npm-two-stage.git"
   },
-  "homepage": "https://github.com/mmraff/npm-two-stage#readme",
+  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm7.24.0#readme",
   "bugs": {
     "url": "https://github.com/mmraff/npm-two-stage/issues"
   },
@@ -25,7 +25,8 @@
     "node": ">=10"
   },
   "files": [
-    "src/"
+    "src/",
+    "docs/"
   ],
   "scripts": {
     "test": "tap test/*_test.js",
