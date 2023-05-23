@@ -1,77 +1,70 @@
 /*
-* this.npm.globalDir required, a path; globalTop will be resolved from it
-* this.npm.config required, an object with a get() method
-* a way to set things in npm.config: we will need to try different values, e.g. for 'global'
-* this.npm.prefix required, a path: HOW TO GET THIS?
-  - actual npm chooses its globalPrefix if global, else its localPrefix
-  - in either case, it's obtained from corresponding field of config
-  - WE MUST BE ABLE TO SET localPrefix ARTIFICIALLY, else we have to graft an
-    aync procedure from actual Config class.
-* this.npm.flatOptions?
-* this.npm.log required
-* for the offline cases, this.npm.config must have 'offline' and 'offline-dir'
+  TODO: say something here
 */
 
 const { resolve, dirname } = require('path')
 const Config = require('@npmcli/config')
+const log = require('npmlog')
 
 module.exports = class {
-  constructor ({
-    cmd, // this one exists only in this mock
+  // NOTE: actual npm is instantiated (in cli.js) with *no arguments*!
+  // Also, npm.exec is passed 2 args: cmd and npm.argv
+  constructor ({ // NOTE arguments only exist in this mock!
+    args = {},
+    cmd,
     cwd,
-    config = {},
-    flatOptions = {},
-    log,
-    prefix,
+    env = {},
   }) {
-    const cfgOpts = { ...config }
-    if ('ignore-scripts' in cfgOpts) {
-      cfgOpts.ignoreScripts = cfgOpts['ignore-scripts']
-      delete cfgOpts['ignore-scripts']
+    if (!cmd) {
+      throw new Error('Mock npm: command must be identified in cmd property!')
     }
-    if ('script-shell' in cfgOpts) {
-      cfgOpts.scriptShell = cfgOpts['script-shell']
-      delete cfgOpts['script-shell']
+    const filteredEnv = {}
+    // Don't yet know that we need anything in our environment
+    if ('PREFIX' in env) {
+      filteredEnv.PREFIX = env.PREFIX
     }
-    if ('offline-dir' in cfgOpts) {
-      cfgOpts.offlineDir = cfgOpts['offline-dir']
-      delete cfgOpts['offline-dir']
+    if ('DESTDIR' in env) {
+      filteredEnv.DESTDIR = env.DESTDIR
     }
-
     this.command = cmd
-    this.log = log
     this.version = require('../package.json').version
     this.config = new Config({
-      ...flatOptions,
-      ...cfgOpts,
+      args,
       cwd,
+      env: filteredEnv,
       log,
       npmPath: dirname(__dirname),
-      prefix,
     })
+    // In the real thing, config.load is called by the async npm.load method:
+    this.config.load()
+
     this.outputMsgs = []
   }
 
-  get flatOptions () {
+  get flatOptions () { // VERBATIM
     const { flat } = this.config
     if (this.command)
       flat.npmCommand = this.command
     return flat
   }
 
-  get globalPrefix () {
+  get log () { // VERBATIM
+    return log
+  }
+
+  get globalPrefix () { // VERBATIM
     return this.config.globalPrefix
   }
 
-  get localPrefix () {
+  get localPrefix () { // VERBATIM
     return this.config.localPrefix
   }
 
-  get prefix () {
+  get prefix () { // VERBATIM
     return this.config.get('global') ? this.globalPrefix : this.localPrefix
   }
 
-  get globalDir () {
+  get globalDir () { // VERBATIM
     return process.platform !== 'win32'
       ? resolve(this.globalPrefix, 'lib', 'node_modules')
       : resolve(this.globalPrefix, 'node_modules')

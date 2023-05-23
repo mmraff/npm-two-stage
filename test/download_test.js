@@ -7,21 +7,26 @@ const tap = require('tap')
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets7'
 let Download
 let mockItemAgents
 let mockLockDeps
 let mockLog
-let mockNpmCfg
+let mockNpmClass
 let mockPacote
 let n2sAssets
 
-// To mock npm.output for a given mock instance of npm
-function makeOutputFn(list) {
-  return (...msgs) => { list.push(msgs.join(' ')) }
+const makeMockNpm = (args = {}) => {
+  const opts = {
+    cmd: 'download', cwd: n2sAssets.fs('installPath'),
+    log: mockLog,
+    args
+  }
+  return new mockNpmClass(opts)
 }
 
 // To help check the cmd opts passed to handleItem/processDependencies
-function expectPropsAbsent(t, obj, props) {
+const expectPropsAbsent = (t, obj, props) => {
   const badOpts = []
   for (const name in props)
     if (name in obj) badOpts.push(name)
@@ -30,32 +35,25 @@ function expectPropsAbsent(t, obj, props) {
 }
 
 tap.before(() =>
-  makeAssets('tempAssets7', 'download.js')
+  makeAssets(testRootName, 'download.js')
   .then(assets => {
     n2sAssets = assets
-    const MockNpmConfig = require(assets.nodeModules + '/@npmcli/config')
+    mockNpmClass = require(assets.npmLib + '/npm')
     mockLog = require(assets.nodeModules + '/npmlog')
     mockPacote = require(assets.nodeModules + '/pacote')
     Download = require(assets.npmLib + '/download')
     mockItemAgents = require(assets.libDownload + '/item-agents.js')
     mockLockDeps = require(assets.libDownload + '/lock-deps.js')
-
-    mockNpmCfg = new MockNpmConfig({
-      cmd: 'download', cwd: assets.fs('installPath'), log: mockLog
-    })
-
-    tap.teardown(() => rimrafAsync(assets.fs('rootName')))
   })
 )
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 tap.test('No arguments, no package-json or lockfile-dir options', t1 => {
-  const npmMsgs = []
-  const dl = new Download({
-    config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-  })
+  const mockNpm = makeMockNpm()
+  const dl = new Download(mockNpm)
   dl.exec([], function(err) {
     t1.match(err, /No packages named for download/)
-    t1.same(npmMsgs, []) // because it aborts before npm.output is used
+    t1.same(mockNpm.outputMsgs, []) // because it aborts before npm.output is used
     t1.end()
   })
 })
@@ -96,87 +94,75 @@ tap.test('package-json options', t1 => {
   }
 
   t1.test('--package-json, no path given', t2 => {
+    const mockNpm = makeMockNpm({ 'package-json': true })
+    const dl = new Download(mockNpm)
     mockLog.purge()
-    mockNpmCfg.set('package-json', true)
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err) {
       t2.equal(err.message, 'package-json option must be given a path')
-      t2.same(npmMsgs, [])
-      mockNpmCfg.set('package-json', undefined)
+      t2.same(mockNpm.outputMsgs, [])
       t2.end()
     })
   })
 
   t1.test('-J, package.json in cwd, but has no deps', t2 => {
-    mockNpmCfg.set('J', true)
+    const mockNpm = makeMockNpm({ 'J': true })
+    const dl = new Download(mockNpm)
     mockLog.purge()
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       // Here, the log has nothing beyond 'established download path'
       checkLogNoArgsNoPjPath(t2)
-      t2.equal(npmMsgs.length, 1)
-      t2.equal(
-        npmMsgs[0],
-        '\nNothing new to download for package.json\n\ndownload finished.'
+      t2.same(
+        mockNpm.outputMsgs, [
+          '\nNothing new to download for package.json\n\ndownload finished.'
+        ]
       )
-      mockNpmCfg.set('J', undefined)
       t2.end()
     })
   })
 
   t1.test('--package-json with explicit path that has package.json, but no deps', t2 => {
     const pjWhere = n2sAssets.fs('installPath')
-    mockNpmCfg.set('package-json', pjWhere)
+    const mockNpm = makeMockNpm({ 'package-json': pjWhere })
+    const dl = new Download(mockNpm)
     mockLog.purge()
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       // Here, the log has nothing beyond 'established download path'
       checkLogNoArgsNoPjPath(t2)
-      t2.equal(npmMsgs.length, 1)
-      t2.equal(
-        npmMsgs[0],
-        '\nNothing new to download for package.json\n\ndownload finished.'
+      t2.same(
+        mockNpm.outputMsgs, [
+          '\nNothing new to download for package.json\n\ndownload finished.'
+        ]
       )
-      mockNpmCfg.set('package-json', undefined)
       t2.end()
     })
   })
+
   t1.test('--package-json=.', t2 => {
-    mockNpmCfg.set('package-json', '.')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'package-json': '.' })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
-      mockNpmCfg.set('package-json', undefined)
       t2.end()
     })
   })
+
   t1.test('--package-json=package.json', t2 => {
-    mockNpmCfg.set('package-json', 'package.json')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'package-json': 'package.json' })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
+      // TODO: see if we can't follow the intent of this somehow:
       //t2.equal(mockDlCfg.get('opts').packageJson, './')
-      mockNpmCfg.set('package-json', undefined)
       t2.end()
     })
   })
 
   t1.test('-J, package.json in cwd, has deps', t2 => {
+    const mockNpm = makeMockNpm({ 'J': true })
+    const dl = new Download(mockNpm)
+    mockLog.purge()
     mockPacote.setTestConfig({
       './': {
         name: 'dummy1', version: '1.0.0',
@@ -188,20 +174,13 @@ tap.test('package-json options', t1 => {
         { spec: 'reg-dep-1@1.2.3', name: 'reg-dep-1' }
       ]
     })
-    mockNpmCfg.set('J', true)
-    mockLog.purge()
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       checkLogNoArgsNoPjPath(t2)
       t2.match(
-        npmMsgs[0],
+        mockNpm.outputMsgs[0],
         /Downloaded tarballs to satisfy 1 dependency derived from package.json/
       )
-      mockNpmCfg.set('J', undefined)
       setProviderDefaults()
       t2.end()
     })
@@ -221,6 +200,10 @@ tap.test('package-json options', t1 => {
       { spec: argSpec, name: argPkgName },
       { spec: `${argDepName}@${argDepVSpec}`, name: argDepName }
     ]
+    const mockNpm = makeMockNpm({
+      'package-json': n2sAssets.fs('installPath')
+    })
+    const dl = new Download(mockNpm)
 
     mockPacote.setTestConfig({
       [n2sAssets.fs('installPath')]: { // the package.json
@@ -238,12 +221,8 @@ tap.test('package-json options', t1 => {
     mockItemAgents.setTestConfig('getOperations', {
       [argSpec]: injectedPkgArgResults // for the spec from the command line
     })
-    mockNpmCfg.set('package-json', n2sAssets.fs('installPath'))
     mockLog.purge()
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
+
     dl.exec(['dummy1'], function(err, results) {
       t1.error(err, 'expect no error')
       t1.same(results, [
@@ -255,10 +234,14 @@ tap.test('package-json options', t1 => {
       t1.match(msgs[0], {
         level: 'silly', prefix: 'download', message: 'args: ' + argSpec
       })
-      const p1 = /Downloaded tarballs to satisfy 1 dependency derived from package\.json/
-      const p2 = new RegExp(`Downloaded tarballs to satisfy ${argSpec} and 1 dependency`)
-      t1.match(npmMsgs[0], p1)
-      t1.match(npmMsgs[0], p2)
+      t1.match(
+        mockNpm.outputMsgs[0],
+        /Downloaded tarballs to satisfy 1 dependency derived from package\.json/
+      )
+      t1.match(
+        mockNpm.outputMsgs[0],
+        new RegExp(`Downloaded tarballs to satisfy ${argSpec} and 1 dependency`)
+      )
       setProviderDefaults()
       t1.end()
     })
@@ -280,120 +263,99 @@ tap.test('lockfile-dir option', t1 => {
   t1.before(() => setProviderDefaults())
 
   t1.test('No path given, no following option', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': true })
+    const dl = new Download(mockNpm)
     mockLog.purge()
-    mockNpmCfg.set('lockfile-dir', true)
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err) {
       t2.equal(err.message, 'lockfile-dir option must be given a path')
-      t2.same(npmMsgs, [])
-      mockNpmCfg.set('lockfile-dir', undefined)
+      t2.same(mockNpm.outputMsgs, [])
       t2.end()
     })
   })
 
   t1.test('No path given, with following option', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': '--registry' })
+    const dl = new Download(mockNpm)
     mockLog.purge()
-    mockNpmCfg.set('lockfile-dir', '--registry')
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err) {
       t2.equal(err.message, 'lockfile-dir option must be given a path')
-      t2.same(npmMsgs, [])
-      mockNpmCfg.set('lockfile-dir', undefined)
+      t2.same(mockNpm.outputMsgs, [])
       t2.end()
     })
   })
 
   t1.test('--lockfile-dir=.', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': '.' })
+    const dl = new Download(mockNpm)
     const name = 'dummy1'
     const version = '1.0.0'
     mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
-    mockNpmCfg.set('lockfile-dir', '.')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, './')
-      mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
   })
 
   t1.test('--lockfile-dir=npm-shrinkwrap.json', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': 'npm-shrinkwrap.json' })
+    const dl = new Download(mockNpm)
     const name = 'dummy2'
     const version = '2.0.0'
     mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
-    mockNpmCfg.set('lockfile-dir', 'npm-shrinkwrap.json')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, './')
-      mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
   })
 
   t1.test('--lockfile-dir=a/package-lock.json', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': 'a/package-lock.json' })
+    const dl = new Download(mockNpm)
     const name = 'dummy1'
     const version = '1.0.0'
     mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
-    mockNpmCfg.set('lockfile-dir', 'a/package-lock.json')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, 'a')
-      mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
   })
 
   t1.test('--lockfile-dir=a\\b\\yarn.lock', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': 'a\\b\\yarn.lock' })
+    const dl = new Download(mockNpm)
     const name = 'dummy2'
     const version = '2.0.0'
     mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
-    mockNpmCfg.set('lockfile-dir', 'a\\b\\yarn.lock')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, 'a\\b')
-      mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
   })
 
   t1.test('No lockfile at given location, or no deps', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': 'a/b/c' })
+    const dl = new Download(mockNpm)
     mockLockDeps.setTestConfig('readFromDir', { data: [] })
-    mockNpmCfg.set('lockfile-dir', 'a/b/c')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [])
       // handleItem does not get called, because there are no deps
-      mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
   })
 
   // For coverage of the line with call to checkLockfileDep()
   t1.test('lockfile contains a devDependency', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': 'a/b/c' })
+    const dl = new Download(mockNpm)
     const name = 'dummy2'
     const version = '2.0.0'
     mockLockDeps.setTestConfig('readFromDir', {
@@ -406,20 +368,17 @@ tap.test('lockfile-dir option', t1 => {
       'dummy1@1.0.0': null,
       [name + '@' + version]: [{ name, spec: version }]
     })
-    mockNpmCfg.set('lockfile-dir', 'a/b/c')
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       setProviderDefaults()
-      mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
   })
 
   t1.test('After getting deps from package.json', t2 => {
+    const mockNpm = makeMockNpm({ 'J': true, 'lockfile-dir': 'a/b/c' })
+    const dl = new Download(mockNpm)
     const pjDepName = 'reg-dep-1'
     const pjData = { [pjDepName]: '1.2.3' }
     const lockfileData = { name: 'dummy2', version: '2.0.0' }
@@ -437,23 +396,15 @@ tap.test('lockfile-dir option', t1 => {
     mockItemAgents.setTestConfig('processDependencies', {
       'dummy1@1.0.0': [ expectedResults[0] ]
     })
-    mockNpmCfg.set('J', true)
-    mockNpmCfg.set('lockfile-dir', 'a/b/c')
     mockLog.purge()
-    const npmMsgs = []
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-    })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.same(results, [ [ expectedResults[0] ], [ expectedResults[1] ] ])
       const prefix = 'Downloaded tarballs to satisfy 1 dependency derived from '
-      if (!npmMsgs[0].includes(prefix + 'package.json\n'))
+      if (!mockNpm.outputMsgs[0].includes(prefix + 'package.json\n'))
         t2.fail('Failed to find expected package.json deps results')
-      if (!npmMsgs[0].includes(prefix + 'lockfile\n'))
+      if (!mockNpm.outputMsgs[0].includes(prefix + 'lockfile\n'))
         t2.fail('Failed to find expected lockfile deps results')
-      mockNpmCfg.set('lockfile-dir', undefined)
-      mockNpmCfg.set('J', undefined)
       t2.end()
     })
   })
@@ -462,70 +413,53 @@ tap.test('lockfile-dir option', t1 => {
 })
 
 tap.test('Options for dependencies', t1 => {
-  t1.before(() => {
-    /*
-      For this set of tests, we don't need to set up a package with each of
-      the kinds of dependencies, because the handling of those does not happen
-      in download.js, but in item-agents.js. All we need to do is check that
-      the config object (download/config.js) has received the correct settings.
+  /*
+    For this set of tests, we don't need to set up a package with each of
+    the kinds of dependencies, because the handling of those does not happen
+    in download.js, but in item-agents.js. All we need to do is check that
+    the config object (download/config.js) has received the correct settings.
 
-      Because it presents too much of a distraction to set up a mock package
-      to represent a command line argument for this set of tests, we'll simply
-      go with an implied package.json in the current directory:
-    */
-    mockNpmCfg.set('J', true)
-  })
-  t1.teardown(() => {
-    mockNpmCfg.set('J', undefined)
-  })
+    Because it presents too much of a distraction to set up a mock package
+    to represent a command line argument for this set of tests, we'll simply
+    go with an implied package.json in the current directory.
+  */
 
   t1.test('--omit=optional', t2 => {
-    mockNpmCfg.set('omit', ['optional'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'J': true, 'omit': ['optional'] })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
       t2.match(cmdOpts, { noOptional: true, packageJson: './' })
       expectPropsAbsent(t2, cmdOpts, [ 'includeDev', 'noPeer' ])
-      mockNpmCfg.set('omit', [])
       t2.end()
     })
   })
   t1.test('--omit=peer', t2 => {
-    mockNpmCfg.set('omit', ['peer'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'J': true, 'omit': ['peer'] })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
       t2.match(cmdOpts, { noPeer: true, packageJson: './' })
       expectPropsAbsent(t2, cmdOpts, [ 'includeDev', 'noOptional' ])
-      mockNpmCfg.set('omit', [])
       t2.end()
     })
   })
   t1.test('--include=dev', t2 => {
-    mockNpmCfg.set('include', ['dev'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'J': true, 'include': ['dev'] })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
       t2.match(cmdOpts, { includeDev: true, packageJson: './' })
       expectPropsAbsent(t2, cmdOpts, [ 'noOptional', 'noPeer' ])
-      mockNpmCfg.set('include', [])
       t2.end()
     })
   })
   t1.test('--include=dev --include=peer', t2 => {
-    mockNpmCfg.set('include', ['dev', 'peer'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'J': true, 'include': ['dev', 'peer'] })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
@@ -533,34 +467,28 @@ tap.test('Options for dependencies', t1 => {
         cmdOpts, { includeDev: true, packageJson: './' }
       )
       expectPropsAbsent(t2, cmdOpts, [ 'noOptional', 'noPeer' ])
-      mockNpmCfg.set('include', [])
       t2.end()
     })
   })
   t1.test('--include=dev --include=peer --omit=optional', t2 => {
-    mockNpmCfg.set('include', ['dev', 'peer'])
-    mockNpmCfg.set('omit', ['optional'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
+    const mockNpm = makeMockNpm({
+      'J': true, 'include': ['dev', 'peer'], 'omit': ['optional']
     })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       t2.match(
         mockItemAgents.getLastOpts().cmd,
-        {
-          includeDev: true, noOptional: true, packageJson: './'
-        }
+        { includeDev: true, noOptional: true, packageJson: './' }
       )
-      mockNpmCfg.set('include', [])
-      mockNpmCfg.set('omit', [])
       t2.end()
     })
   })
   t1.test('--include=dev --include=peer --include=optional', t2 => {
-    mockNpmCfg.set('include', ['dev', 'peer', 'optional'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
+    const mockNpm = makeMockNpm({
+      'J': true, 'include': ['dev', 'peer', 'optional']
     })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
@@ -568,31 +496,27 @@ tap.test('Options for dependencies', t1 => {
         cmdOpts, { includeDev: true, packageJson: './' }
       )
       expectPropsAbsent(t2, cmdOpts, [ 'noOptional', 'noPeer' ])
-      mockNpmCfg.set('include', [])
       t2.end()
     })
   })
   t1.test('--include=peer --include=optional', t2 => {
-    mockNpmCfg.set('include', ['peer', 'optional'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
+    const mockNpm = makeMockNpm({
+      'J': true, 'include': ['peer', 'optional']
     })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
       t2.match(cmdOpts, { packageJson: './' })
       expectPropsAbsent(t2, cmdOpts, [ 'includeDev', 'noOptional', 'noPeer' ])
-      mockNpmCfg.set('include', [])
       t2.end()
     })
   })
   t1.test('--include=optional --omit=optional', t2 => {
-    mockNpmCfg.set('include', ['optional'])
-    // 'include' overrides 'omit':
-    mockNpmCfg.set('omit', ['optional'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
+    const mockNpm = makeMockNpm({
+      'J': true, 'include': ['optional'], 'omit': ['optional']
     })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
@@ -600,17 +524,14 @@ tap.test('Options for dependencies', t1 => {
       expectPropsAbsent(
         t2, cmdOpts, [ 'includeDev', 'noPeer', 'noOptional' ]
       )
-      mockNpmCfg.set('include', [])
-      mockNpmCfg.set('omit', [])
       t2.end()
     })
   })
   t1.test('--include=dev --omit=dev --include=peer --omit=peer', t2 => {
-    mockNpmCfg.set('include', ['dev', 'peer'])
-    mockNpmCfg.set('omit', ['dev', 'peer'])
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
+    const mockNpm = makeMockNpm({
+      'J': true, 'include': ['dev', 'peer'], 'omit': ['dev', 'peer']
     })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
@@ -618,17 +539,13 @@ tap.test('Options for dependencies', t1 => {
         cmdOpts, { includeDev: true, packageJson: './' }
       )
       expectPropsAbsent(t2, cmdOpts, [ 'noOptional', 'noPeer' ])
-      mockNpmCfg.set('include', [])
-      mockNpmCfg.set('omit', [])
       t2.end()
     })
   })
 
   t1.test('--package-lock(=true)', t2 => {
-    mockNpmCfg.set('package-lock', true)
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'J': true, 'package-lock': true })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
@@ -638,15 +555,12 @@ tap.test('Options for dependencies', t1 => {
     })
   })
   t1.test('--package-lock=false', t2 => {
-    mockNpmCfg.set('package-lock', false)
-    const dl = new Download({
-      config: mockNpmCfg, output: makeOutputFn([])
-    })
+    const mockNpm = makeMockNpm({ 'J': true, 'package-lock': false })
+    const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
       const cmdOpts = mockItemAgents.getLastOpts().cmd
       t2.match(cmdOpts, { noShrinkwrap: true, packageJson: './' })
-      mockNpmCfg.set('package-lock', undefined)
       t2.end()
     })
   })
@@ -655,34 +569,28 @@ tap.test('Options for dependencies', t1 => {
 })
 
 tap.test('--dl-dir given with a package spec argument', t1 => {
+  const mockNpm = makeMockNpm({ 'dl-dir': n2sAssets.fs('pkgPath') })
+  const dl = new Download(mockNpm)
   const pkgName = 'dummy1'
   const injectedData = [ { spec: pkgName, name: pkgName } ]
   mockItemAgents.setTestConfig('getOperations', {
     [pkgName]: injectedData
   })
-  mockNpmCfg.set('dl-dir', n2sAssets.fs('pkgPath'))
-  const npmMsgs = []
-  const dl = new Download({
-    config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-  })
   dl.exec([pkgName], function(err, results) {
     t1.error(err, 'expect no error')
     t1.same(results, [ injectedData ])
     t1.match(
-      npmMsgs[0],
+      mockNpm.outputMsgs[0],
       new RegExp(`Downloaded tarballs to satisfy ${pkgName} and 0 dependencies`)
     )
-    mockNpmCfg.set('dl-dir', undefined)
     t1.end()
   })
 })
 
 tap.test('rejection from call to external service', t1 => {
+  const mockNpm = makeMockNpm()
+  const dl = new Download(mockNpm)
   mockItemAgents.setTestConfig('getOperations', null)
-  const npmMsgs = []
-  const dl = new Download({
-    config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-  })
   dl.exec(['no-such-pkg'], function(err, results) {
     t1.type(err, Error)
     t1.notOk(results)
@@ -691,6 +599,8 @@ tap.test('rejection from call to external service', t1 => {
 })
 
 tap.test('An optional dependency fetch fails', t1 => {
+  const mockNpm = makeMockNpm()
+  const dl = new Download(mockNpm)
   mockPacote.setTestConfig({
     'dummy1': {
       name: 'dummy1', version: '1.0.0',
@@ -706,19 +616,20 @@ tap.test('An optional dependency fetch fails', t1 => {
   mockItemAgents.setTestConfig('getOperations', {
     'dummy1': injectedResults
   })
-  const npmMsgs = []
-  const dl = new Download({
-    config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-  })
   dl.exec(['dummy1'], function(err, results) {
     t1.error(err, 'expect no error')
     t1.same(results, [ injectedResults ])
-    t1.match(npmMsgs[0], /\(failed to fetch 1 optional packages\)/)
+    t1.match(
+      mockNpm.outputMsgs[0],
+      /\(failed to fetch 1 optional packages\)/
+    )
     t1.end()
   })
 })
 
 tap.test('A duplicate spec occurs', t1 => {
+  const mockNpm = makeMockNpm()
+  const dl = new Download(mockNpm)
   const pkgName = 'dummy1'
   const dupSpec = pkgName + '@^1'
   const version = '1.0.0'
@@ -734,22 +645,18 @@ tap.test('A duplicate spec occurs', t1 => {
     [pkgName]: injectedResults[0],
     [dupSpec]: injectedResults[1]
   })
-  const npmMsgs = []
-  const dl = new Download({
-    config: mockNpmCfg, output: makeOutputFn(npmMsgs)
-  })
   dl.exec([pkgName, dupSpec], function(err, results) {
     t1.error(err, 'expect no error')
     t1.same(results, injectedResults)
     t1.match(
-      npmMsgs[0],
+      mockNpm.outputMsgs[0],
       new RegExp(`Downloaded tarballs to satisfy ${pkgName} and 0 dependencies`)
     )
     t1.match(
-      npmMsgs[0],
+      mockNpm.outputMsgs[0],
       new RegExp(`Nothing new to download for ${pkgName}@[^]1`)
     )
-    t1.match(npmMsgs[0], /\(1 duplicate spec skipped\)/)
+    t1.match(mockNpm.outputMsgs[0], /\(1 duplicate spec skipped\)/)
     t1.end()
   })
 })

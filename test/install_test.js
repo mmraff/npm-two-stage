@@ -1,5 +1,4 @@
 const fs = require('fs')
-const readdirConfig = {}
 const path = require('path')
 const { promisify } = require('util')
 
@@ -8,47 +7,55 @@ const tap = require('tap')
 
 const makeAssets = require('./lib/make-assets')
 
+const readdirConfig = {}
+const fsMock = {
+  ...fs,
+  readdir: (pathSpec, cb) => {
+    const list = readdirConfig[pathSpec]
+    if (!list) {
+      const err = Object.assign(
+        new Error(`no such file or directory, scandir '${pathSpec}'`),
+        { code: 'ENOENT' }
+      )
+      return cb(err)
+    }
+    cb(null, list)
+  }
+}
+const testRootName = 'tempAssets6'
 let n2sAssets
 let Install
 let mockLog
 let mockPacote
 let mockNpmClass
-let mockNpm
+
+const makeMockNpm = (args = {}) => {
+  const opts = {
+    cmd: 'install', cwd: n2sAssets.fs('installPath'),
+    log: mockLog,
+    args
+  }
+  return new mockNpmClass(opts)
+}
 
 tap.before(() =>
-  makeAssets('tempAssets6', 'install.js', { offliner: true })
+  makeAssets(testRootName, 'install.js', { offliner: true })
   .then(assets => {
     n2sAssets = assets
-    mockLog = require(assets.nodeModules + '/npmlog')
     mockNpmClass = require(assets.npmLib + '/npm')
-    mockNpm = new mockNpmClass({
-      cmd: 'install', cwd: assets.fs('installPath'), log: mockLog
-    })
-    mockNpm.config.load()
+    mockLog = require(assets.nodeModules + '/npmlog')
 
-    // Install.completion uses readdir; we want to mock that. The only way we
-    // can get away with that is by waiting until we don't need real readdir
-    // anymore, then substituting the mock just before requiring install.js,
-    // because install.js gets a promisified copy of it:
-    const realReaddir = fs.readdir
-    fs.readdir = (pathSpec, cb) => {
-      const list = readdirConfig[pathSpec]
-      if (!list) {
-        const err = new Error(`no such file or directory, scandir '${pathSpec}'`)
-        err.code = 'ENOENT'
-        return cb(err)
-      }
-      cb(null, list)
-    }
-    Install = require(assets.npmLib + '/install')
-    fs.readdir = realReaddir
+    Install = tap.mock(assets.npmLib + '/install', {
+      'fs': fsMock,
+      [assets.nodeModules + '/npmlog']: mockLog
+    })
 
     // This is needed to set up results for when install() fetches the manifest
     // of npm for an attempt at global installation:
     mockPacote = require(assets.nodeModules + '/pacote')
   })
 )
-tap.teardown(() => rimrafAsync(n2sAssets.fs('rootName')))
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 tap.test('exec() on installer instantiated without npm object', t1 => {
   const inst = new Install()
@@ -60,6 +67,7 @@ tap.test('exec() on installer instantiated without npm object', t1 => {
 })
 
 tap.test('exec() on installer with no argument array', t1 => {
+  const mockNpm = makeMockNpm()
   const inst = new Install(mockNpm)
   inst.exec(null, function(err) {
     t1.type(err, TypeError)
@@ -95,15 +103,9 @@ tap.test('should install using Arborist', (t) => {
     },
   })
 
-  const npm = new mockNpmClass({
-    config: { dev: true },
-    flatOptions: { global: false, auditLevel: 'low' },
-    globalDir: 'path/to/node_modules/',
-    prefix: 'foo',
-     // mmraff added: needed by mock:
-    cwd: n2sAssets.fs('installPath'), log: mockLog,
+  const npm = makeMockNpm({ 
+    global: false, 'audit-level': 'low', dev: true, prefix: 'foo'
   })
-  npm.config.load() // mmraff added: needed by mock
   const install = new Install(npm)
 
   t.test('with args', t => {
@@ -111,7 +113,7 @@ tap.test('should install using Arborist', (t) => {
       if (er)
         throw er
       t.match(ARB_ARGS,
-        { global: false, path: 'foo', auditLevel: null },
+        { global: false, path: npm.prefix, auditLevel: null },
         'Arborist gets correct args and ignores auditLevel')
       t.equal(REIFY_CALLED, true, 'called reify')
       t.strictSame(SCRIPTS, [], 'no scripts when adding dep')
@@ -156,17 +158,9 @@ tap.test('should ignore scripts with --ignore-scripts', (t) => {
       }
     },
   })
-  const npm = new mockNpmClass({
-    globalDir: 'path/to/node_modules/',
-    prefix: 'foo',
-    flatOptions: { global: false },
-    config: {
-      global: false,
-      'ignore-scripts': true,
-    },
-    cwd: n2sAssets.fs('installPath'), log: mockLog, // mmraff added: needed by mock
+  const npm = makeMockNpm({
+    global: false, 'ignore-scripts': true, prefix: 'foo'
   })
-  npm.config.load() // mmraff added: needed by mock
   const install = new Install(npm)
   install.exec([], er => {
     if (er)
@@ -189,6 +183,7 @@ tap.test('should ignore scripts with --ignore-scripts', (t) => {
 
 // This one hits lines 199-209, because !args.length && !isGlobalInstall && !ignoreScripts
 tap.test('exec() on installer with empty argument array', t1 => {
+  const mockNpm = makeMockNpm()
   const inst = new Install(mockNpm)
   inst.exec([], function(err) {
     t1.equal(err, undefined)
@@ -197,6 +192,7 @@ tap.test('exec() on installer with empty argument array', t1 => {
 })
 
 tap.test('With a specific npm registry package spec', t1 => {
+  const mockNpm = makeMockNpm()
   const inst = new Install(mockNpm)
   inst.exec([ 'dummy@1.2.3' ], function(err) {
     t1.equal(err, undefined)
@@ -205,7 +201,7 @@ tap.test('With a specific npm registry package spec', t1 => {
 })
 
 tap.test('With the `--dev` option', t1 => {
-  mockNpm.config.dev = true
+  const mockNpm = makeMockNpm({ dev: true })
   mockLog.purge()
   const inst = new Install(mockNpm)
   inst.exec([ 'dummy@1.2.3' ], function(err) {
@@ -213,14 +209,12 @@ tap.test('With the `--dev` option', t1 => {
     const warning = mockLog.getList()[0]
     t1.equal(warning.level, 'warn')
     t1.match(warning.message, /\W--dev\W+option is deprecated/)
-    mockNpm.config.dev = false
     t1.end()
   })
 })
 
 tap.test('Global installation cases', t1 => {
-  mockNpm.config.set('global', true)
-  mockNpm.config.load()
+  const mockNpm = makeMockNpm({ global: true })
   t1.test('the project in the cwd', t2 => {
     const inst = new Install(mockNpm)
     inst.exec([], function(err) {
@@ -275,13 +269,12 @@ tap.test('Global installation cases', t1 => {
       t2.equal(mockLog.getList().length, 0)
 
       // But now try to force it:
-      mockNpm.config.force = true
+      mockNpm.config.set('force', true)
       inst.exec([ spec ], function(err) {
         t2.equal(err, undefined)
         const warning = mockLog.getList()[0]
         t2.equal(warning.level, 'warn')
         t2.match(warning.message, /Forcing global npm install with incompatible version/)
-        mockNpm.config.force = false
         t2.end()
         t1.end()
       })
@@ -290,15 +283,13 @@ tap.test('Global installation cases', t1 => {
 })
 
 tap.test('Offline install of arbitrary package', t1 => {
-  mockNpm.config.set('offline', true)
-  mockNpm.config.set('offline-dir', n2sAssets.fs('pkgPath'))
-  mockNpm.config.set('global', false)
-  mockNpm.config.load()
+  const mockNpm = makeMockNpm({
+    offline: true, 'offline-dir': n2sAssets.fs('pkgPath'),
+    global: false
+  })
   const inst = new Install(mockNpm)
   inst.exec([ 'dummy@1.2.3' ], function(err) {
     t1.equal(err, undefined)
-    mockNpm.config.set('offline', false)
-    mockNpm.config.set('offline-dir', undefined)
     t1.end()
   })
 })
@@ -310,6 +301,7 @@ tap.test('Offline install of arbitrary package', t1 => {
   change to the behavior of this method as it is in the original script.
 */
 tap.test('completion cases', t1 => {
+  const mockNpm = makeMockNpm()
   // This is the only place where install.js uses readdir.
   // See notes about that in the makeAssets.then.
 
