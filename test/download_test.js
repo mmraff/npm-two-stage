@@ -186,7 +186,11 @@ tap.test('package-json options', t1 => {
     })
   })
 
-  tap.test('--package-json and package spec argument', t1 => {
+  t1.test('--package-json and package spec argument', t2 => {
+    const mockNpm = makeMockNpm({
+      'package-json': n2sAssets.fs('installPath')
+    })
+    const dl = new Download(mockNpm)
     const pjDepName = 'reg-dep-2'
     const pjDepVSpec = '^2'
     const argPkgName = 'dummy1'
@@ -200,11 +204,6 @@ tap.test('package-json options', t1 => {
       { spec: argSpec, name: argPkgName },
       { spec: `${argDepName}@${argDepVSpec}`, name: argDepName }
     ]
-    const mockNpm = makeMockNpm({
-      'package-json': n2sAssets.fs('installPath')
-    })
-    const dl = new Download(mockNpm)
-
     mockPacote.setTestConfig({
       [n2sAssets.fs('installPath')]: { // the package.json
         name: 'dummy2', version: '2.0.0',
@@ -223,27 +222,26 @@ tap.test('package-json options', t1 => {
     })
     mockLog.purge()
 
-    dl.exec(['dummy1'], function(err, results) {
-      t1.error(err, 'expect no error')
-      t1.same(results, [
+    dl.exec([argPkgName], function(err, results) {
+      t2.same(results, [
         injectedPJDepResults,
         injectedPkgArgResults
       ])
       const msgs = mockLog.getList()
-      t1.equal(msgs.length > 0, true)
-      t1.match(msgs[0], {
+      t2.equal(msgs.length > 0, true)
+      t2.match(msgs[0], {
         level: 'silly', prefix: 'download', message: 'args: ' + argSpec
       })
-      t1.match(
+      t2.match(
         mockNpm.outputMsgs[0],
         /Downloaded tarballs to satisfy 1 dependency derived from package\.json/
       )
-      t1.match(
+      t2.match(
         mockNpm.outputMsgs[0],
         new RegExp(`Downloaded tarballs to satisfy ${argSpec} and 1 dependency`)
       )
       setProviderDefaults()
-      t1.end()
+      t2.end()
     })
   })
 
