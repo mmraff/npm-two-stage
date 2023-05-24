@@ -4,73 +4,46 @@ const url = require('url')
 const util = require('util')
 
 // 3rd party
-const log = require('npmlog')
 const mkdirp = require('mkdirp')
 const pacote = require('pacote')
-const rimraf = require('rimraf')
+const rimrafAsync = util.promisify(require('rimraf'))
 
 // npm/download internals
-const BaseCommand = require('./base-command')
-const dltFactory = require('./download/dltracker')
-const lockDeps = require('./download/lock-deps')
-const npf = require('./download/npm-package-filename')
+const BaseCommand = require('../base-command')
+const dltFactory = require('../download/dltracker')
+const lockDeps = require('../download/lock-deps')
+const log = require('../utils/log-shim.js')
+const npf = require('../download/npm-package-filename')
 const {
   getOperations,
   processDependencies,
   xformResult
-} = require('./download/item-agents')
+} = require('../download/item-agents')
 
 class Download extends BaseCommand {
-// TODO: load-all-commands should be made part of our integration test:
-  /* istanbul ignore next - see test/lib/load-all-commands.js */
-  static get description () {
-    return 'Download package(s) and dependencies as tarballs'
-  }
+  static description = 'Download package(s) and dependencies as tarballs'
+  static name = 'download'
 
-  /* istanbul ignore next - see test/lib/load-all-commands.js */
-  static get name () {
-    return 'download'
-  }
+  static params = [
+    'dl-dir',
+    'lockfile-dir',
+    'package-json',
+    'include',
+    'omit',
+    'package-lock',
+  ]
 
-  /* istanbul ignore next - see test/lib/load-all-commands.js */
-  static get params () {
-    return [
-      'dl-dir',
-      'include',
-      'omit',
-      'only',
-      'package-json',
-      'package-lock'
-    ]
-  }
+  static usage = ['[<package-spec> ...]']
 
-  /* istanbul ignore next - see test/lib/load-all-commands.js */
-  static get usage () {
-    return [
-      '[<@scope>/]<pkg>',
-      '[<@scope>/]<pkg>@<tag>',
-      '[<@scope>/]<pkg>@<version>',
-      '[<@scope>/]<pkg>@<version range>',
-      '<github username>/<github project>',
-      '<git-host>:<git-user>/<repo-name>',
-      '<git:// url>',
-      '<tarball url>',
-    ]
-  }
-
-  exec (args, cb) {
-    this.download(args, cb)
-  }
-
-  download(args, cb) {
+  async exec (args) {
     log.silly('download', 'args:', args)
 
     const self = this
     const flatOpts = {
       ...this.npm.flatOptions,
-      log: this.npm.log,
-      auditLevel: null, // Not used in pacote! TODO: eliminate?
-      workspaces: this.workspaceNames // TODO: ditto.
+      //log: this.npm.log,
+      //auditLevel: null, // Not used in pacote! TODO: eliminate?
+      //workspaces: this.workspaceNames // TODO: ditto.
     }
     const cmdOpts = {
       dlDir: this.npm.config.get('dl-dir'),
@@ -79,11 +52,15 @@ class Download extends BaseCommand {
 
     const optInclude = this.npm.config.get('include')
     const optOmit = this.npm.config.get('omit')
-    if (!optInclude.includes('optional') && optOmit.includes('optional'))
+    if (!optInclude.includes('optional') && optOmit.includes('optional')) {
       cmdOpts.noOptional = true
-    if (!optInclude.includes('peer') && optOmit.includes('peer'))
+    }
+    if (!optInclude.includes('peer') && optOmit.includes('peer')) {
       cmdOpts.noPeer = true
-    if (optInclude.includes('dev')) cmdOpts.includeDev = true
+    }
+    if (optInclude.includes('dev')) {
+      cmdOpts.includeDev = true
+    }
 
     // --only: deprecated.
     // There's support for it (in definitions.js), but the only values
@@ -100,8 +77,9 @@ class Download extends BaseCommand {
     // definitions.js interprets it as 'Alias for --package-lock' for now.
     // Therefore, --shrinkwrap=false => --package-lock=false.
     // --package-lock default is true.
-    if (this.npm.config.get('package-lock') == false)
+    if (this.npm.config.get('package-lock') == false) {
       cmdOpts.noShrinkwrap = true
+    }
 
     const pkgJson = this.npm.config.get('package-json')
     const J = this.npm.config.get('J')
@@ -112,43 +90,53 @@ class Download extends BaseCommand {
     // of package-json, looking for a hyphen as the 1st character:
     let optPj
     if (pkgJson) {
-      if (typeof pkgJson !== 'string' || pkgJson.startsWith('-'))
-        return cb(new Error('package-json option must be given a path'))
+      if (typeof pkgJson !== 'string' || pkgJson.startsWith('-')) {
+        throw new Error('package-json option must be given a path')
+      }
       optPj = pkgJson == '.' ? './' : pkgJson // For consistency
     }
     else if (J) {
       /* istanbul ignore if - we're not hitting this given current config. */
-      if (typeof J !== 'boolean')
-        return cb(new Error('@npmcli/config is mishandling args: J is set to ' + J))
+      if (typeof J !== 'boolean') {
+        throw new Error('@npmcli/config is mishandling args: J is set to ' + J)
+      }
       optPj = './'
     }
     if (optPj) {
       cmdOpts.packageJson = optPj.replace(/(^|[/\\])package\.json$/, '')
-      if (!cmdOpts.packageJson) cmdOpts.packageJson = './'
+      if (!cmdOpts.packageJson) {
+        cmdOpts.packageJson = './'
+      }
     }
 
     // Same issue as above for the lockfile directory option
     const lockfileDir = this.npm.config.get('lockfile-dir')
     if (lockfileDir) {
-      if (typeof lockfileDir !== 'string' || lockfileDir.startsWith('-'))
-        return cb(new Error('lockfile-dir option must be given a path'))
+      if (typeof lockfileDir !== 'string' || lockfileDir.startsWith('-')) {
+        throw new Error('lockfile-dir option must be given a path')
+      }
       cmdOpts.lockfileDir = lockfileDir === '.' ? './' : lockfileDir
-      if (lockfileDir.endsWith('npm-shrinkwrap.json'))
+      if (lockfileDir.endsWith('npm-shrinkwrap.json')) {
         cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])npm-shrinkwrap\.json$/, '')
-      else if (lockfileDir.endsWith('package-lock.json'))
+      }
+      else if (lockfileDir.endsWith('package-lock.json')) {
         cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])package-lock\.json$/, '')
-      else if (lockfileDir.endsWith('yarn.lock'))
+      }
+      else if (lockfileDir.endsWith('yarn.lock')) {
         cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])yarn.lock$/, '')
-      if (!cmdOpts.lockfileDir) cmdOpts.lockfileDir = './'
+      }
+      if (!cmdOpts.lockfileDir) {
+        cmdOpts.lockfileDir = './'
+      }
     }
 
     if (!cmdOpts.packageJson && !cmdOpts.lockfileDir &&
         (!args || args.length == 0)) {
-      return cb(new Error([
+      throw new Error([
         'No packages named for download.',
         'Maybe you want to use the package-json or lockfile-dir option?',
         'Try: npm download -h'
-      ].join('\n')))
+      ].join('\n'))
     }
 
     // Because we will pass it to something external:
@@ -171,18 +159,21 @@ class Download extends BaseCommand {
 
     let statsMsgs = ''
 
-    dltFactory.create(cmdOpts.dlDir, { log: log }).then(newTracker => {
+    return dltFactory.create(cmdOpts.dlDir, { log })
+    .then(newTracker => {
       log.info('download', 'established download path:', newTracker.path)
       self.dlTracker = newTracker
       return mkdirp(tempCache)
     })
     .then(() => {
-      if (!cmdOpts.packageJson) return []
+      if (!cmdOpts.packageJson) {
+        return []
+      }
 
       // Get an annotated version of the package.json at the given local path
       return pacote.manifest(cmdOpts.packageJson, { ...flatOpts })
-      .then(mani => {
-        return processDependencies(mani, {
+      .then(mani =>
+        processDependencies(mani, {
           topLevel: true,
           cmd: cmdOpts,
           dlTracker: self.dlTracker,
@@ -193,17 +184,21 @@ class Download extends BaseCommand {
           statsMsgs = getItemResultsStats('package.json', pjResults)
           return [ pjResults ]
         })
-      })
+      )
     })
     .then(prevResults => {
       const baseDir = cmdOpts.lockfileDir
-      if (!baseDir) return prevResults
+      if (!baseDir) {
+        return prevResults
+      }
 
       // Note there are warnings logged but no error if no lockfile is found
       // at the given lockfileDir
       return lockDeps.readFromDir(baseDir, log)
       .then(deps => {
-        if (!deps.length) return prevResults
+        if (!deps.length) {
+          return prevResults
+        }
 
         const operations = getOperations(deps, {
           lockfile: true, topLevel: true,
@@ -217,41 +212,38 @@ class Download extends BaseCommand {
       })
     })
     .then(pjLockResults => {
-      if (!args.length) return pjLockResults
+      if (!args.length) {
+        return pjLockResults
+      }
 
       const operations = getOperations(args, {
         topLevel: true,
         cmd: cmdOpts, dlTracker: self.dlTracker, flatOpts
       })
-      for (let i = 0; i < operations.length; ++i)
+      for (let i = 0; i < operations.length; ++i) {
         // We take advantage of the fact that operations[i] corresponds to
         // args[i], because no command line spec gets filtered out
         operations[i] = operations[i].then(results => {
           statsMsgs += getItemResultsStats(args[i], results)
           return results
         })
+      }
       return Promise.all(operations).then(results => {
         return pjLockResults.concat(results)
       })
     })
-    .then(results => {
+    .then(async results => {
       // results is an array of arrays, 1 for each spec on the command line
       // (+1 for package-json opt if any; +1 for lockfile opt if any)
-      rimraf(path.dirname(tempCache), function(rimrafErr) {
-        /* istanbul ignore if: a condition not worth the overhead of testing */
-        if (rimrafErr)
-          log.warn('download', 'failed to delete the temp dir ' + tempCache)
+      await rimrafAsync(path.dirname(tempCache))
+      await self.dlTracker.serialize()
 
-        self.dlTracker.serialize().then(() => {
-          self.npm.output(statsMsgs + '\n\ndownload finished.')
-          // QUESTION: Why are we returning results? Who is the caller, and
-          // does it do anything with them?
-          // Keep in mind that we have written tests to expect the results...
-          cb(null, results)
-        })
-      })
+      self.npm.output(statsMsgs + '\n\ndownload finished.')
+      // QUESTION: Why are we returning results? Who is the caller, and
+      // does it do anything with them?
+      // Keep in mind that we have written tests to expect the results...
+      return results
     })
-    .catch(err => cb(err))
   }
 }
 module.exports = Download

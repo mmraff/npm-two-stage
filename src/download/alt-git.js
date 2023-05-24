@@ -1,7 +1,7 @@
 /*
   Based on pacote/lib/git.js.
-  Added requires: ssri
-  Added method: [_istream]
+  Added requires: ssri, util.promisify, promisify(fs.readFile).
+  Added method: [_istream].
   We use this only to get the manifest from a git repo, but in the process,
   we clone, and we also cache a tarball made from the clone.
 */
@@ -14,9 +14,12 @@ const npa = require('npm-package-arg')
 const path = require('path')
 const url = require('url')
 const cacache = require('cacache')
-const readPackageJson = require('read-package-json-fast')
+const log = require('proc-log')
 const npm = require('pacote/lib/util/npm.js')
 const ssri = require('ssri')
+
+const { promisify } = require('util')
+const readfile = promisify(require('fs').readFile)
 
 const _tarballFromResolved = Symbol.for('pacote.Fetcher._tarballFromResolved')
 const _addGitSha = Symbol('_addGitSha')
@@ -27,6 +30,7 @@ const _cloneRepo = Symbol('_cloneRepo')
 const _setResolvedWithSha = Symbol('_setResolvedWithSha')
 const _prepareDir = Symbol('_prepareDir')
 const _istream = Symbol('_istream2')
+const _readPackageJson = Symbol.for('package.Fetcher._readPackageJson')
 
 // get the repository url.
 // prefer https if there's auth, since ssh will drop that.
@@ -44,17 +48,29 @@ const filterAliases = arr => arr.filter(s => s !== 'HEAD' && !s.startsWith('refs
 class AltGitFetcher extends Fetcher {
   constructor (spec, opts) {
     super(spec, opts)
-    this.resolvedRef = null
-    if (this.spec.hosted)
-      this.from = this.spec.hosted.shortcut({ noCommittish: false })
 
+    // we never want to compare integrity for git dependencies: npm/rfcs#525
+    if (this.opts.integrity) {
+      delete this.opts.integrity
+      log.warn(`skipping integrity check for git dependency ${this.spec.fetchSpec}`)
+    }
+
+    this.resolvedRef = null
+    if (this.spec.hosted) {
+      this.from = this.spec.hosted.shortcut({ noCommittish: false })
+    }
+
+    // shortcut: avoid full clone when we can go straight to the tgz
+    // if we have the full sha and it's a hosted git platform
     if (this.spec.gitCommittish && hashre.test(this.spec.gitCommittish)) {
       this.resolvedSha = this.spec.gitCommittish
+      // use hosted.tarball() when we shell to RemoteFetcher later
       this.resolved = this.spec.hosted
         ? repoUrl(this.spec.hosted, { noCommittish: false })
-        : this.spec.fetchSpec + '#' + this.spec.gitCommittish
-    } else
+        : this.spec.rawSpec
+    } else {
       this.resolvedSha = ''
+    }
   }
 
   // just exposed to make it easier to test all the combinations
@@ -80,17 +96,20 @@ class AltGitFetcher extends Fetcher {
   }
 
   [_prepareDir] (dir) {
-    return readPackageJson(path.join(dir, 'package.json'))
-    .then(mani => {
+    // The npm developers keep doing things that cause problems on Windows.
+    // Here they had: dir + '/package.json'
+    return this[_readPackageJson](path.join(dir, 'package.json')).then(mani => {
       // no need if we aren't going to do any preparation.
       const scripts = mani.scripts
-      if (!scripts || !(
+      if (!mani.workspaces && (!scripts || !(
           scripts.postinstall ||
           scripts.build ||
           scripts.preinstall ||
           scripts.install ||
-          scripts.prepare))
+          scripts.prepack ||
+          scripts.prepare))) {
         return
+      }
 
       // to avoid cases where we have an cycle of git deps that depend
       // on one another, we only ever do preparation for one instance
@@ -102,7 +121,7 @@ class AltGitFetcher extends Fetcher {
       const noPrepare = !process.env._PACOTE_NO_PREPARE_ ? []
         : process.env._PACOTE_NO_PREPARE_.split('\n')
       if (noPrepare.includes(this.resolved)) {
-        this.log.info('prepare', 'skip prepare, already seen', this.resolved)
+        log.info('prepare', 'skip prepare, already seen', this.resolved)
         return
       }
       noPrepare.push(this.resolved)
@@ -143,7 +162,7 @@ class AltGitFetcher extends Fetcher {
     // defer istream end until after cstream
     // cache write errors should not crash the fetch, this is best-effort.
     cstream.promise().catch(err => {
-      this.log.warn('AltGitFetcher[_istream]', 'cache write error:', err.message)
+      log.warn('AltGitFetcher[_istream]', 'cache write error:', err.message)
     })
     .then(() => istream.end())
 
@@ -159,39 +178,37 @@ class AltGitFetcher extends Fetcher {
     const ref = this.resolvedSha || this.spec.gitCommittish
     const h = this.spec.hosted
     const resolved = this.resolved
-    return cacache.tmp.withTmp(this.cache, o, tmp => {
-      return (
+
+    return cacache.tmp.withTmp(this.cache, o, async tmp => {
+      const sha = await (
         h ? this[_cloneHosted](ref, tmp)
         : this[_cloneRepo](this.spec.fetchSpec, ref, tmp)
-      ).then(sha => {
-        this.resolvedSha = sha
-        if (!this.resolved)
-          this[_addGitSha](sha)
-
-        if (this.opts.multipleRefs) {
-          const tmpFileURL = url.pathToFileURL(tmp).href
-          return git.revs(tmpFileURL, this.opts).then(remoteRefs => {
-            if (!remoteRefs) return
-            const list = remoteRefs.shas[sha]
-            const aliases = list && (list instanceof Array) && filterAliases(list)
-            this.allRefs = aliases || []
-          })
+      )
+      this.resolvedSha = sha
+      if (!this.resolved) {
+        await this[_addGitSha](sha)
+      }
+      if (this.opts.multipleRefs) {
+        const tmpFileURL = url.pathToFileURL(tmp).href
+        const remoteRefs = await git.revs(tmpFileURL, this.opts)
+        if (remoteRefs) {
+          const list = remoteRefs.shas[sha]
+          const aliases = list && (list instanceof Array) && filterAliases(list)
+          this.allRefs = aliases || []
         }
-      })
+      }
       // Make a tarball, put it in the cache
-      .then(() => this[_prepareDir](tmp))
-      .then(() => {
-        const df = new DirFetcher(`file:${tmp}`, {
-          ...this.opts,
-          resolved: null,
-          integrity: null,
-        })
-        const dirStream = df[_tarballFromResolved]()
-        return new Promise((resolve, reject) => {
-          const istream = this[_istream](dirStream, this.opts)
-          istream.on('error', err => reject(err))
-          istream.on('finish', () => resolve(null))
-        })
+      await this[_prepareDir](tmp)
+      const df = new DirFetcher(`file:${tmp}`, {
+        ...this.opts,
+        resolved: null,
+        integrity: null,
+      })
+      const dirStream = df[_tarballFromResolved]()
+      return new Promise((resolve, reject) => {
+        const istream = this[_istream](dirStream, this.opts)
+        istream.on('error', err => reject(err))
+        istream.on('finish', () => resolve(null))
       })
       .then(() =>  handler(tmp))
     })
@@ -208,12 +225,14 @@ class AltGitFetcher extends Fetcher {
     return this[_cloneRepo](hosted.https({ noCommittish: true }), ref, tmp)
       .catch(er => {
         // Throw early since we know pathspec errors will fail again if retried
-        if (er instanceof git.errors.GitPathspecError)
+        if (er instanceof git.errors.GitPathspecError) {
           throw er
+        }
         const ssh = hosted.sshurl && hosted.sshurl({ noCommittish: true })
         // no fallthrough if we can't fall through or have https auth
-        if (!ssh || hosted.auth)
+        if (!ssh || hosted.auth) {
           throw er
+        }
         return this[_cloneRepo](ssh, ref, tmp)
       })
   }
@@ -224,8 +243,9 @@ class AltGitFetcher extends Fetcher {
   }
 
   manifest () {
-    if (this.package) // The already-annotated manifest
+    if (this.package) { // The already-annotated manifest
       return Promise.resolve(this.package)
+    }
 
     // For a hosted repo with a resolved spec (a commit hash), GitFetcher
     // resorts to using the FileFetcher method, which gets a tarball.
@@ -239,11 +259,10 @@ class AltGitFetcher extends Fetcher {
     // in DirFetcher[_prepareDir].
 
     const handler = (dir) =>
-      readPackageJson(path.join(dir, 'package.json'))
+      this[_readPackageJson](path.join(dir, 'package.json'))
       .then(mani => this.package = Object.assign(
         {
           ...mani,
-          _integrity: this.integrity && String(this.integrity),
           _resolved: this.resolved,
           _from: this.from,
           _sha: this.resolvedSha

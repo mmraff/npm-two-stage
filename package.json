@@ -1,6 +1,6 @@
 {
   "name": "npm-two-stage",
-  "version": "7.1.0",
+  "version": "8.0.0",
   "description": "Divide `npm install` into download and offline-install stages",
   "author": "Matthew Rafferty <mmraff@gmail.com>",
   "license": "Artistic-2.0",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/mmraff/npm-two-stage.git"
   },
-  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm7.24.2#readme",
+  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm8.19.4#readme",
   "bugs": {
     "url": "https://github.com/mmraff/npm-two-stage/issues"
   },
@@ -22,7 +22,7 @@
     "sneakernet"
   ],
   "engines": {
-    "node": ">=10"
+    "node": "^12.13.0 || ^14.15.0 || >=16.0.0"
   },
   "files": [
     "src/",
@@ -43,22 +43,23 @@
       "--exclude=!test/tempAssets3/npm/lib/offliner/alt-arborist.js",
       "--exclude=!test/tempAssets4/npm/lib/offliner/build-ideal-tree.js",
       "--exclude=!test/tempAssets5/npm/lib/offliner/reify.js",
-      "--exclude=!test/tempAssets6/npm/lib/install.js",
-      "--exclude=!test/tempAssets7/npm/lib/download.js",
+      "--exclude=!test/tempAssets6/npm/lib/commands/install.js",
+      "--exclude=!test/tempAssets7/npm/lib/commands/download.js",
       "--exclude=!test/tempAssets8/npm/lib/utils/config/definitions.js",
-      "--exclude=!test/staging/lib/node_modules/npm/lib/download.js",
+      "--exclude=!test/staging/lib/node_modules/npm/lib/commands/download.js",
       "--exclude=!test/staging/lib/node_modules/npm/lib/download/*.js",
-      "--exclude=!test/staging/lib/node_modules/npm/lib/install.js",
+      "--exclude=!test/staging/lib/node_modules/npm/lib/commands/install.js",
       "--exclude=!test/staging/lib/node_modules/npm/lib/offliner/*.js"
     ]
   },
   "devDependencies": {
-    "@npmcli/arborist": "2.9.0",
+    "@npmcli/arborist": "^5.6.3",
     "mkdirp": "^1.0.4",
-    "npm": "7.24.2",
-    "npm-package-arg": "^8.1.5",
+    "nock": "^13.3.1",
+    "npm": "8.19.4",
+    "npm-package-arg": "^9.1.2",
     "rimraf": "^3.0.2",
-    "semver": "^7.3.5",
-    "tap": "^15.0.10"
+    "semver": "^7.5.0",
+    "tap": "^16.3.4"
   }
 }
