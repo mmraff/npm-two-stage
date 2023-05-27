@@ -3,7 +3,7 @@ const path = require('path')
 const npf = require('../src/download/npm-package-filename')
 const mockCommitHash = require('./lib/mock-commit-hash')
 const tap = require('tap')
-const mockLog = require('./fixtures/mock-npm/node_modules/npmlog')
+const mockLog = require('./fixtures/mock-npm/lib/utils/log-shim')
 const dltLogGetPrefix = 'DownloadTracker.getData'
 function checkLogAndReset(t, start, count, matchData) {
   const logList = mockLog.getList()

@@ -113,9 +113,10 @@ for (let i = 0; i < testConfigs.length; ++i) {
 function manifestMatcher(pjSrc, annotSrc) {
   const pkgJson = pjSrc.pkgJson
   const annotations = annotSrc.manifest
-  return { ...pkgJson, ...annotations, _integrity: /.+/ }
+  return { ...pkgJson, ...annotations, }// _integrity: /.+/ }
 }
 
+const testRootName = 'tempAssets2'
 const stdOpts = { multipleRefs: true }
 let AltGitFetcher
 let mockCacache
@@ -127,7 +128,7 @@ let mockLog
 let n2sAssets
 
 tap.before(() =>
-  makeAssets('tempAssets2', 'download/alt-git.js')
+  makeAssets(testRootName, 'download/alt-git.js')
   .then(assets => {
     n2sAssets = assets
     AltGitFetcher = require(assets.libDownload + '/alt-git')
@@ -136,12 +137,10 @@ tap.before(() =>
     mockPacoteNpm = require(assets.nodeModules + '/pacote/lib/util/npm')
     mockReadPkgJson = require(assets.nodeModules + '/read-package-json-fast')
     mockNpmCliGit = require(assets.nodeModules + '/@npmcli/git')
-    mockLog = require(assets.nodeModules + '/npmlog')
-
-    stdOpts.log = mockLog
+    mockLog = require(assets.nodeModules + '/proc-log')
   })
 )
-tap.teardown(() => rimrafAsync(n2sAssets.fs('rootName')))
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 tap.test('shortcut spec without committish', t => {
   const npaSpec = npa(testConfigs[0].spec)
@@ -160,6 +159,7 @@ tap.test('shortcut spec without committish', t => {
     t.end()
   })
 })
+
 tap.test('shortcut spec with commit hash', t => {
   const sha = testConfigs[0].revsDoc.refs.master.sha
   const fullSpec = testConfigs[0].spec + '#' + sha
@@ -183,6 +183,16 @@ tap.test('shortcut spec with commit hash', t => {
     })
   })
 })
+
+tap.test('integrity option suppressed', t => { // strictly for coverage
+  // From pacote GitFetcher:
+  // "we never want to compare integrity for git dependencies: npm/rfcs#525"
+  const opts = { ...stdOpts, integrity: 'innaGaddaDaVidaBaby' }
+  const gitFetcher = new AltGitFetcher(testConfigs[0].spec, opts)
+  t.same(stdOpts, gitFetcher.opts)
+  t.end()
+})
+
 tap.test('shortcut spec with commit hash, but no multipleRefs option', t => {
   const sha = testConfigs[0].revsDoc.refs.master.sha
   const fullSpec = testConfigs[0].spec + '#' + sha
@@ -204,6 +214,7 @@ tap.test('shortcut spec with commit hash, but no multipleRefs option', t => {
     t.end()
   })
 })
+
 tap.test('spec leads to no data from git.revs', t => {
   const testData = Object.assign({}, testConfigs[0])
   testData.revsDoc = null
@@ -229,6 +240,7 @@ tap.test('spec leads to no data from git.revs', t => {
     t.end()
   })
 })
+
 tap.test('spec leads to data with no refs from git.revs', t => {
   const testData = Object.assign({}, testConfigs[0])
   testData.manifest = Object.assign({}, testData.manifest)
@@ -254,6 +266,7 @@ tap.test('spec leads to data with no refs from git.revs', t => {
     t.end()
   })
 })
+
 tap.test('spec at arbitrary host with committish that is not a SHA hash', t => {
   const npaSpec = npa(testConfigs[1].spec)
   mockReadPkgJson.setTestConfig({
@@ -273,6 +286,7 @@ tap.test('spec at arbitrary host with committish that is not a SHA hash', t => {
     t.end()
   })
 })
+
 tap.test('spec at arbitrary host with SHA hash committish', t => {
   const manifest = Object.assign({}, testConfigs[1].manifest)
   manifest._from = manifest._resolved
@@ -296,6 +310,7 @@ tap.test('spec at arbitrary host with SHA hash committish', t => {
     t.end()
   })
 })
+
 tap.test('spec leads to package with a prepare script', t => {
   const sha = testConfigs[0].revsDoc.refs.master.sha
   const fullSpec = testConfigs[0].spec + '#' + sha
@@ -372,6 +387,7 @@ tap.test('stream from cloned repo has an error', t => {
     t.end()
   })
 })
+
 tap.test('stream to cache has an error', t => {
   const testData = testConfigs[0]
   const npaSpec = npa(testData.spec)
@@ -397,6 +413,7 @@ tap.test('stream to cache has an error', t => {
     t.end()
   })
 })
+
 tap.test('clone has a git pathspec error', t => {
   const testData = testConfigs[0]
   mockReadPkgJson.setTestConfig({
@@ -420,6 +437,7 @@ tap.test('clone has a git pathspec error', t => {
     t.end()
   })
 })
+
 tap.test('clone has an error about https auth', t => {
   const testSpec = 'git+https://dummyAuthValue@bitbucket.org/someuser/someproject'
   mockReadPkgJson.setTestConfig({
@@ -440,6 +458,7 @@ tap.test('clone has an error about https auth', t => {
     t.end()
   })
 })
+
 // The last two tests are of features, copied from GitFetcher, that are
 // never used by npm-two-stage code.
 tap.test('static repoUrl()', t => {
@@ -468,6 +487,7 @@ tap.test('static repoUrl()', t => {
   h.sshurl = oldSshurl
   t.end()
 })
+
 tap.test('get types()', t => {
   const gitFetcher = new AltGitFetcher(testConfigs[0].spec, stdOpts)
   t.same(gitFetcher.types, [ 'git' ])

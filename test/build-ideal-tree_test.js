@@ -1,5 +1,5 @@
 /*
-  Based on test/arborist/build-ideal-tree.js of @npmcli/arborist v2.8.3.
+  Based on test/arborist/build-ideal-tree.js of @npmcli/arborist v5.6.3.
   Almost all of this suite was created by the developers of @npmcli/arborist.
   Origin comments are preserved. All of the fixtures from the arborist test
   collection are also present in fixtures/arborist.
@@ -15,7 +15,7 @@ if (process.platform === 'win32') {
   process.env.ARBORIST_DEBUG = 0
 }
 
-const {basename, join, resolve, relative} = require('path')
+const { basename, join, resolve, relative } = require('path')
 const url = require('url')
 const pacote = require('pacote')
 const t = require('tap')
@@ -31,23 +31,24 @@ const npa = require('npm-package-arg')
 const fs = require('fs')
 const { promisify } = require('util')
 const rimrafAsync = promisify(require('rimraf'))
+const nock = require('nock')
+const semver = require('semver')
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets4'
 let Arborist
-//let dlCfg
 let mockDlt
 let n2sAssets
 
 t.before(() =>
   makeAssets(
-    'tempAssets4', 'offliner/build-ideal-tree.js',
+    testRootName, 'offliner/build-ideal-tree.js',
     { arborist: true, offliner: true }
   )
   .then(assets => {
     n2sAssets = assets
     Arborist = require(assets.libOffliner + '/alt-arborist')
-    //dlCfg = require(assets.libDownload + '/config')
     mockDlt = require(assets.libDownload + '/dltracker')
     // registry-mocks/server.start returns a Promise.
     // registry-mocks/server.stop does not.
@@ -55,8 +56,8 @@ t.before(() =>
   })
 )
 t.teardown(() => {
-  stop()
-  return rimrafAsync(n2sAssets.fs('rootName'))
+  return new Promise(resolve => stop(() => resolve()))
+  .then(() => rimrafAsync(join(__dirname, testRootName)))
 })
 
 const cache = t.testdir()
@@ -101,6 +102,57 @@ const OPT = { cache, registry, timeout: 40 * 60 * 1000 }
 
 const newArb = (path, opt = {}) => new Arborist({ ...OPT, path, ...opt })
 const buildIdeal = (path, opt) => newArb(path, opt).buildIdealTree(opt)
+
+const generateNocks = (t, spec) => {
+  nock.disableNetConnect()
+
+  const getDeps = (version, deps) =>
+    (deps || []).reduce((result, dep) => {
+      if (typeof dep === 'string') {
+        return {
+          ...result,
+          [dep]: version,
+        }
+      } else {
+        return {
+          ...result,
+          ...(version in dep ? { [dep[version]]: version } : {}),
+        }
+      }
+    }, {})
+
+  for (const name in spec) {
+    const pkg = spec[name]
+
+    const packument = {
+      name,
+      'dist-tags': {
+        latest: pkg.latest || semver.maxSatisfying(pkg.versions, '*'),
+      },
+      versions: pkg.versions.reduce((versions, version) => {
+        return {
+          ...versions,
+          [version]: {
+            name,
+            version,
+            dependencies: getDeps(version, pkg.dependencies),
+            peerDependencies: getDeps(version, pkg.peerDependencies),
+          },
+        }
+      }, {}),
+    }
+
+    nock(registry)
+      .persist()
+      .get(`/${name}`)
+      .reply(200, packument)
+  }
+
+  t.teardown(async () => {
+    nock.enableNetConnect()
+    nock.cleanAll()
+  })
+}
 
 t.test('fail on mismatched engine when engineStrict is set', async t => {
   const path = resolve(arbFixturesAbsPath, 'engine-specification')
@@ -652,6 +704,61 @@ t.test('force a new mkdirp (but not semver major)', async t => {
   t.equal(arb.idealTree.children.get('minimist').package.version, '1.2.5')
 })
 
+t.test('empty update should not trigger old lockfile', async t => {
+  const path = t.testdir({
+    'package.json': JSON.stringify({
+      name: 'empty-update',
+      version: '1.0.0',
+    }),
+    'package-lock.json': JSON.stringify({
+      name: 'empty-update',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': {
+          name: 'empty-update',
+          version: '1.0.0',
+        },
+      },
+    }),
+  })
+  const checkLogs = warningTracker()
+
+  const arb = newArb(path)
+  await arb.reify({ update: true })
+
+  t.strictSame(checkLogs(), [])
+})
+
+t.test('update v3 doesnt downgrade lockfile', async t => {
+  const fixt = t.testdir({
+    'package-lock.json': JSON.stringify({
+      name: 'empty-update-v3',
+      version: '1.0.0',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'empty-update-v3',
+          version: '1.0.0',
+        },
+      },
+    }),
+    'package.json': JSON.stringify({
+      name: 'empty-update-v3',
+      version: '1.0.0',
+    }),
+  })
+
+  const arb = newArb(fixt)
+  await arb.reify({ update: true })
+
+  const { lockfileVersion } = require(resolve(fixt, 'package-lock.json'))
+
+  t.strictSame(lockfileVersion, 3)
+})
+
 t.test('no fix available', async t => {
   const path = resolve(arbFixturesAbsPath, 'audit-mkdirp/mkdirp-unfixable')
   const checkLogs = warningTracker()
@@ -766,6 +873,149 @@ t.test('workspaces', t => {
     )
   })
 
+  t.test('should allow adding a workspace as a dep to a workspace', async t => {
+    // turn off networking, this should never make a registry request
+    nock.disableNetConnect()
+    t.teardown(() => nock.enableNetConnect())
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        workspaces: ['workspace-a', 'workspace-b'],
+      }),
+      'workspace-a': {
+        'package.json': JSON.stringify({
+          name: 'workspace-a',
+          version: '1.0.0',
+        }),
+      },
+      'workspace-b': {
+        'package.json': JSON.stringify({
+          name: 'workspace-b',
+          version: '1.0.0',
+        }),
+      },
+    })
+
+    const arb = new Arborist({
+      ...OPT,
+      path,
+      workspaces: ['workspace-a'],
+    })
+
+    const tree = arb.buildIdealTree({
+      path,
+      add: [
+        'workspace-b',
+      ],
+    })
+
+    // just assert that the buildIdealTree call resolves, if there's a
+    // problem here it will reject because of nock disabling requests
+    await t.resolves(tree)
+
+    t.matchSnapshot(printTree(await tree))
+  })
+
+  t.test('workspace nodes are used instead of fetching manifests when they are valid', async t => {
+    // turn off networking, this should never make a registry request
+    nock.disableNetConnect()
+    t.teardown(() => nock.enableNetConnect())
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        workspaces: ['workspace-a', 'workspace-b'],
+      }),
+      // the package-lock.json references version 1.0.0 of the workspace deps
+      // as it would if a user hand edited their workspace's package.json and
+      // now are attempting to reify with a stale package-lock
+      'package-lock.json': JSON.stringify({
+        name: 'root',
+        lockfileVersion: 2,
+        requires: true,
+        packages: {
+          '': {
+            name: 'root',
+            workspaces: ['workspace-a', 'workspace-b'],
+          },
+          'node_modules/workspace-a': {
+            resolved: 'workspace-a',
+            link: true,
+          },
+          'node_modules/workspace-b': {
+            resolved: 'workspace-b',
+            link: true,
+          },
+          'workspace-a': {
+            name: 'workspace-a',
+            version: '1.0.0',
+            dependencies: {
+              'workspace-b': '1.0.0',
+            },
+          },
+          'workspace-b': {
+            name: 'workspace-b',
+            version: '1.0.0',
+          },
+        },
+        dependencies: {
+          'workspace-a': {
+            version: 'file:workspace-a',
+            requires: {
+              'workspace-b': '1.0.0',
+            },
+          },
+          'workspace-b': {
+            version: 'file:workspace-b',
+          },
+        },
+      }),
+      node_modules: {
+        'workspace-a': t.fixture('symlink', '../workspace-a'),
+        'workspace-b': t.fixture('symlink', '../workspace-b'),
+      },
+      // the workspaces themselves are at 2.0.0 because they're what was edited
+      'workspace-a': {
+        'package.json': JSON.stringify({
+          name: 'workspace-a',
+          version: '2.0.0',
+          dependencies: {
+            'workspace-b': '2.0.0',
+          },
+        }),
+      },
+      'workspace-b': {
+        'package.json': JSON.stringify({
+          name: 'workspace-b',
+          version: '2.0.0',
+        }),
+      },
+    })
+
+    const arb = new Arborist({
+      ...OPT,
+      path,
+      workspaces: ['workspace-a', 'workspace-b'],
+    })
+
+    // this will reject if we try to fetch a manifest for some reason
+    const tree = await arb.buildIdealTree({
+      path,
+    })
+
+    const edgeA = tree.edgesOut.get('workspace-a')
+    t.ok(edgeA.valid, 'workspace-a should be valid')
+    const edgeB = tree.edgesOut.get('workspace-b')
+    t.ok(edgeB.valid, 'workspace-b should be valid')
+    const nodeA = edgeA.to.target
+    t.ok(nodeA.isWorkspace, 'workspace-a is definitely a workspace')
+    const nodeB = edgeB.to.target
+    t.ok(nodeB.isWorkspace, 'workspace-b is definitely a workspace')
+    const nodeBfromA = nodeA.edgesOut.get('workspace-b').to.target
+    t.equal(nodeBfromA, nodeB, 'workspace-b edgeOut from workspace-a is the workspace')
+  })
+
   t.end()
 })
 
@@ -870,7 +1120,7 @@ t.test('pathologically nested dependency cycle', async t => {
     resolve(arbFixturesAbsPath, 'pathological-dep-nesting-cycle')))
 })
 
-t.test('resolve file deps from cwd', t => {
+t.test('resolve file deps from cwd', async t => {
   const cwd = process.cwd()
   t.teardown(() => process.chdir(cwd))
   const path = t.testdir({
@@ -884,17 +1134,16 @@ t.test('resolve file deps from cwd', t => {
     path: resolve(path, 'global'),
     ...OPT,
   })
-  return arb.buildIdealTree({
+  const tree = await arb.buildIdealTree({
     path: `${path}/local`,
     add: ['child-1.2.3.tgz'],
     global: true,
-  }).then(tree => {
-    const resolved = `file:${resolve(fixturedir, 'child-1.2.3.tgz')}`
-    t.equal(normalizePath(tree.children.get('child').resolved), normalizePath(resolved))
   })
+  const resolved = `file:${resolve(fixturedir, 'child-1.2.3.tgz')}`
+  t.equal(normalizePath(tree.children.get('child').resolved), normalizePath(resolved))
 })
 
-t.test('resolve links in global mode', t => {
+t.test('resolve links in global mode', async t => {
   const cwd = process.cwd()
   t.teardown(() => process.chdir(cwd))
   const path = t.testdir({
@@ -917,13 +1166,12 @@ t.test('resolve links in global mode', t => {
     global: true,
     path: resolve(path, 'global'),
   })
-  return arb.buildIdealTree({
+  const tree = await arb.buildIdealTree({
     add: ['file:../../linked-dep'],
     global: true,
-  }).then(tree => {
-    const resolved = 'file:../../linked-dep'
-    t.equal(tree.children.get('linked-dep').resolved, resolved)
   })
+  const resolved = 'file:../../linked-dep'
+  t.equal(tree.children.get('linked-dep').resolved, resolved)
 })
 
 t.test('dont get confused if root matches duped metadep', async t => {
@@ -951,6 +1199,55 @@ This is a one-time fix-up, please be patient...
 `,
     ],
   ])
+})
+
+t.test('inflating a link node in an old lockfile skips registry', async t => {
+  const checkLogs = warningTracker()
+  const path = resolve(arbFixturesAbsPath, 'old-lock-with-link')
+  const arb = new Arborist({ path, ...OPT, registry: 'http://invalid.host' })
+  const tree = await arb.buildIdealTree()
+  t.matchSnapshot(printTree(tree))
+  t.strictSame(checkLogs(), [
+    [
+      'warn',
+      'old lockfile',
+      `
+The package-lock.json file was created with an old version of npm,
+so supplemental metadata must be fetched from the registry.
+
+This is a one-time fix-up, please be patient...
+`,
+    ],
+  ])
+})
+
+t.test('warn for ancient lockfile, even if we use v1', async t => {
+  const checkLogs = warningTracker()
+  const path = resolve(arbFixturesAbsPath, 'sax')
+  const arb = new Arborist({ path, lockfileVersion: 1, ...OPT })
+  const tree = await arb.buildIdealTree()
+  t.matchSnapshot(printTree(tree))
+  t.strictSame(checkLogs(), [
+    [
+      'warn',
+      'ancient lockfile',
+      `
+The package-lock.json file was created with an old version of npm,
+so supplemental metadata must be fetched from the registry.
+
+This is a one-time fix-up, please be patient...
+`,
+    ],
+  ])
+})
+
+t.test('no old lockfile warning if we write back v1', async t => {
+  const checkLogs = warningTracker()
+  const path = resolve(arbFixturesAbsPath, 'old-package-lock')
+  const arb = new Arborist({ path, lockfileVersion: 1, ...OPT })
+  const tree = await arb.buildIdealTree()
+  t.matchSnapshot(printTree(tree))
+  t.strictSame(checkLogs(), [])
 })
 
 t.test('inflate an ancient lockfile with a dep gone missing', async t => {
@@ -988,6 +1285,53 @@ t.test('complete build for project with old lockfile', async t => {
   t.match(checkLogs(), [
     oldLockfileWarning,
   ])
+})
+
+t.test('no old lockfile warning with no package-lock', async t => {
+  const fixt = t.testdir({
+    node_modules: {
+      abbrev: {
+        'package.json': JSON.stringify({
+          name: 'abbrev',
+          version: '1.1.1',
+        }),
+      },
+    },
+    'package.json': JSON.stringify({
+      name: 'no-package-lock',
+      dependencies: {
+        abbrev: '1',
+      },
+    }),
+  })
+  const checkLogs = warningTracker()
+  await newArb(fixt).reify()
+  t.strictSame(checkLogs(), [])
+})
+
+t.test('no old lockfile warning with a conflict package-lock', async t => {
+  const fixt = t.testdir({
+    node_modules: {
+      abbrev: {
+        'package.json': JSON.stringify({
+          name: 'abbrev',
+          version: '1.1.1',
+        }),
+      },
+    },
+    'package.json': JSON.stringify({
+      name: 'conflict-package-lock',
+      dependencies: {
+        abbrev: '1',
+      },
+    }),
+    'package-lock.json': fs.readFileSync(
+      join(arbFixturesAbsPath, 'conflict-package-lock/package-lock.json')
+    ),
+  })
+  const checkLogs = warningTracker()
+  await newArb(fixt).reify()
+  t.strictSame(checkLogs(), [])
 })
 
 t.test('override a conflict with the root dep (with force)', async t => {
@@ -1905,10 +2249,30 @@ t.test('update global', async t => {
       },
     },
   })
+
+  t.matchSnapshot(await printIdeal(path, { global: true, update: ['abbrev'] }),
+    'updating missing dep should have no effect, but fix the invalid node')
+
   t.matchSnapshot(await printIdeal(path, { global: true, update: ['wrappy'] }),
-    'updating sub-dep has no effect')
+    'updating sub-dep has no effect, but fixes the invalid node')
+
+  const invalidArgs = [
+    'once@1.4.0',
+    'once@next',
+    'once@^1.0.0',
+    'once@>=2.0.0',
+    'once@2',
+  ]
+  for (const updateName of invalidArgs) {
+    t.rejects(
+      printIdeal(path, { global: true, update: [updateName] }),
+      { code: 'EUPDATEARGS' },
+      'should throw an error when using semver ranges'
+    )
+  }
+
   t.matchSnapshot(await printIdeal(path, { global: true, update: ['once'] }),
-    'update a single dep')
+    'update a single dep, also fixes the invalid node')
   t.matchSnapshot(await printIdeal(path, { global: true, update: true }),
     'update all the deps')
 })
@@ -2350,6 +2714,19 @@ t.test('add packages to workspaces, not root', async t => {
   t.matchSnapshot(printTree(rmTree), 'tree with abbrev removed from a and b')
 })
 
+t.test('add one workspace to another', async t => {
+  const path = join(arbFixturesAbsPath, 'workspaces-not-root')
+  const packageA = resolve(path, 'packages/a')
+
+  const addTree = await buildIdeal(path, {
+    add: [packageA],
+    workspaces: ['c'],
+  })
+  const c = addTree.children.get('c').target
+  t.match(c.edgesOut.get('a'), { spec: 'file:../a' })
+  t.matchSnapshot(printTree(addTree), 'tree with workspace a added to workspace c')
+})
+
 t.test('workspace error handling', async t => {
   const path = t.testdir({
     'package.json': JSON.stringify({
@@ -2642,6 +3019,54 @@ t.test('add deps to workspaces', async t => {
   })
 })
 
+t.test('add deps and include workspace-root', async t => {
+  const fixtureDef = {
+    'package.json': JSON.stringify({
+      workspaces: [
+        'packages/*',
+      ],
+      dependencies: {
+        mkdirp: '^1.0.4',
+        minimist: '1',
+      },
+    }),
+    packages: {
+      a: {
+        'package.json': JSON.stringify({
+          name: 'a',
+          version: '1.2.3',
+          dependencies: {
+            mkdirp: '^0.5.0',
+          },
+        }),
+      },
+      b: {
+        'package.json': JSON.stringify({
+          name: 'b',
+          version: '1.2.3',
+        }),
+      },
+    },
+  }
+  const path = t.testdir(fixtureDef)
+
+  t.test('no args', async t => {
+    const tree = await buildIdeal(path)
+    t.equal(tree.children.get('mkdirp').version, '1.0.4')
+    t.equal(tree.children.get('a').target.children.get('mkdirp').version, '0.5.5')
+    t.equal(tree.children.get('b').target.children.get('mkdirp'), undefined)
+    t.ok(tree.edgesOut.has('mkdirp'))
+    t.matchSnapshot(printTree(tree))
+  })
+
+  t.test('add mkdirp 0.5.0 to b', async t => {
+    const tree = await buildIdeal(path, { workspaces: ['b'], add: ['mkdirp@0.5.0'], includeWorkspaceRoot: true })
+    t.equal(tree.children.get('mkdirp').version, '0.5.0')
+    t.ok(tree.edgesOut.has('mkdirp'))
+    t.matchSnapshot(printTree(tree))
+  })
+})
+
 t.test('inflates old lockfile with hasInstallScript', async t => {
   const path = t.testdir({
     'package-lock.json': JSON.stringify({
@@ -2701,6 +3126,852 @@ t.test('update a global space that contains a link', async t => {
   const tree = await buildIdeal(path, { update: true, global: true })
   t.matchSnapshot(printTree(tree))
   t.equal(tree.children.get('once').isLink, true)
+})
+
+t.test('peer conflicts between peer sets in transitive deps', t => {
+  t.plan(4)
+
+  // caused an infinite loop in https://github.com/npm/arborist/issues/325,
+  // which is the reason for the package name.
+  t.test('y and j@2 at root, x and j@1 underneath a', async t => {
+    const path = t.testdir({
+      'package.json': '{}',
+    })
+    const warnings = warningTracker()
+    const tree = await buildIdeal(path, {
+      add: ['@isaacs/peer-dep-conflict-infinite-loop-a@1'],
+    })
+    t.strictSame(warnings(), [])
+    const a = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-a')
+    const j = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const x = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const y = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    const aj = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const ax = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const ay = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    t.equal(a.version, '1.0.0')
+    t.equal(y.version, '1.0.0')
+    t.equal(j.version, '2.0.0')
+    t.notOk(x)
+    t.equal(ax.version, '1.0.0')
+    t.equal(aj.version, '1.0.0')
+    t.notOk(ay)
+  })
+
+  t.test('x and j@1 at root, y and j@2 underneath a', async t => {
+    const path = t.testdir({
+      'package.json': '{}',
+    })
+    const warnings = warningTracker()
+    const tree = await buildIdeal(path, {
+      add: ['@isaacs/peer-dep-conflict-infinite-loop-a@2'],
+    })
+    t.strictSame(warnings(), [])
+    const a = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-a')
+    const j = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const x = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const y = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    const aj = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const ax = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const ay = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    t.equal(a.version, '2.0.0')
+    t.equal(x.version, '1.0.0')
+    t.equal(j.version, '1.0.0')
+    t.notOk(y)
+    t.equal(ay.version, '1.0.0')
+    t.equal(aj.version, '2.0.0')
+    t.notOk(ax)
+  })
+
+  t.test('get warning, x and j@1 in root, put y and j@3 in a', async t => {
+    const path = t.testdir({
+      'package.json': '{}',
+    })
+    const warnings = warningTracker()
+    const tree = await buildIdeal(path, {
+      add: ['@isaacs/peer-dep-conflict-infinite-loop-a@3'],
+    })
+    const w = warnings()
+    t.match(w, [['warn', 'ERESOLVE', 'overriding peer dependency', {
+      code: 'ERESOLVE',
+    }]], 'warning is an ERESOLVE')
+    t.equal(w.length, 1, 'one warning')
+    t.matchSnapshot(normalizePaths(w[0][3]), 'ERESOLVE explanation')
+    const a = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-a')
+    const j = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const x = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const y = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    const aj = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const ax = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const ay = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    t.equal(a.version, '3.0.0')
+    t.equal(x.version, '1.0.0')
+    t.equal(j.version, '1.0.0')
+    t.notOk(y)
+    t.equal(ay.version, '1.0.0')
+    t.equal(aj.version, '3.0.0')
+    t.notOk(ax)
+  })
+
+  t.test('x and j@1 at root, y and j@2 underneath a (no a->j dep)', async t => {
+    const path = t.testdir({
+      'package.json': '{}',
+    })
+    const warnings = warningTracker()
+    const tree = await buildIdeal(path, {
+      add: ['@isaacs/peer-dep-conflict-infinite-loop-a@4'],
+    })
+    t.strictSame(warnings(), [], 'no warnings')
+
+    const a = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-a')
+    const j = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const x = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const y = tree.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    const aj = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-j')
+    const ax = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-x')
+    const ay = a.children.get('@isaacs/peer-dep-conflict-infinite-loop-y')
+    t.equal(a.version, '4.0.0')
+    t.equal(x.version, '1.0.0')
+    t.equal(j.version, '1.0.0')
+    t.notOk(y)
+    t.equal(ay.version, '1.0.0')
+    t.equal(aj.version, '2.0.0')
+    t.notOk(ax)
+  })
+
+  t.end()
+})
+
+t.test('competing peerSets resolve in both root and workspace', t => {
+  // The following trees caused an infinite loop in a workspace
+  // https://github.com/npm/cli/issues/3933
+  t.plan(2)
+
+  const rootAndWs = async dependencies => {
+    const fixt = t.testdir({
+      root: {
+        'package.json': JSON.stringify({
+          name: 'root',
+          version: '1.0.0',
+          dependencies,
+        }),
+      },
+      ws: {
+        'package.json': JSON.stringify({
+          name: 'workspace',
+          version: '1.0.0',
+          workspaces: ['a'],
+        }),
+        a: {
+          'package.json': JSON.stringify({
+            name: 'a',
+            version: '1.0.0',
+            dependencies,
+          }),
+        },
+      },
+    })
+    return [
+      await buildIdeal(resolve(fixt, 'root')),
+      await buildIdeal(resolve(fixt, 'ws')),
+    ]
+  }
+
+  t.test('overlapping peerSets dont warn', async t => {
+    // This should not cause a warning because replacing `c@2` and `d@2`
+    // with `c@1` and `d@1` is still valid.
+    //
+    // ```
+    // project -> (a@1)
+    // a@1 -> (b), PEER(c@1||2), PEER(d@1||2)
+    // b -> PEER(c@1), PEER(d@1)
+    // c -> ()
+    // d@1 -> PEER(c@1)
+    // d@2 -> PEER(c@2)
+    // ```
+
+    const warnings = warningTracker()
+    const [rootTree, wsTree] = await rootAndWs({
+      '@lukekarrys/workspace-peer-dep-infinite-loop-a': '1',
+    })
+
+    const rootA = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-a')
+    const rootB = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-b')
+    const rootC = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-c')
+    const rootD = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-d')
+
+    const wsA = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-a')
+    const wsB = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-b')
+    const wsC = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-c')
+    const wsD = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-d')
+
+    t.equal(rootA.version, '1.0.0', 'root a version')
+    t.equal(rootB.version, '1.0.0', 'root b version')
+    t.equal(rootC.version, '1.0.0', 'root c version')
+    t.equal(rootD.version, '1.0.0', 'root d version')
+    t.equal(wsA.version, '1.0.0', 'workspace a version')
+    t.equal(wsB.version, '1.0.0', 'workspace b version')
+    t.equal(wsC.version, '1.0.0', 'workspace c version')
+    t.equal(wsD.version, '1.0.0', 'workspace d version')
+
+    const [rootWarnings = [], wsWarnings = []] = warnings()
+    // TODO: these warn for now but shouldnt
+    // https://github.com/npm/arborist/issues/347
+    t.comment('FIXME')
+    t.match(rootWarnings, ['warn', 'ERESOLVE', 'overriding peer dependency', {
+      code: 'ERESOLVE',
+    }], 'root warning is an ERESOLVE')
+    t.match(wsWarnings, ['warn', 'ERESOLVE', 'overriding peer dependency', {
+      code: 'ERESOLVE',
+    }], 'workspace warning is an ERESOLVE')
+
+    t.matchSnapshot(normalizePaths(rootWarnings[3]), 'root warnings')
+    t.matchSnapshot(normalizePaths(wsWarnings[3]), 'workspace warnings')
+    t.matchSnapshot(printTree(rootTree), 'root tree')
+    t.matchSnapshot(printTree(wsTree), 'workspace tree')
+  })
+
+  t.test('conflicting peerSets do warn', async t => {
+    // ```
+    // project -> (a@2)
+    // a@2 -> (b), PEER(c@2), PEER(d@2)
+    // b -> PEER(c@1), PEER(d@1)
+    // c -> ()
+    // d@1 -> PEER(c@1)
+    // d@2 -> PEER(c@2)
+    // ```
+
+    const warnings = warningTracker()
+    const [rootTree, wsTree] = await rootAndWs({
+      // It's 2.0.1 because I messed up publishing 2.0.0
+      '@lukekarrys/workspace-peer-dep-infinite-loop-a': '2.0.1',
+    })
+
+    const rootA = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-a')
+    const rootB = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-b')
+    const rootC = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-c')
+    const rootD = rootTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-d')
+
+    const wsA = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-a')
+    const wsB = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-b')
+    const wsC = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-c')
+    const wsD = wsTree.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-d')
+
+    const wsTarget = wsTree.children.get('a').target
+
+    const wsTargetC = wsTarget.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-c')
+    const wsTargetD = wsTarget.children.get('@lukekarrys/workspace-peer-dep-infinite-loop-d')
+
+    t.equal(rootA.version, '2.0.1', 'root a version')
+    t.equal(rootB.version, '1.0.0', 'root b version')
+    t.equal(rootC.version, '2.0.0', 'root c version')
+    t.equal(rootD.version, '2.0.0', 'root d version')
+
+    t.equal(wsA.version, '2.0.1', 'workspace a version')
+    t.equal(wsB.version, '1.0.0', 'workspace b version')
+
+    // TODO: these should be 2.0.0 also?
+    t.comment('FIXME')
+    t.equal(wsC.version, '1.0.0', 'workspace c version')
+    t.equal(wsD.version, '1.0.0', 'workspace d version')
+
+    // TODO: these should not be undefined
+    // https://github.com/npm/arborist/issues/348
+    t.comment('FIXME')
+    t.equal((wsTargetC || {}).version, undefined, 'workspace target c version')
+    t.equal((wsTargetD || {}).version, undefined, 'workspace target d version')
+
+    const [rootWarnings, wsWarnings] = warnings()
+    t.match(rootWarnings, ['warn', 'ERESOLVE', 'overriding peer dependency', {
+      code: 'ERESOLVE',
+    }], 'root warning is an ERESOLVE')
+    t.match(wsWarnings, ['warn', 'ERESOLVE', 'overriding peer dependency', {
+      code: 'ERESOLVE',
+    }], 'workspace warning is an ERESOLVE')
+
+    t.matchSnapshot(normalizePaths(rootWarnings[3]), 'root warnings')
+    t.matchSnapshot(normalizePaths(wsWarnings[3]), 'workspace warnings')
+    t.matchSnapshot(printTree(rootTree), 'root tree')
+    t.matchSnapshot(printTree(wsTree), 'workspace tree')
+  })
+
+  t.end()
+})
+
+t.test('overrides', t => {
+  t.test('throws when override conflicts with dependencies', async (t) => {
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          abbrev: '1.0.3',
+        },
+        overrides: {
+          abbrev: '1.1.1',
+        },
+      }),
+    })
+
+    await t.rejects(buildIdeal(path), { code: 'EOVERRIDE' }, 'throws EOVERRIDE')
+  })
+
+  t.test('throws when override conflicts with devDependencies', async (t) => {
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        devDependencies: {
+          abbrev: '1.0.3',
+        },
+        overrides: {
+          abbrev: '1.1.1',
+        },
+      }),
+    })
+
+    await t.rejects(buildIdeal(path), { code: 'EOVERRIDE' }, 'throws EOVERRIDE')
+  })
+
+  t.test('throws when override conflicts with peerDependencies', async (t) => {
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        peerDependencies: {
+          abbrev: '1.0.3',
+        },
+        overrides: {
+          abbrev: '1.1.1',
+        },
+      }),
+    })
+
+    await t.rejects(buildIdeal(path), { code: 'EOVERRIDE' }, 'throws EOVERRIDE')
+  })
+
+  t.test('overrides a nested dependency', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+        },
+        overrides: {
+          bar: '2.0.0',
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true)
+
+    const fooBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(fooBarEdge.valid, true)
+    t.equal(fooBarEdge.to.version, '2.0.0')
+  })
+
+  t.test('overrides a nested dependency with a more specific override', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+          bar: '2.0.0',
+        },
+        overrides: {
+          foo: {
+            bar: '2.0.0',
+          },
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true)
+
+    const fooBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(fooBarEdge.valid, true)
+    t.equal(fooBarEdge.to.version, '2.0.0')
+
+    const barEdge = tree.edgesOut.get('bar')
+    t.equal(barEdge.valid, true)
+    t.equal(barEdge.to.version, '2.0.0')
+  })
+
+  t.test('does not override a nested dependency when parent spec does not match', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+          bar: '2.0.0',
+        },
+        overrides: {
+          'foo@2': {
+            bar: '2.0.0',
+          },
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true)
+
+    const fooBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(fooBarEdge.valid, true)
+    t.equal(fooBarEdge.to.version, '1.0.1')
+
+    const barEdge = tree.edgesOut.get('bar')
+    t.equal(barEdge.valid, true)
+    t.equal(barEdge.to.version, '2.0.0')
+  })
+
+  t.test('overrides a nested dependency that also exists as a direct dependency', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '2.0.0',
+          bar: '1.0.1',
+        },
+        overrides: {
+          foo: {
+            bar: '1.0.1',
+          },
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '2.0.0')
+
+    const barEdge = tree.edgesOut.get('bar')
+    t.equal(barEdge.valid, true, 'top level bar is valid')
+    t.equal(barEdge.to.version, '1.0.1')
+
+    const nestedBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(nestedBarEdge.valid, true, 'nested bar is valid')
+    t.equal(nestedBarEdge.to.version, '1.0.1', 'nested bar version was overridden')
+
+    t.equal(barEdge.to, nestedBarEdge.to, 'deduplicated tree correctly')
+  })
+
+  t.test('overrides a nested dependency that also exists as a direct dependency without a top level specifier', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '2.0.0',
+          bar: '1.0.1',
+        },
+        overrides: {
+          bar: '1.0.1', // this override is allowed because the spec matches the dep
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '2.0.0')
+
+    const barEdge = tree.edgesOut.get('bar')
+    t.equal(barEdge.valid, true, 'top level bar is valid')
+    t.equal(barEdge.to.version, '1.0.1')
+
+    const nestedBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(nestedBarEdge.valid, true, 'nested bar is valid')
+    t.equal(nestedBarEdge.to.version, '1.0.1', 'nested bar version was overridden')
+
+    t.equal(barEdge.to, nestedBarEdge.to, 'deduplicated tree correctly')
+  })
+
+  t.test('overrides a nested dependency with a reference to a direct dependency', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '2.0.0',
+          bar: '1.0.1',
+        },
+        overrides: {
+          foo: {
+            bar: '$bar',
+          },
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '2.0.0')
+
+    const barEdge = tree.edgesOut.get('bar')
+    t.equal(barEdge.valid, true, 'top level bar is valid')
+    t.equal(barEdge.to.version, '1.0.1')
+
+    const nestedBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(nestedBarEdge.valid, true, 'nested bar is valid')
+    t.equal(nestedBarEdge.to.version, '1.0.1', 'nested bar version was overridden')
+
+    t.equal(barEdge.to, nestedBarEdge.to, 'deduplicated tree correctly')
+  })
+
+  t.test('overrides a nested dependency with a reference to a direct dependency without a top level identifier', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '2.0.0',
+          bar: '1.0.1',
+        },
+        overrides: {
+          bar: '$bar',
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '2.0.0')
+
+    const barEdge = tree.edgesOut.get('bar')
+    t.equal(barEdge.valid, true, 'top level bar is valid')
+    t.equal(barEdge.to.version, '1.0.1')
+
+    const nestedBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(nestedBarEdge.valid, true, 'nested bar is valid')
+    t.equal(nestedBarEdge.to.version, '1.0.1', 'nested bar version was overridden')
+
+    t.equal(barEdge.to, nestedBarEdge.to, 'deduplicated tree correctly')
+  })
+
+  t.test('overrides a peerDependency', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        peerDependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+        },
+        overrides: {
+          foo: {
+            bar: '2.0.0',
+          },
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '1.0.1')
+
+    const nestedBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(nestedBarEdge.valid, true, 'peer bar is valid')
+    t.equal(nestedBarEdge.to.version, '2.0.0', 'peer bar version was overridden')
+  })
+
+  t.test('overrides a peerDependency without top level specifier', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        peerDependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    // this again with no foo
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+        },
+        overrides: {
+          bar: '2.0.0',
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '1.0.1')
+
+    const nestedBarEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(nestedBarEdge.valid, true, 'peer bar is valid')
+    t.equal(nestedBarEdge.to.version, '2.0.0', 'peer bar version was overridden')
+  })
+
+  t.test('can override inside a cyclical dep chain', async (t) => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['bar'],
+      },
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['baz'],
+      },
+      baz: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+        dependencies: ['foo'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+        },
+        overrides: {
+          foo: {
+            foo: '2.0.0',
+          },
+        },
+      }),
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true, 'foo is valid')
+    t.equal(fooEdge.to.version, '1.0.1')
+
+    const barEdge = fooEdge.to.edgesOut.get('bar')
+    t.equal(barEdge.valid, true, 'bar is valid')
+    t.equal(barEdge.to.version, '1.0.1', 'bar version is correct')
+
+    const bazEdge = barEdge.to.edgesOut.get('baz')
+    t.equal(bazEdge.valid, true, 'baz is valid')
+    t.equal(bazEdge.to.version, '1.0.1', 'baz version is correct')
+
+    const fooBazEdge = bazEdge.to.edgesOut.get('foo')
+    t.equal(fooBazEdge.valid, true, 'cyclical foo is valid')
+    t.equal(fooBazEdge.to.version, '2.0.0', 'override broke the cycle')
+  })
+
+  t.test('can fix an ERESOLVE with overrides', async (t) => {
+    // this tree creates an ERESOLVE due to a@1 having a peer on b@1
+    // and d@2 having a peer on b@2, to fix it we override the a@1 peer
+    // to be b@2
+    generateNocks(t, {
+      a: {
+        versions: ['1.0.0'],
+        peerDependencies: ['b'],
+      },
+      b: {
+        versions: ['1.0.0', '2.0.0'],
+        peerDependencies: [{ '2.0.0': 'c' }],
+      },
+      c: {
+        versions: ['2.0.0'],
+      },
+      d: {
+        versions: ['2.0.0'],
+        peerDependencies: ['b'],
+      },
+    })
+
+    const pkg = {
+      name: 'root',
+      dependencies: {
+        a: '1.x',
+        d: '2.x',
+      },
+    }
+
+    // start off with no overrides, prove we get an ERESOLVE
+    const path = t.testdir({
+      'package.json': JSON.stringify(pkg),
+    })
+
+    await t.rejects(buildIdeal(path), { code: 'ERESOLVE' }, 'prove we have an ERESOLVE')
+
+    // add the override and overwrite the existing package.json
+    pkg.overrides = { a: { b: '2' } }
+    fs.writeFileSync(resolve(path, 'package.json'), JSON.stringify(pkg))
+
+    const tree = await buildIdeal(path)
+
+    const aEdge = tree.edgesOut.get('a')
+    t.equal(aEdge.valid, true, 'a is valid')
+    t.equal(aEdge.to.version, '1.0.0', 'a is 1.0.0')
+
+    const abEdge = aEdge.to.edgesOut.get('b')
+    t.equal(abEdge.valid, true, 'a->b is valid')
+    t.equal(abEdge.to.version, '2.0.0', 'a->b was overridden to 2.0.0')
+
+    const dEdge = tree.edgesOut.get('d')
+    t.equal(dEdge.valid, true, 'd is valid')
+    t.equal(dEdge.to.version, '2.0.0', 'd is 2.0.0')
+
+    const dbEdge = dEdge.to.edgesOut.get('b')
+    t.equal(dbEdge.valid, true, 'd->b is valid')
+    t.equal(dbEdge.to.version, '2.0.0', 'd->b is 2.0.0')
+
+    t.equal(abEdge.to, dbEdge.to, 'a->b and d->b point to same node')
+
+    const bcEdge = abEdge.to.edgesOut.get('c')
+    t.equal(bcEdge.valid, true, 'b->c is valid')
+    t.equal(bcEdge.to.version, '2.0.0', 'b->c is 2.0.0')
+  })
+
+  t.test('overrides a workspace dependency', async (t) => {
+    generateNocks(t, {
+      bar: {
+        versions: ['1.0.0', '1.0.1', '2.0.0'],
+      },
+    })
+
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          foo: '1.0.1',
+        },
+        overrides: {
+          bar: '2.0.0',
+        },
+        workspaces: [
+          './workspaces/*',
+        ],
+      }),
+      workspaces: {
+        foo: {
+          'package.json': JSON.stringify({
+            name: 'foo',
+            version: '1.0.1',
+            dependencies: {
+              bar: '1.0.0',
+            },
+          }),
+        },
+      },
+    })
+
+    const tree = await buildIdeal(path)
+
+    const fooEdge = tree.edgesOut.get('foo')
+    t.equal(fooEdge.valid, true)
+
+    // fooEdge.to is a link, so we need to look at the target for edgesOut
+    const fooBarEdge = fooEdge.to.target.edgesOut.get('bar')
+    t.equal(fooBarEdge.valid, true)
+    t.equal(fooBarEdge.to.version, '2.0.0')
+  })
+
+  t.end()
+})
+
+t.test('store files with a custom indenting', async t => {
+  const tabIndentedPackageJson =
+    fs.readFileSync(
+      join(arbFixturesAbsPath, 'tab-indented-package-json/package.json'),
+      'utf8'
+    ).replace(/\r\n/g, '\n')
+  const path = t.testdir({
+    'package.json': tabIndentedPackageJson,
+  })
+  const tree = await buildIdeal(path)
+  t.matchSnapshot(String(tree.meta))
 })
 
 t.test('offline cases', async t => {

@@ -1,3 +1,4 @@
+const path = require('path')
 const { promisify } = require('util')
 
 const rimrafAsync = promisify(require('rimraf'))
@@ -132,6 +133,7 @@ function createDependencyTestConfig(parentItem, depItem, depCategory) {
   }
 }
 
+const testRootName = 'tempAssets1'
 let mockDlt
 let gitTrackerKeys
 let itemAgents
@@ -141,34 +143,33 @@ let mockPacote
 let npf
 
 tap.before(() =>
-  makeAssets('tempAssets1', 'download/item-agents.js')
+  makeAssets(testRootName, 'download/item-agents.js')
   .then(assets => {
     gitTrackerKeys = require(assets.libDownload + '/git-tracker-keys')
     itemAgents = require(assets.libDownload + '/item-agents')
     npf = require(assets.libDownload + '/npm-package-filename')
     mockDlt = require(assets.libDownload + '/dltracker')
     mockLockDeps = require(assets.libDownload + '/lock-deps')
-    mockLog = require(assets.nodeModules + '/npmlog')
+    mockLog = require(assets.npmLib + '/utils/log-shim')
     mockPacote = require(assets.nodeModules + '/pacote')
-
-    tap.teardown(() => rimrafAsync(assets.fs('rootName')))
   })
 )
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 const makeOpts = (pkgDir) =>  ({
   dlTracker: mockDlt.createSync(pkgDir),
   flatOpts: { log: mockLog },
   cmd: {}
 })
-  /*
-    DEV NOTES:
-    * item-agents makes no mention of the cache, though it is passed in opts
-      to other services (e.g., pacote)
-    * it makes explicit mention of opts.flatOpts, but an empty object could suffice
-    * it makes explicit mention of opts.dlTracker, *and* the ItemAgents use it!
-      (contains(), add(), and path)
-    * it uses opts.cmd fields: includeDev, noPeer, noOptional, noShrinkwrap
-  */
+/*
+  DEV NOTES:
+  * item-agents makes no mention of the cache, though it is passed in opts
+    to other services (e.g., pacote)
+  * it makes explicit mention of opts.flatOpts, but an empty object could suffice
+  * it makes explicit mention of opts.dlTracker, *and* the ItemAgents use it!
+    (contains(), add(), and path)
+  * it uses opts.cmd fields: includeDev, noPeer, noOptional, noShrinkwrap
+*/
 
 function expectDlTrackerData(t, dlTracker, type, keyData, msg) {
   const expected = {}

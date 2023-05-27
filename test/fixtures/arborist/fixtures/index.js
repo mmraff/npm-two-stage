@@ -1,6 +1,6 @@
 const mkdirp = require('mkdirp').sync
-const { unlinkSync, symlinkSync } = require('fs')
-// mmraff REMOVED: readFileSync & writeFileSync from the above
+const localeCompare = require('@isaacs/string-locale-compare')('en')
+const { unlinkSync, symlinkSync, readFileSync, writeFileSync } = require('fs')
 const { relative, resolve, dirname } = require('path')
 
 const fixtures = __dirname
@@ -151,7 +151,7 @@ const setup = () => {
   Object.keys(symlinks).forEach(s => {
     const p = resolve(__dirname, s)
     mkdirp(dirname(p))
-    const rel = relative(resolve(__dirname, '../..'), p)
+    const rel = relative(resolve(__dirname), p)
     links.push('/' + rel.replace(/\\/g, '/'))
 
     // it's fine for this to throw, since it typically means
@@ -161,7 +161,17 @@ const setup = () => {
       didSomething = true
     } catch (_) {}
   })
-  // mmraff REMOVED: rewrite  of .gitignore
+  if (didSomething) {
+    const gifile = resolve(__dirname, './.gitignore')
+    const gitignore = readFileSync(gifile, 'utf8')
+      .replace(/### BEGIN IGNORED SYMLINKS ###[\s\S]*### END IGNORED SYMLINKS ###/,
+      `### BEGIN IGNORED SYMLINKS ###
+### this list is generated automatically, do not edit directly
+### update it by running \`node test/fixtures/index.js\`
+${links.sort(localeCompare).join('\n')}
+### END IGNORED SYMLINKS ###`)
+    writeFileSync(gifile, gitignore)
+  }
 }
 
 const doCleanup = process.argv[2] === 'cleanup' && require.main === module ||

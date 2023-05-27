@@ -1,13 +1,13 @@
 {
   "name": "npm",
-  "version": "7.24.2",
+  "version": "8.19.4",
   "description": "mock npm",
-  "main": "./lib/npm.js",
+  "main": "./index.js",
   "directories": {
-    "lib": "lib"
+    "lib": "./lib"
   },
   "dependencies": {
-    "pacote": "^11.3.5"
+    "pacote": "^13.6.2"
   },
   "devDependencies": {},
   "scripts": {

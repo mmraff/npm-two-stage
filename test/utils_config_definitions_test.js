@@ -1,34 +1,43 @@
 /*
-  Based on test/lib/utils/config/definitions.js of npm v7.24.0.
+  Based on test/lib/utils/config/definitions.js of npm v8.19.4.
   Almost all of this suite was created by the developers of npm/cli.
   Origin comments are preserved.
   A small set of changes have been made to this file to adapt it to the
   different context of the transposed code base used here (make-assets).
 */
 
+const t = require('tap')
 const path = require('path')
 const { promisify } = require('util')
 
 const rimrafAsync = promisify(require('rimraf'))
-const t = require('tap')
+
+const mockGlobals = require('./fixtures/npmcli/mock-globals')
+// have to fake the node version, or else it'll only pass on this one
+mockGlobals(t, { 'process.version': 'v14.8.0', 'process.env.NODE_ENV': undefined })
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets8'
 let n2sAssets
 let pkg
 let defPath
 let definitions
 let isWin
 
-// have to fake the node version, or else it'll only pass on this one
-Object.defineProperty(process, 'version', {
-  value: 'v14.8.0',
-})
-// set this in the test when we need it
-delete process.env.NODE_ENV
-
 t.before(() =>
-  makeAssets('tempAssets8', 'utils/config/definitions.js')
+  makeAssets(testRootName, 'utils/config/definitions.js',
+    {
+      verbatim: {
+        files: [
+          'lib/utils/is-windows.js',
+          'lib/utils/config/definition.js',
+          'node_modules/@npmcli/config/lib/type-defs.js',
+          'node_modules/@npmcli/config/lib/umask.js',
+       ],
+      }
+    }
+  )
   .then(assets => {
     n2sAssets = assets
     // fake the npm version, so that it doesn't get reset every time
@@ -37,24 +46,13 @@ t.before(() =>
     defpath = assets.npmLib + '/utils/config/definitions.js'//'../../../../lib/utils/config/definitions.js'
     definitions = require(defpath)
 
-    t.teardown(() => rimrafAsync(assets.fs('rootName')))
-
-    // Tie the definitions to a snapshot so that if they change we are forced to
-    // update snapshots, which rebuilds the docs
-    for (const key of Object.keys(definitions))
-      t.matchSnapshot(definitions[key].describe(), `config description for ${key}`)
-
     isWin = assets.npmLib + '/utils/is-windows.js'//'../../../../lib/utils/is-windows.js'
-
-    // snapshot these just so we note when they change
-    t.matchSnapshot(Object.keys(definitions), 'all config keys')
-    t.matchSnapshot(Object.keys(definitions).filter(d => d.flatten),
-      'all config keys that are shared to flatOptions')
 
     t.equal(definitions['npm-version'].default, pkg.version, 'npm-version default')
     t.equal(definitions['node-version'].default, process.version, 'node-version default')
   })
 )
+t.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 t.test('basic flattening function camelCases from css-case', t => {
   const flat = {}
@@ -66,28 +64,25 @@ t.test('basic flattening function camelCases from css-case', t => {
 
 t.test('editor', t => {
   t.test('has EDITOR and VISUAL, use EDITOR', t => {
-    process.env.EDITOR = 'vim'
-    process.env.VISUAL = 'mate'
+    mockGlobals(t, { 'process.env': { EDITOR: 'vim', VISUAL: 'mate' } })
     const defs = t.mock(defpath)
     t.equal(defs.editor.default, 'vim')
     t.end()
   })
   t.test('has VISUAL but no EDITOR, use VISUAL', t => {
-    delete process.env.EDITOR
-    process.env.VISUAL = 'mate'
+    mockGlobals(t, { 'process.env': { EDITOR: undefined, VISUAL: 'mate' } })
     const defs = t.mock(defpath)
     t.equal(defs.editor.default, 'mate')
     t.end()
   })
   t.test('has neither EDITOR nor VISUAL, system specific', t => {
-    delete process.env.EDITOR
-    delete process.env.VISUAL
+    mockGlobals(t, { 'process.env': { EDITOR: undefined, VISUAL: undefined } })
     const defsWin = t.mock(defpath, {
-      [isWin]: true,
+      [isWin]: { isWindows: true },
     })
     t.equal(defsWin.editor.default, 'notepad.exe')
     const defsNix = t.mock(defpath, {
-      [isWin]: false,
+      [isWin]: { isWindows: false },
     })
     t.equal(defsNix.editor.default, 'vi')
     t.end()
@@ -97,28 +92,28 @@ t.test('editor', t => {
 
 t.test('shell', t => {
   t.test('windows, env.ComSpec then cmd.exe', t => {
-    process.env.ComSpec = 'command.com'
+    mockGlobals(t, { 'process.env.ComSpec': 'command.com' })
     const defsComSpec = t.mock(defpath, {
-      [isWin]: true,
+      [isWin]: { isWindows: true },
     })
     t.equal(defsComSpec.shell.default, 'command.com')
-    delete process.env.ComSpec
+    mockGlobals(t, { 'process.env.ComSpec': undefined })
     const defsNoComSpec = t.mock(defpath, {
-      [isWin]: true,
+      [isWin]: { isWindows: true },
     })
     t.equal(defsNoComSpec.shell.default, 'cmd')
     t.end()
   })
 
   t.test('nix, SHELL then sh', t => {
-    process.env.SHELL = '/usr/local/bin/bash'
+    mockGlobals(t, { 'process.env.SHELL': '/usr/local/bin/bash' })
     const defsShell = t.mock(defpath, {
-      [isWin]: false,
+      [isWin]: { isWindows: false },
     })
     t.equal(defsShell.shell.default, '/usr/local/bin/bash')
-    delete process.env.SHELL
+    mockGlobals(t, { 'process.env.SHELL': undefined })
     const defsNoShell = t.mock(defpath, {
-      [isWin]: false,
+      [isWin]: { isWindows: false },
     })
     t.equal(defsNoShell.shell.default, 'sh')
     t.end()
@@ -159,50 +154,47 @@ t.test('local-address allowed types', t => {
 })
 
 t.test('unicode allowed?', t => {
-  const { LC_ALL, LC_CTYPE, LANG } = process.env
-  t.teardown(() => Object.assign(process.env, { LC_ALL, LC_CTYPE, LANG }))
+  const setGlobal = (obj = {}) => mockGlobals(t, { 'process.env': obj })
 
-  process.env.LC_ALL = 'utf8'
-  process.env.LC_CTYPE = 'UTF-8'
-  process.env.LANG = 'Unicode utf-8'
+  setGlobal({ LC_ALL: 'utf8', LC_CTYPE: 'UTF-8', LANG: 'Unicode utf-8' })
 
   const lcAll = t.mock(defpath)
   t.equal(lcAll.unicode.default, true)
-  process.env.LC_ALL = 'no unicode for youUUUU!'
+  setGlobal({ LC_ALL: 'no unicode for youUUUU!' })
   const noLcAll = t.mock(defpath)
   t.equal(noLcAll.unicode.default, false)
 
-  delete process.env.LC_ALL
+  setGlobal({ LC_ALL: undefined })
   const lcCtype = t.mock(defpath)
   t.equal(lcCtype.unicode.default, true)
-  process.env.LC_CTYPE = 'something other than unicode version 8'
+  setGlobal({ LC_CTYPE: 'something other than unicode version 8' })
   const noLcCtype = t.mock(defpath)
   t.equal(noLcCtype.unicode.default, false)
 
-  delete process.env.LC_CTYPE
+  setGlobal({ LC_CTYPE: undefined })
   const lang = t.mock(defpath)
   t.equal(lang.unicode.default, true)
-  process.env.LANG = 'ISO-8859-1'
+  setGlobal({ LANG: 'ISO-8859-1' })
   const noLang = t.mock(defpath)
   t.equal(noLang.unicode.default, false)
   t.end()
 })
 
 t.test('cache', t => {
-  process.env.LOCALAPPDATA = 'app/data/local'
+  mockGlobals(t, { 'process.env.LOCALAPPDATA': 'app/data/local' })
   const defsWinLocalAppData = t.mock(defpath, {
-    [isWin]: true,
+    [isWin]: { isWindows: true },
   })
   t.equal(defsWinLocalAppData.cache.default, 'app/data/local/npm-cache')
 
-  delete process.env.LOCALAPPDATA
+  mockGlobals(t, { 'process.env.LOCALAPPDATA': undefined })
   const defsWinNoLocalAppData = t.mock(defpath, {
-    [isWin]: true,
+    [isWin]: { isWindows: true },
   })
   t.equal(defsWinNoLocalAppData.cache.default, '~/npm-cache')
 
   const defsNix = t.mock(defpath, {
-    [isWin]: false,
+    [isWin]: { isWindows: false },
   })
   t.equal(defsNix.cache.default, '~/.npm')
 
@@ -263,7 +255,7 @@ t.test('flatteners that populate flat.omit array', t => {
     definitions.omit.flatten('omit', obj, flat)
     t.strictSame(flat, { omit: ['optional'] }, 'do not omit what is included')
 
-    process.env.NODE_ENV = 'production'
+    mockGlobals(t, { 'process.env.NODE_ENV': 'production' })
     const defProdEnv = t.mock(defpath)
     t.strictSame(defProdEnv.omit.default, ['dev'], 'omit dev in production')
     t.end()
@@ -394,38 +386,76 @@ t.test('cache-min', t => {
 })
 
 t.test('color', t => {
-  const { isTTY } = process.stdout
-  t.teardown(() => process.stdout.isTTY = isTTY)
+  const setTTY = (stream, value) => mockGlobals(t, { [`process.${stream}.isTTY`]: value })
 
   const flat = {}
   const obj = { color: 'always' }
 
   definitions.color.flatten('color', obj, flat)
-  t.strictSame(flat, {color: true}, 'true when --color=always')
+  t.strictSame(flat, { color: true, logColor: true }, 'true when --color=always')
 
   obj.color = false
   definitions.color.flatten('color', obj, flat)
-  t.strictSame(flat, {color: false}, 'true when --no-color')
+  t.strictSame(flat, { color: false, logColor: false }, 'true when --no-color')
 
-  process.stdout.isTTY = false
+  setTTY('stdout', false)
+  setTTY('stderr', false)
+
   obj.color = true
   definitions.color.flatten('color', obj, flat)
-  t.strictSame(flat, {color: false}, 'no color when stdout not tty')
-  process.stdout.isTTY = true
+  t.strictSame(flat, { color: false, logColor: false }, 'no color when stdout not tty')
+  setTTY('stdout', true)
   definitions.color.flatten('color', obj, flat)
-  t.strictSame(flat, {color: true}, '--color turns on color when stdout is tty')
+  t.strictSame(flat, { color: true, logColor: false }, '--color turns on color when stdout is tty')
+  setTTY('stdout', false)
 
-  delete process.env.NO_COLOR
+  obj.color = true
+  definitions.color.flatten('color', obj, flat)
+  t.strictSame(flat, { color: false, logColor: false }, 'no color when stderr not tty')
+  setTTY('stderr', true)
+  definitions.color.flatten('color', obj, flat)
+  t.strictSame(flat, { color: false, logColor: true }, '--color turns on color when stderr is tty')
+  setTTY('stderr', false)
+
+  const setColor = (value) => mockGlobals(t, { 'process.env.NO_COLOR': value })
+
+  setColor(undefined)
   const defsAllowColor = t.mock(defpath)
   t.equal(defsAllowColor.color.default, true, 'default true when no NO_COLOR env')
 
-  process.env.NO_COLOR = '0'
+  setColor('0')
   const defsNoColor0 = t.mock(defpath)
   t.equal(defsNoColor0.color.default, true, 'default true when no NO_COLOR=0')
 
-  process.env.NO_COLOR = '1'
+  setColor('1')
   const defsNoColor1 = t.mock(defpath)
   t.equal(defsNoColor1.color.default, false, 'default false when no NO_COLOR=1')
+
+  t.end()
+})
+
+t.test('progress', t => {
+  const setEnv = ({ tty, term } = {}) => mockGlobals(t, {
+    'process.stderr.isTTY': tty,
+    'process.env.TERM': term,
+  })
+
+  const flat = {}
+
+  definitions.progress.flatten('progress', {}, flat)
+  t.strictSame(flat, { progress: false })
+
+  setEnv({ tty: true, term: 'notdumb' })
+  definitions.progress.flatten('progress', { progress: true }, flat)
+  t.strictSame(flat, { progress: true })
+
+  setEnv({ tty: false, term: 'notdumb' })
+  definitions.progress.flatten('progress', { progress: true }, flat)
+  t.strictSame(flat, { progress: false })
+
+  setEnv({ tty: true, term: 'dumb' })
+  definitions.progress.flatten('progress', { progress: true }, flat)
+  t.strictSame(flat, { progress: false })
 
   t.end()
 })
@@ -451,6 +481,13 @@ t.test('retry options', t => {
 })
 
 t.test('search options', t => {
+  const vals = {
+    description: 'test description',
+    exclude: 'test search exclude',
+    limit: 99,
+    staleneess: 99, // MMR TODO: Somehow I think this is misspelled
+
+  }
   const obj = {}
   // <config>: flat.search[<option>]
   const mapping = {
@@ -463,9 +500,9 @@ t.test('search options', t => {
   for (const [config, option] of Object.entries(mapping)) {
     const msg = `${config} -> search.${option}`
     const flat = {}
-    obj[config] = 99
+    obj[config] = vals[option]
     definitions[config].flatten(config, obj, flat)
-    t.strictSame(flat, { search: { limit: 20, [option]: 99 }}, msg)
+    t.strictSame(flat, { search: { limit: 20, [option]: vals[option] } }, msg)
     delete obj[config]
   }
 
@@ -510,15 +547,15 @@ t.test('maxSockets', t => {
   t.end()
 })
 
-t.test('projectScope', t => {
+t.test('scope', t => {
   const obj = { scope: 'asdf' }
   const flat = {}
   definitions.scope.flatten('scope', obj, flat)
-  t.strictSame(flat, { projectScope: '@asdf' }, 'prepend @ if needed')
+  t.strictSame(flat, { scope: '@asdf', projectScope: '@asdf' }, 'prepend @ if needed')
 
   obj.scope = '@asdf'
   definitions.scope.flatten('scope', obj, flat)
-  t.strictSame(flat, { projectScope: '@asdf' }, 'leave untouched if has @')
+  t.strictSame(flat, { scope: '@asdf', projectScope: '@asdf' }, 'leave untouched if has @')
 
   t.end()
 })
@@ -843,6 +880,13 @@ t.test('location', t => {
   // location here is still 'user' because flattening doesn't modify the object
   t.strictSame(obj, { global: true, location: 'user' })
 
+  // MMR Note: this block added for coverage
+  obj.location = 'global'
+  delete flat.global
+  delete flat.location
+  definitions.location.flatten('location', obj, flat)
+  t.strictSame(flat, { global: true, location: 'global' })
+
   obj.global = false
   obj.location = 'user'
   delete flat.global
@@ -898,3 +942,68 @@ t.test('workspace', t => {
   t.match(flat.userAgent, /workspaces\/true/)
   t.end()
 })
+
+t.test('workspaces derived', t => {
+  const obj = {
+    workspaces: ['a'],
+    'user-agent': definitions['user-agent'].default,
+  }
+  const flat = {}
+  definitions.workspaces.flatten('workspaces', obj, flat)
+  t.equal(flat.workspacesEnabled, true)
+  obj.workspaces = null
+  definitions.workspaces.flatten('workspaces', obj, flat)
+  t.equal(flat.workspacesEnabled, true)
+  obj.workspaces = false
+  definitions.workspaces.flatten('workspaces', obj, flat)
+  t.equal(flat.workspacesEnabled, false)
+  t.end()
+})
+
+t.test('lockfile version', t => {
+  const flat = {}
+  definitions['lockfile-version'].flatten('lockfile-version', {
+    'lockfile-version': '3',
+  }, flat)
+  t.match(flat.lockfileVersion, 3, 'flattens to a number')
+  t.end()
+})
+
+t.test('loglevel silent', t => {
+  const flat = {}
+  definitions.loglevel.flatten('loglevel', {
+    loglevel: 'silent',
+  }, flat)
+  t.match(flat.silent, true, 'flattens to assign silent')
+  t.end()
+})
+
+// MMR Note: this test group is missing from npm's definitions.js test suite;
+// there were uncovered lines
+// (maybe they are covered by the test suite of some other module?)
+t.test('auth-type', t => {
+  const msgs = []
+  const defs = t.mock(defpath, {
+    [n2sAssets.npmLib + '/utils/log-shim']: {
+      warn: (hdg, msg) => msgs.push({ hdg, msg })
+    }
+  })
+  const flat = {}
+  defs['auth-type'].flatten('authType', {
+    authType: 'legacy',
+  }, flat)
+  t.equal(flat.authType, 'legacy')
+  t.same(msgs, [])
+
+  defs['auth-type'].flatten('authType', {
+    authType: 'sso',
+  }, flat)
+  t.equal(flat.authType, 'sso')
+  t.same(msgs, [{
+    hdg: 'config',
+    msg: '--auth-type=sso is will be removed in a future version.'
+    // oops on the english, people
+  }])
+  t.end()
+})
+

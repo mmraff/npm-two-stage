@@ -1,23 +1,33 @@
+const localeCompare = require('@isaacs/string-locale-compare')('en')
 const tap = require('tap')
-const cmdList = require('../src/utils/cmd-list')
+const oldCmdList = require('../node_modules/npm/lib/utils/cmd-list')
+const newCmdList = require('../src/utils/cmd-list')
 
-const objects = [ 'aliases', 'shorthands', 'affordances' ]
-const lists = [ 'cmdList', 'plumbing', 'shellouts' ]
+const objects = [ 'abbrevs', 'aliases' ]
+const lists = [ 'allCommands', 'commands', 'plumbing' ]
 
 tap.test('All exports covered', t1 => {
-  for (const item in cmdList)
-    t1.ok(objects.includes(item) || lists.includes(item))
+  for (const item in newCmdList) {
+    if (!objects.includes(item) && !lists.includes(item)) {
+      t1.fail(`unexpected export "${item}"`)
+    }
+  }
   t1.end()
 })
 
 tap.test('object exports', t1 => {
   for (const o of objects) {
-    t1.type(cmdList[o], 'object')
-    t1.equal(Object.keys(cmdList[o]).length > 0, true)
-    for (const prop in cmdList[o]) {
-      const value = cmdList[o][prop]
-      t1.type(value, 'string')
-      t1.equal(value.length > 0, true)
+    t1.type(newCmdList[o], 'object')
+    t1.equal(Object.keys(newCmdList[o]).length > 0, true)
+    for (const prop in newCmdList[o]) {
+      const value = newCmdList[o][prop]
+      const type = typeof value
+      if (type !== 'string') {
+        t1.fail(`Value of ${o}.${prop} is not a string; found ${type}`)
+      }
+      if (value.length == 0) {
+        t1.fail(`${o}.${prop} is an empty string`)
+      }
     }
   }
   t1.end()
@@ -25,37 +35,67 @@ tap.test('object exports', t1 => {
 
 tap.test('array exports', t1 => {
   for (const name of lists) {
-    const list = cmdList[name]
+    const list = newCmdList[name]
     t1.type(list, Array)
     t1.equal((new Set(list)).size, list.length)
     for (const item of list) {
       t1.type(item, 'string')
       t1.equal(item.length > 0, true)
+      const type = typeof item
+      if (type !== 'string') {
+        t1.fail(`Item in ${name} list is not a string; found ${type}`)
+      }
+      if (item.length == 0) {
+        t1.fail(`Empty string found on ${name} list`)
+      }
     }
   }
   t1.end()
 })
 
-tap.test('aliases is the union of shorthands and affordances', t1 => {
-  const notRepresented = Object.keys(cmdList.aliases).filter(
-    item => !(item in cmdList.shorthands || item in cmdList.affordances)
-  )
-  t1.same(notRepresented, [])
-  for (const item in cmdList.shorthands)
-    t1.equal(cmdList.shorthands[item], cmdList.aliases[item])
-  for (const item in cmdList.affordances)
-    t1.equal(cmdList.affordances[item], cmdList.aliases[item])
-  t1.end()
-})
+tap.test('differences between modified and original', t1 => {
+  t1.strictSame(newCmdList.plumbing, oldCmdList.plumbing)
 
-tap.test('aliases: each item corresponds to a command', t1 => {
-  const commands = cmdList.cmdList
-  const aliases = cmdList.aliases
-  for (const item in aliases) {
-    const aliased = aliases[item]
-    // Give items a chance to be double-aliased, but no deeper:
-    t1.ok(commands.includes(aliased) || commands.includes(aliases[aliased]))
+  const modifiedOldCmds =
+    [ ...oldCmdList.commands, 'download' ].sort(localeCompare)
+  const newCmds = [ ...newCmdList.commands ].sort(localeCompare)
+  t1.strictSame(newCmds, modifiedOldCmds)
+
+  const modifiedOldAliases = { ...oldCmdList.aliases, dl: 'download' }
+  t1.strictSame(newCmdList.aliases, modifiedOldAliases)
+
+  const modifiedOldAllCommands =
+    [ ...modifiedOldCmds, ...oldCmdList.plumbing ].sort(localeCompare)
+  t1.strictSame(newCmdList.allCommands, modifiedOldAllCommands)
+
+  const newAbbrevs = {}
+  for (const key in newCmdList.abbrevs) {
+    if (!(key in oldCmdList.abbrevs)) {
+      newAbbrevs[key] = newCmdList.abbrevs[key]
+    }
   }
+  if ('dl' in newAbbrevs) {
+    delete newAbbrevs['dl']
+  }
+  else {
+    t1.fail('"dl" is missing from modified abbrevs')
+  }
+  for (const key in newAbbrevs) {
+    if (!'download'.startsWith(key)) {
+      t1.fail(`Unexpected new item "${key}" in modified abbrevs`)
+    }
+    else if (newAbbrevs[key] !== 'download') {
+      t1.fail([
+        'New item "', key, '" in modified abbrevs maps to "',
+        newAbbrevs[key], '" instead of "download"'
+      ].join(''))
+    }
+  }
+  for (const key in oldCmdList.abbrevs) {
+    if (!(key in newCmdList.abbrevs)) {
+      t1.fail(`Original item "${key}" is missing from modified abbrevs`)
+    }
+  }
+
   t1.end()
 })
-

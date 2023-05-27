@@ -18,11 +18,11 @@ const fileMap = {
   'dl_git-tracker-keys_test.js': 'src/download/git-tracker-keys.js',
   'dl_alt-git_test.js': 'test/tempAssets2/npm/lib/download/alt-git.js',
   'dl_item-agents_test.js': 'test/tempAssets1/npm/lib/download/item-agents.js',
-  'download_test.js': 'test/tempAssets7/npm/lib/download.js',
+  'cmds_download_test.js': 'test/tempAssets7/npm/lib/commands/download.js',
   'ofl_alt-arborist_test.js': 'test/tempAssets3/npm/lib/offliner/alt-arborist.js',
   'build-ideal-tree_test.js': 'test/tempAssets4/npm/lib/offliner/build-ideal-tree.js',
   'reify_test.js': 'test/tempAssets5/npm/lib/offliner/reify.js',
-  'install_test.js': 'test/tempAssets6/npm/lib/install.js',
+  'cmds_install_test.js': 'test/tempAssets6/npm/lib/commands/install.js',
   'integration.js': [
     'download.js', 'install.js', 'download/config.js', 'download/dltracker.js',
     'download/npm-package-filename.js', 'download/reconstruct-map.js',

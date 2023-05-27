@@ -4,7 +4,6 @@
 
 const { resolve, dirname } = require('path')
 const Config = require('@npmcli/config')
-const log = require('npmlog')
 
 module.exports = class {
   // NOTE: actual npm is instantiated (in cli.js) with *no arguments*!
@@ -19,7 +18,6 @@ module.exports = class {
       throw new Error('Mock npm: command must be identified in cmd property!')
     }
     const filteredEnv = {}
-    // Don't yet know that we need anything in our environment
     if ('PREFIX' in env) {
       filteredEnv.PREFIX = env.PREFIX
     }
@@ -32,7 +30,6 @@ module.exports = class {
       args,
       cwd,
       env: filteredEnv,
-      log,
       npmPath: dirname(__dirname),
     })
     // In the real thing, config.load is called by the async npm.load method:
@@ -43,28 +40,29 @@ module.exports = class {
 
   get flatOptions () { // VERBATIM
     const { flat } = this.config
-    if (this.command)
+    if (this.command) {
       flat.npmCommand = this.command
+    }
     return flat
   }
 
-  get log () { // VERBATIM
-    return log
+  get global () { // VERBATIM
+    return this.config.get('global') || this.config.get('location') === 'global'
   }
 
-  get globalPrefix () { // VERBATIM
+  get globalPrefix () {
     return this.config.globalPrefix
   }
 
-  get localPrefix () { // VERBATIM
+  get localPrefix () {
     return this.config.localPrefix
   }
 
-  get prefix () { // VERBATIM
+  get prefix () {
     return this.config.get('global') ? this.globalPrefix : this.localPrefix
   }
 
-  get globalDir () { // VERBATIM
+  get globalDir () {
     return process.platform !== 'win32'
       ? resolve(this.globalPrefix, 'lib', 'node_modules')
       : resolve(this.globalPrefix, 'node_modules')
