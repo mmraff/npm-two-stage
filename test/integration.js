@@ -364,8 +364,6 @@ tap.before(() => {
     [testCacheName]: {}
   })
   const cache = path.resolve(rootPath, testCacheName)
-  const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest')
-  let pkgPath
   // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
   // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
   // says "The fixture directory cleanup will always happen after any
@@ -409,7 +407,6 @@ tap.teardown(() => {
   .then(() => gitServer.stop())
   .then(() => remoteServer.stop())
   .then(() => rimrafAsync(staging))
-  .then(() => rimrafAsync(path.resolve(__dirname, 'npm_tarball_dest')))
 })
 
 // Path component names we'll be using a lot
