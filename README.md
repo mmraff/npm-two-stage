@@ -52,8 +52,8 @@ this project.<br>
 Refer to the [Manual Installation Instructions](docs/MANUAL-INSTALL.md).  
 
 ### If the target platform *can* be connected to the Internet:
-First install the npm package **@offliner/npm2stage-v7.24.0**, a tool made
-to manage installation and removal of this version of npm-two-stage.
+First install the npm package **@offliner/npm2stage-v7.24.0**, a command line
+tool made to manage installation and removal of this version of npm-two-stage.
 Once installed, it will provide the command `npm2stage install`.
 Use of that *might* require elevated privileges, depending on the target
 npm location.
@@ -156,7 +156,7 @@ listed there.
 
 _________________________
 ## Footnotes
-<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported by `npm download`. Alias, file, and directory package specs are meaningless in the download context, of course.
+<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported by `npm download`. File and directory package specs are meaningless in the download context, of course.
 
 `npm download --help` will show the supported forms as follows:
 ```
