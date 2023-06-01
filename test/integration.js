@@ -1,12 +1,15 @@
 const {
-  copyFile, lstat, mkdir, readdir, readFile, writeFile, unlink
+  chmod, copyFile, lstat, mkdir, readdir, readFile, symlink,
+  writeFile, unlink
 } = require('fs').promises
 const path = require('path')
 const { promisify } = require('util')
 const execAsync = promisify(require('child_process').exec)
-const rimrafAsync = promisify(require('rimraf'))
 
+const cmdShim = require('cmd-shim')
+const rimrafAsync = promisify(require('rimraf'))
 const tap = require('tap')
+const tar = require('tar')
 
 const graft = require('./lib/graft')
 const gitServer = require('./lib/git-server')
@@ -23,6 +26,43 @@ const stagedNpmDir = path.join(
 const testNpm = path.join(
   staging, process.platform == 'win32' ? '' : 'bin', 'npm'
 )
+const execMode = 0o777 & (~process.umask())
+
+const copyNpmToStaging = () => {
+  const srcParent = path.resolve(__dirname, '../node_modules')
+  const dest = path.dirname(stagedNpmDir)
+  return new Promise((resolve, reject) => {
+    let hadError = false
+    tar.c({ cwd: srcParent }, [ 'npm' ])
+    .pipe(tar.x({ cwd: dest }))
+    .once('error', err => {
+      hadError = true
+      reject(err)
+    })
+    .once('close', () => {
+      if (!hadError) resolve()
+    })
+  })
+}
+
+const makeNpmBinLinks = () => {
+  const npmCliPath = path.join(stagedNpmDir, 'bin/npm-cli.js')
+  if (process.platform === 'win32') {
+    return cmdShim(npmCliPath, testNpm)
+  }
+  else {
+    const linkHome = path.dirname(testNpm)
+    const linkToPath = path.relative(linkHome, npmCliPath)
+    const startDir = process.cwd()
+    return mkdir(linkHome)
+    .then(() => {
+      process.chdir(linkHome)
+      return symlink(linkToPath, 'npm')
+    })
+    .then(() => chmod(npmCliPath, execMode))
+    .finally(() => process.chdir(startDir))
+  }
+}
 
 // Copy all the npm-two-stage source files into the staged npm
 // (overwriting original files as the case may be)
@@ -324,7 +364,6 @@ tap.before(() => {
     [testCacheName]: {}
   })
   const cache = path.resolve(rootPath, testCacheName)
-  const pkgDrop = path.resolve(__dirname, 'npm_tarball_dest')
   let pkgPath
   // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
   // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
@@ -334,42 +373,16 @@ tap.before(() => {
   cfg.git.hostBase = path.resolve(staging, 'srv', gitHostBaseName)
   cfg.remote.base = path.resolve(__dirname, remoteBaseRelPath)
 
-  return mkdir(pkgDrop)
-  .then(() => execAsync('npm root -g')).then(({ stdout, stderr }) => {
-    const npmDir = path.join(stdout.trim(), 'npm')
-    //console.log('live npm path is', npmDir)
-    const npm = require(npmDir)
-    return npm.load().then(() => {
-      npm.config.set('cache', cache)
-      npm.config.set('pack-destination', pkgDrop)
-      npm.log.level = 'warn' // 'error', 'silent'
-      const packAsync = promisify(npm.commands.pack)
-      return packAsync([path.join(__dirname, '../node_modules/npm')])
-    })
-    .then(() => readdir(pkgDrop))
-    .then(list => {
-      if (!list.length) throw new Error('npm tarball not found at ' + pkgDrop)
-      pkgPath = path.join(pkgDrop, list[0])
-    })
-    .then(() => rimrafAsync(staging))
-    .then(() => mkdir(staging))
-    .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
-    .then(() => {
-      npm.globalPrefix = staging // Really important!
-      npm.config.set('global', true)
-      npm.config.set('fund', false)
-      const installAsync = promisify(npm.commands.install)
-      return installAsync([pkgPath])
-    })
-    .finally(() => {
-      npm.config.set('global', false)
-    })
-  })
+  return rimrafAsync(staging)
+  .then(() => mkdir(path.dirname(stagedNpmDir), { recursive: true }))
+  .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
+  .then(() => copyNpmToStaging())
+  .then(() => makeNpmBinLinks())
   // The executable of the test installation is now at testNpm;
   // the target location for npm-two-stage is at stagedNpmDir.
   .then(() => {
     console.log('npm installation seems to have been successful...')
-    return rimrafAsync(pkgDrop).then(() => applyN2SFiles())
+    return applyN2SFiles()
   })
   .then(() => mockRegistryProxy.start())
   .then(() => gitServer.start(gitHostPort, cfg.git.hostBase))
