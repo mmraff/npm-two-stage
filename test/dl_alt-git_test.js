@@ -116,6 +116,7 @@ function manifestMatcher(pjSrc, annotSrc) {
   return { ...pkgJson, ...annotations, _integrity: /.+/ }
 }
 
+const testRootName = 'tempAssets2'
 const stdOpts = { multipleRefs: true }
 let AltGitFetcher
 let mockCacache
@@ -127,7 +128,7 @@ let mockLog
 let n2sAssets
 
 tap.before(() =>
-  makeAssets('tempAssets2', 'download/alt-git.js')
+  makeAssets(testRootName, 'download/alt-git.js')
   .then(assets => {
     n2sAssets = assets
     AltGitFetcher = require(assets.libDownload + '/alt-git')
@@ -141,7 +142,7 @@ tap.before(() =>
     stdOpts.log = mockLog
   })
 )
-tap.teardown(() => rimrafAsync(n2sAssets.fs('rootName')))
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 tap.test('shortcut spec without committish', t => {
   const npaSpec = npa(testConfigs[0].spec)

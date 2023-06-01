@@ -14,6 +14,7 @@ const t = require('tap')
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets8'
 let n2sAssets
 let pkg
 let defPath
@@ -28,7 +29,7 @@ Object.defineProperty(process, 'version', {
 delete process.env.NODE_ENV
 
 t.before(() =>
-  makeAssets('tempAssets8', 'utils/config/definitions.js')
+  makeAssets(testRootName, 'utils/config/definitions.js')
   .then(assets => {
     n2sAssets = assets
     // fake the npm version, so that it doesn't get reset every time
@@ -36,8 +37,6 @@ t.before(() =>
     // this is a pain to keep typing
     defpath = assets.npmLib + '/utils/config/definitions.js'//'../../../../lib/utils/config/definitions.js'
     definitions = require(defpath)
-
-    t.teardown(() => rimrafAsync(assets.fs('rootName')))
 
     // Tie the definitions to a snapshot so that if they change we are forced to
     // update snapshots, which rebuilds the docs
@@ -55,6 +54,7 @@ t.before(() =>
     t.equal(definitions['node-version'].default, process.version, 'node-version default')
   })
 )
+t.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 t.test('basic flattening function camelCases from css-case', t => {
   const flat = {}
