@@ -54,11 +54,13 @@
   },
   "devDependencies": {
     "@npmcli/arborist": "2.8.3",
+    "cmd-shim": "^4.0.1",
     "mkdirp": "^1.0.4",
     "npm": "7.24.0",
     "npm-package-arg": "^8.1.5",
     "rimraf": "^3.0.2",
     "semver": "^7.3.5",
-    "tap": "^15.0.10"
+    "tap": "^15.0.10",
+    "tar": "^6.1.11"
   }
 }
