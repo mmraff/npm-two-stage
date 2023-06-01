@@ -156,7 +156,7 @@ listed there.
 
 _________________________
 ## Footnotes
-<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported by `npm download`. Alias, file, and directory package specs are meaningless in the download context, of course.
+<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported by `npm download`. File and directory package specs are meaningless in the download context, of course.
 
 `npm download --help` will show the supported forms as follows:
 ```
