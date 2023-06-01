@@ -122,13 +122,14 @@ const {
   advisoryBulkResponse
 } = require(arbFixtures + '/registry-mocks/server.js')
 
+const testRootName = 'tempAssets5'
 let Arborist
 let mockDlt
 let n2sAssets
 
 t.before(() =>
   makeAssets(
-    'tempAssets5', 'offliner/reify.js',
+    testRootName, 'offliner/reify.js',
     { arborist: true, offliner: true }
   )
   .then(assets => {
@@ -148,8 +149,8 @@ t.before(() =>
   })
 )
 t.teardown(() => {
-  stop()
-  return realRimraf.sync(n2sAssets.fs('rootName'))
+  return new Promise(resolve => stop(() => resolve()))
+  .then(() => realRimraf.sync(join(__dirname, testRootName)))
 })
 
 const cache = t.testdir()
@@ -2194,10 +2195,6 @@ t.test('shrinkwrap which lacks metadata updates deps', async t => {
 })
 
 t.test('move aside symlink clutter', async t => {
-  if (process.platform === 'win32') {
-    t.plan(0, 'This one causes EPERM on Windows; arborist maintainers failed to resolve')
-    return
-  }
   // have to make the clutter manually, because we collide packages based
   // on case-insensitive names, so the ABBREV folder would be removed.
   // not sure how this would ever happen, but defense in depth.
@@ -2228,7 +2225,19 @@ t.test('move aside symlink clutter', async t => {
   t.teardown(() => Arborist.prototype[kReifyPackages] = reifyPackages)
   Arborist.prototype[kReifyPackages] = async function () {
     fs.mkdirSync(join(path, 'node_modules'))
-    fs.symlinkSync(join('..', 'target'), join(path, 'node_modules/ABBREV'))
+    if (process.platform === 'win32') {
+      fs.symlinkSync(
+        join('..', 'target'), join(path, 'node_modules/ABBREV'),
+        'junction'
+      )
+    }
+    else {
+      // mmraff dev note:
+      // Previous to my changes (addition of clause above), the following
+      // symlink call was raising a EPERM error on Windows. Conditionally
+      // passing the 'junction' type argument solved it.
+      fs.symlinkSync(join('..', 'target'), join(path, 'node_modules/ABBREV'))
+    }
     Arborist.prototype[kReifyPackages] = reifyPackages
     return this[kReifyPackages]()
   }
