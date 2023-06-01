@@ -1,3 +1,4 @@
+const path = require('path')
 const { promisify } = require('util')
 
 const rimrafAsync = promisify(require('rimraf'))
@@ -132,6 +133,7 @@ function createDependencyTestConfig(parentItem, depItem, depCategory) {
   }
 }
 
+const testRootName = 'tempAssets1'
 let mockDlt
 let gitTrackerKeys
 let itemAgents
@@ -141,7 +143,7 @@ let mockPacote
 let npf
 
 tap.before(() =>
-  makeAssets('tempAssets1', 'download/item-agents.js')
+  makeAssets(testRootName, 'download/item-agents.js')
   .then(assets => {
     gitTrackerKeys = require(assets.libDownload + '/git-tracker-keys')
     itemAgents = require(assets.libDownload + '/item-agents')
@@ -150,10 +152,9 @@ tap.before(() =>
     mockLockDeps = require(assets.libDownload + '/lock-deps')
     mockLog = require(assets.nodeModules + '/npmlog')
     mockPacote = require(assets.nodeModules + '/pacote')
-
-    tap.teardown(() => rimrafAsync(assets.fs('rootName')))
   })
 )
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 const makeOpts = (pkgDir) =>  ({
   dlTracker: mockDlt.createSync(pkgDir),

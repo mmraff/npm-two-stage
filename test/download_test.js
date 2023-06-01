@@ -7,6 +7,7 @@ const tap = require('tap')
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets7'
 let Download
 let mockItemAgents
 let mockLockDeps
@@ -30,7 +31,7 @@ function expectPropsAbsent(t, obj, props) {
 }
 
 tap.before(() =>
-  makeAssets('tempAssets7', 'download.js')
+  makeAssets(testRootName, 'download.js')
   .then(assets => {
     n2sAssets = assets
     const MockNpmConfig = require(assets.nodeModules + '/@npmcli/config')
@@ -43,10 +44,9 @@ tap.before(() =>
     mockNpmCfg = new MockNpmConfig({
       cmd: 'download', cwd: assets.fs('installPath'), log: mockLog
     })
-
-    tap.teardown(() => rimrafAsync(assets.fs('rootName')))
   })
 )
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 tap.test('No arguments, no package-json or lockfile-dir options', t1 => {
   const npmMsgs = []

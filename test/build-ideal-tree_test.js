@@ -34,20 +34,19 @@ const rimrafAsync = promisify(require('rimraf'))
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets4'
 let Arborist
-//let dlCfg
 let mockDlt
 let n2sAssets
 
 t.before(() =>
   makeAssets(
-    'tempAssets4', 'offliner/build-ideal-tree.js',
+    testRootName, 'offliner/build-ideal-tree.js',
     { arborist: true, offliner: true }
   )
   .then(assets => {
     n2sAssets = assets
     Arborist = require(assets.libOffliner + '/alt-arborist')
-    //dlCfg = require(assets.libDownload + '/config')
     mockDlt = require(assets.libDownload + '/dltracker')
     // registry-mocks/server.start returns a Promise.
     // registry-mocks/server.stop does not.
@@ -55,8 +54,8 @@ t.before(() =>
   })
 )
 t.teardown(() => {
-  stop()
-  return rimrafAsync(n2sAssets.fs('rootName'))
+  return new Promise(resolve => stop(() => resolve()))
+  .then(() => rimrafAsync(join(__dirname, testRootName)))
 })
 
 const cache = t.testdir()

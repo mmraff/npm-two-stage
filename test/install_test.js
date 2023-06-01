@@ -8,6 +8,7 @@ const tap = require('tap')
 
 const makeAssets = require('./lib/make-assets')
 
+const testRootName = 'tempAssets6'
 let n2sAssets
 let Install
 let mockLog
@@ -16,7 +17,7 @@ let mockNpmClass
 let mockNpm
 
 tap.before(() =>
-  makeAssets('tempAssets6', 'install.js', { offliner: true })
+  makeAssets(testRootName, 'install.js', { offliner: true })
   .then(assets => {
     n2sAssets = assets
     mockLog = require(assets.nodeModules + '/npmlog')
@@ -48,7 +49,7 @@ tap.before(() =>
     mockPacote = require(assets.nodeModules + '/pacote')
   })
 )
-tap.teardown(() => rimrafAsync(n2sAssets.fs('rootName')))
+tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
 
 tap.test('exec() on installer instantiated without npm object', t1 => {
   const inst = new Install()
