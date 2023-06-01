@@ -1,12 +1,15 @@
 const {
-  copyFile, lstat, mkdir, readdir, readFile, writeFile, unlink
+  chmod, copyFile, lstat, mkdir, readdir, readFile, symlink,
+  writeFile, unlink
 } = require('fs').promises
 const path = require('path')
 const { promisify } = require('util')
 const execAsync = promisify(require('child_process').exec)
-const rimrafAsync = promisify(require('rimraf'))
 
+const cmdShim = require('cmd-shim') // TODO: add to devDeps
+const rimrafAsync = promisify(require('rimraf'))
 const tap = require('tap')
+const tar = require('tar') // TODO: add to devDeps
 
 const graft = require('./lib/graft')
 const gitServer = require('./lib/git-server')
@@ -14,6 +17,9 @@ const remoteServer = require('./lib/remote-server')
 const arbFixtures = './fixtures/arborist/fixtures'
 const { registry } = require(arbFixtures + '/registry-mocks/server.js')
 const mockRegistryProxy = require('./lib/mock-server-proxy')
+
+// TODO: can remove this after we change the way we install the test npm:
+const { version: npmVersion } = require('../node_modules/npm/package.json')
 
 // Where the test npm will be installed
 const staging = path.resolve(__dirname, 'staging')
@@ -23,9 +29,47 @@ const stagedNpmDir = path.join(
 const testNpm = path.join(
   staging, process.platform == 'win32' ? '' : 'bin', 'npm'
 )
+const execMode = 0o777 & (~process.umask())
+
+const copyNpmToStaging = () => {
+  const srcParent = path.resolve(__dirname, '../node_modules')
+  const dest = path.dirname(stagedNpmDir)
+  return new Promise((resolve, reject) => {
+    let hadError = false
+    tar.c({ cwd: srcParent }, [ 'npm' ])
+    .pipe(tar.x({ cwd: dest }))
+    .once('error', err => {
+      hadError = true
+      reject(err)
+    })
+    .once('close', () => {
+      if (!hadError) resolve()
+    })
+  })
+}
+
+const makeNpmBinLinks = () => {
+  const npmCliPath = path.join(stagedNpmDir, 'bin/npm-cli.js')
+  if (process.platform === 'win32') {
+    return cmdShim(npmCliPath, testNpm)
+  }
+  else {
+    // TODO: Test this on debian! Not sure of it!
+    const linkHome = path.dirname(testNpm)
+    const linkToPath = path.relative(linkHome, npmCliPath)
+    const startDir = process.cwd()
+    return mkdir(linkHome)
+    .then(() => {
+      process.chdir(linkHome)
+      return symlink(linkToPath, 'npm')
+    })
+    .then(() => chmod(npmCliPath, execMode))
+    .finally(() => process.chdir(startDir))
+  }
+}
 
 // Copy all the npm-two-stage source files into the staged npm
-// (overwriting original files as the case may be)
+// (overwriting original files where applicable)
 function applyN2SFiles() {
   const src = path.resolve(__dirname, '../src')
   const dest = path.join(stagedNpmDir, 'lib')
@@ -334,42 +378,16 @@ tap.before(() => {
   cfg.git.hostBase = path.resolve(staging, 'srv', gitHostBaseName)
   cfg.remote.base = path.resolve(__dirname, remoteBaseRelPath)
 
-  return mkdir(pkgDrop)
-  .then(() => execAsync('npm root -g')).then(({ stdout, stderr }) => {
-    const npmDir = path.join(stdout.trim(), 'npm')
-    //console.log('live npm path is', npmDir)
-    const npm = require(npmDir)
-    return npm.load().then(() => {
-      npm.config.set('cache', cache)
-      npm.config.set('pack-destination', pkgDrop)
-      npm.log.level = 'warn' // 'error', 'silent'
-      const packAsync = promisify(npm.commands.pack)
-      return packAsync([path.join(__dirname, '../node_modules/npm')])
-    })
-    .then(() => readdir(pkgDrop))
-    .then(list => {
-      if (!list.length) throw new Error('npm tarball not found at ' + pkgDrop)
-      pkgPath = path.join(pkgDrop, list[0])
-    })
-    .then(() => rimrafAsync(staging))
-    .then(() => mkdir(staging))
-    .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
-    .then(() => {
-      npm.globalPrefix = staging // Really important!
-      npm.config.set('global', true)
-      npm.config.set('fund', false)
-      const installAsync = promisify(npm.commands.install)
-      return installAsync([pkgPath])
-    })
-    .finally(() => {
-      npm.config.set('global', false)
-    })
-  })
+  return rimrafAsync(staging)
+  .then(() => mkdir(path.dirname(stagedNpmDir), { recursive: true }))
+  .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
+  .then(() => copyNpmToStaging())
+  .then(() => makeNpmBinLinks())
   // The executable of the test installation is now at testNpm;
   // the target location for npm-two-stage is at stagedNpmDir.
   .then(() => {
     console.log('npm installation seems to have been successful...')
-    return rimrafAsync(pkgDrop).then(() => applyN2SFiles())
+    return applyN2SFiles()
   })
   .then(() => mockRegistryProxy.start())
   .then(() => gitServer.start(gitHostPort, cfg.git.hostBase))
@@ -395,6 +413,7 @@ tap.teardown(() => {
   .then(() => gitServer.stop())
   .then(() => remoteServer.stop())
   .then(() => rimrafAsync(staging))
+  .then(() => rimrafAsync(path.resolve(__dirname, 'npm_tarball_dest')))
 })
 
 // Path component names we'll be using a lot
@@ -407,10 +426,12 @@ tap.test('quick help', t1 => {
   .then(({stdout, stderr}) => {
     t1.match(
       stdout,
-      /^npm download\n\nDownload package\(s\) and dependencies as tarballs\n/,
+      /\bDownload package\(s\) and dependencies as tarballs\n/,
       'quick help output for download command as expected'
     )
-    t1.equal(stderr, '', 'no error output from quick help')
+    // The following test has been removed because there can be warnings
+    // about unrelated things, and warnings go to stderr:
+    //t1.equal(stderr, '', 'no error output from quick help')
   })
 })
 
@@ -775,7 +796,7 @@ tap.test('6', t1 => {
       // Fails because npm install tries to include peer deps by default
       .catch(err => {
         t2.match(err.message, /^Command failed:/)
-        t2.match(err.stderr, /^npm WARN ERESOLVE overriding peer dependency/)
+        t2.match(err.stderr, /\bnpm WARN ERESOLVE overriding peer dependency/)
         t2.match(err.stderr, RE_resolvePeerFailureWarning1)
         t2.match(err.stderr, RE_resolvePeerFailureWarning2)
         t2.match(err.stderr, RE_missingPeerError)
