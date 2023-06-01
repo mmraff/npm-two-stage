@@ -603,7 +603,7 @@ Try using the package name instead, e.g:
           // TODO: create synthetic test case to simulate realpath failure
         }
       }
-      spec.tree = tree // MMR TODO: THIS is where I suspect I have it wrong...
+      spec.tree = tree
       this[_resolvedAdd].push(spec)
     }))
 

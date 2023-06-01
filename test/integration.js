@@ -6,10 +6,10 @@ const path = require('path')
 const { promisify } = require('util')
 const execAsync = promisify(require('child_process').exec)
 
-const cmdShim = require('cmd-shim') // TODO: add to devDeps
+const cmdShim = require('cmd-shim')
 const rimrafAsync = promisify(require('rimraf'))
 const tap = require('tap')
-const tar = require('tar') // TODO: add to devDeps
+const tar = require('tar')
 
 const graft = require('./lib/graft')
 const gitServer = require('./lib/git-server')
@@ -17,9 +17,6 @@ const remoteServer = require('./lib/remote-server')
 const arbFixtures = './fixtures/arborist/fixtures'
 const { registry } = require(arbFixtures + '/registry-mocks/server.js')
 const mockRegistryProxy = require('./lib/mock-server-proxy')
-
-// TODO: can remove this after we change the way we install the test npm:
-const { version: npmVersion } = require('../node_modules/npm/package.json')
 
 // Where the test npm will be installed
 const staging = path.resolve(__dirname, 'staging')
@@ -54,7 +51,6 @@ const makeNpmBinLinks = () => {
     return cmdShim(npmCliPath, testNpm)
   }
   else {
-    // TODO: Test this on debian! Not sure of it!
     const linkHome = path.dirname(testNpm)
     const linkToPath = path.relative(linkHome, npmCliPath)
     const startDir = process.cwd()

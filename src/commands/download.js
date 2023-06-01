@@ -41,13 +41,10 @@ class Download extends BaseCommand {
     const self = this
     const flatOpts = {
       ...this.npm.flatOptions,
-      //log: this.npm.log,
-      //auditLevel: null, // Not used in pacote! TODO: eliminate?
-      //workspaces: this.workspaceNames // TODO: ditto.
     }
     const cmdOpts = {
       dlDir: this.npm.config.get('dl-dir'),
-      phantom: this.npm.config.get('dl-phantom'), // Still unimplemented
+      //phantom: this.npm.config.get('dl-phantom'), // Still unimplemented
     }
 
     const optInclude = this.npm.config.get('include')
