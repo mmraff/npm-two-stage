@@ -32,13 +32,14 @@ Having done that, you're ready to proceed.
   directory.
 
 4. Take note of the files from the inventory that already exist there
-  (for example, `install.js`).
+  (for example, `commands/install.js`).
 
 5. For each **npm-two-stage** `src` file that already exists under
   `npm/lib/`, rename the npm file in your preferred backup name style
   (for example, you could add the suffix `.BAK`).
 
-6. Now copy all the items from the project `src` directory into `npm/lib/`.
+6. Now copy all the items from the project `src` directory into their
+  corresponding subdirectories of `npm/lib/`.
 
 This completes **npm-two-stage** installation. There are no extra packages
 to be installed.
