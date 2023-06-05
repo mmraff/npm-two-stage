@@ -1,233 +1,212 @@
-const {join, dirname} = require('path')
-const {existsSync, readFileSync, writeFileSync} = require('fs')
-const PORT = 12345 + (+process.env.TAP_CHILD_ID || 0)
+const { join, dirname } = require('path')
+const { promisify } = require('util')
+const fs = require('fs/promises')
 const http = require('http')
 const https = require('https')
+const zlib = require('zlib')
+const mrm = require('minify-registry-metadata')
 
-const mkdirp = require('mkdirp')
+const gzip = promisify(zlib.gzip)
+const unzip = promisify(zlib.unzip)
+const mkdirp = (p) => fs.mkdir(p, { recursive: true })
+const exists = (p) => fs.stat(p).then(() => true).catch(() => false)
+const writeJson = (p, d) => fs.writeFile(p, JSON.stringify(d, null, 2) + '\n')
+
+const PORT = 12345 + (+process.env.TAP_CHILD_ID || 0)
 const doProxy = process.env.ARBORIST_TEST_PROXY
+
 const missing = /\/@isaacs(\/|%2[fF])(this-does-not-exist-at-all|testing-missing-tgz\/-\/)/
 const corgiDoc = 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*'
-const { gzipSync, unzipSync } = require('zlib')
 
 let advisoryBulkResponse = null
 let failAdvisoryBulk = false
 let auditResponse = null
 let failAudit = false
-const startServer = () => new Promise((res, rej) => {
-  const server = exports.server = http.createServer((req, res) => {
-    res.setHeader('connection', 'close')
 
-    if (req.url === '/-/npm/v1/security/advisories/bulk') {
-      const body = []
-      req.on('data', c => body.push(c))
-      req.on('end', () => {
-        res.setHeader('connection', 'close')
-        if (failAdvisoryBulk) {
-          res.statusCode = 503
-          return res.end('no advisory bulk for you')
-        }
-        if (!advisoryBulkResponse) {
-          if (auditResponse && !failAudit) {
-            // simulate what the registry does when quick audits are allowed,
-            // but advisory bulk requests are not
-            res.statusCode = 405
-            return res.end(JSON.stringify({
-              code: 'MethodNotAllowedError',
-              message: 'POST is not allowed',
-            }))
-          } else {
-            res.statusCode = 404
-            return res.end('not found')
-          }
-        }
-        if (doProxy && !existsSync(advisoryBulkResponse)) {
-          // hit the main registry, then fall back to staging for now
-          // XXX: remove this when bulk advisory endpoint pushed to production!
-          const opts = {
-            host: 'registry.npmjs.org',
-            method: req.method,
-            path: req.url,
-            headers: {
-              ...req.headers,
-              accept: '*',
-              host: 'registry.npmjs.org',
-              connection: 'close',
-              'if-none-match': '',
-            },
-          }
-          const handleUpstream = upstream => {
-            res.statusCode = upstream.statusCode
-            if (upstream.statusCode >= 300 || upstream.statusCode < 200) {
-              console.error('UPSTREAM ERROR', upstream.statusCode)
-              return upstream.pipe(res)
-            }
-            res.setHeader('content-encoding', upstream.headers['content-encoding'])
-            const file = advisoryBulkResponse
-            console.error('PROXY', `${req.url} -> ${file} ${upstream.statusCode}`)
-            mkdirp.sync(dirname(file))
-            const data = []
-            upstream.on('end', () => {
-              const out = Buffer.concat(data)
-              const obj = JSON.parse(unzipSync(out).toString())
-              writeFileSync(file, JSON.stringify(obj, 0, 2) + '\n')
-              res.end(out)
-            })
-            upstream.on('data', c => data.push(c))
-          }
-          return https.request(opts).on('response', upstream => {
-            if (upstream.statusCode !== 200) {
-              console.error('ATTEMPTING TO PROXY FROM STAGING')
-              console.error('NOTE: THIS WILL FAIL WHEN NOT ON VPN!')
-              opts.host = 'security-microservice-3-west.npm.red'
-              opts.headers.host = opts.host
-              opts.path = '/v1/advisories/bulk'
-              https.request(opts)
-                .on('response', upstream => handleUpstream(upstream))
-                .end(Buffer.concat(body))
-            } else
-              handleUpstream(upstream)
-          }).end(Buffer.concat(body))
-        } else {
-          res.setHeader('content-encoding', 'gzip')
-          res.end(gzipSync(readFileSync(advisoryBulkResponse)))
-        }
-      })
-      return
-    } else if (req.url === '/-/npm/v1/security/audits/quick') {
-      const body = []
-      req.on('data', c => body.push(c))
-      req.on('end', () => {
-        res.setHeader('connection', 'close')
-        if (failAudit) {
-          res.statusCode = 503
-          return res.end('no audit for you')
-        }
-        if (!auditResponse) {
-          res.statusCode = 404
-          return res.end('not found')
-        }
-        if (doProxy && !existsSync(auditResponse)) {
-          return https.request({
-            host: 'registry.npmjs.org',
-            method: req.method,
-            path: req.url,
-            headers: {
-              ...req.headers,
-              accept: '*',
-              host: 'registry.npmjs.org',
-              connection: 'close',
-              'if-none-match': '',
-            },
-          }).on('response', upstream => {
-            res.statusCode = upstream.statusCode
-            if (upstream.statusCode >= 300 || upstream.statusCode < 200) {
-              console.error('UPSTREAM ERROR', upstream.statusCode)
-              // don't save if it's not a valid response
-              return upstream.pipe(res)
-            }
-            res.setHeader('content-encoding', upstream.headers['content-encoding'])
-            const file = auditResponse
-            console.error('PROXY', `${req.url} -> ${file} ${upstream.statusCode}`)
-            mkdirp.sync(dirname(file))
-            const data = []
-            upstream.on('end', () => {
-              const out = Buffer.concat(data)
-              // make it a bit prettier to read later
-              const obj = JSON.parse(unzipSync(out).toString())
-              writeFileSync(file, JSON.stringify(obj, 0, 2) + '\n')
-              res.end(out)
-            })
-            upstream.on('data', c => data.push(c))
-          }).end(Buffer.concat(body))
-        } else {
-          res.setHeader('content-encoding', 'gzip')
-          res.end(gzipSync(readFileSync(auditResponse)))
-        }
-      })
-      return
-    }
+const proxyRegistry = async (req, res) => {
+  const upstream = await new Promise((resolve) => {
+    https.get({
+      host: 'registry.npmjs.org',
+      path: req.url,
+      headers: {
+        ...req.headers,
+        accept: '*',
+        'accept-encoding': 'identity',
+        host: 'registry.npmjs.org',
+        connection: 'close',
+        'if-none-match': '',
+      },
+    }).on('response', response => {
+      const { statusCode, headers } = response
+      const data = []
+      const error = statusCode >= 300 || statusCode < 200
+      const contentEncoding = headers['content-encoding']
+      const contentType = headers['content-type']
 
-    const f = join(__dirname, 'content', join('/', req.url.replace(/@/, '').replace(/%2f/i, '/')))
-    const isCorgi = req.headers.accept.includes('application/vnd.npm.install-v1+json')
-    const file = f + (
-      isCorgi && existsSync(`${f}.min.json`) ? '.min.json'
-      : existsSync(`${f}.json`) ? '.json'
-      : existsSync(`${f}/index.json`) ? 'index.json'
-      : ''
-    )
-
-    try {
-      const body = readFileSync(file)
-      res.setHeader('content-length', body.length)
-      res.setHeader('content-type', /\.min\.json$/.test(file) ? corgiDoc
-        : /\.json$/.test(file) ? 'application/json'
-        : 'application/octet-stream')
-      res.end(body)
-    } catch (er) {
-      // testing things going missing from the registry somehow
-      if (missing.test(req.url)) {
-        res.statusCode = 404
-        res.end('{"error": "not found"}')
-        return
+      console.error('[PROXY] START', `${req.url}: ${statusCode} ${contentType}`)
+      if (error) {
+        console.error('[PROXY] UPSTREAM ERROR', statusCode)
       }
 
-      if (doProxy) {
-        return https.get({
-          host: 'registry.npmjs.org',
-          path: req.url,
-          headers: {
-            ...req.headers,
-            accept: '*',
-            'accept-encoding': 'identity',
-            host: 'registry.npmjs.org',
-            connection: 'close',
-            'if-none-match': '',
-          },
-        }).on('response', upstream => {
-          const errorStatus =
-            upstream.statusCode >= 300 || upstream.statusCode < 200
+      res.statusCode = statusCode
+      res.setHeader('content-encoding', contentEncoding)
+      res.setHeader('content-type', contentType)
 
-          if (errorStatus)
-            console.error('UPSTREAM ERROR', upstream.statusCode)
-
-          const ct = upstream.headers['content-type']
-          const isJson = ct.includes('application/json')
-          const file = isJson ? f + '.json' : f
-          console.error('PROXY', `${req.url} -> ${file} ${ct}`)
-          mkdirp.sync(dirname(file))
-          const data = []
-          res.statusCode = upstream.statusCode
-          res.setHeader('content-type', ct)
-          upstream.on('end', () => {
-            console.error('ENDING', req.url)
-            const out = Buffer.concat(data)
-            if (!errorStatus) {
-              if (isJson) {
-                const obj = JSON.parse(out.toString())
-                writeFileSync(file, JSON.stringify(obj, 0, 2) + '\n')
-                const mrm = require('minify-registry-metadata')
-                const minFile = file.replace(/\.json$/, '.min.json')
-                writeFileSync(minFile, JSON.stringify(mrm(obj), 0, 2) + '\n')
-                console.error('WROTE JSONS', [file, minFile])
-              } else
-                writeFileSync(file, out)
-            }
-            res.end(out)
-          })
-          upstream.on('data', c => data.push(c))
-        }).end()
-      }
-
-      res.statusCode = er.code === 'ENOENT' ? 404 : 500
-      if (res.method === 'GET')
-        console.error(er)
-      res.setHeader('content-type', 'text/plain')
-      res.end(er.stack)
-    }
+      response.on('end', () => {
+        console.error('[PROXY] END', req.url)
+        resolve({ error, data: Buffer.concat(data), contentType })
+      })
+      response.on('data', c => data.push(c))
+    }).end()
   })
-  server.listen(PORT, res)
-})
+
+  return upstream
+}
+
+const bulkAdvisoriesRoute = async (req, res) => {
+  if (failAdvisoryBulk) {
+    res.statusCode = 503
+    return res.end('no advisory bulk for you')
+  }
+
+  const file = advisoryBulkResponse
+
+  if (!file) {
+    if (auditResponse && !failAudit) {
+      // simulate what the registry does when quick audits are allowed,
+      // but advisory bulk requests are not
+      res.statusCode = 405
+      return res.end(JSON.stringify({
+        code: 'MethodNotAllowedError',
+        message: 'POST is not allowed',
+      }))
+    }
+    res.statusCode = 404
+    return res.end('not found')
+  }
+
+  if (doProxy && !(await exists(file))) {
+    const { error, data } = await proxyRegistry(req, res)
+
+    if (!error) {
+      await mkdirp(dirname(file))
+      const obj = await unzip(data).then(r => JSON.parse(r.toString()))
+      await writeJson(file, obj)
+    }
+
+    return res.end(data)
+  }
+
+  res.setHeader('content-encoding', 'gzip')
+  const data = await fs.readFile(file).then(r => gzip(r))
+  return res.end(data)
+}
+
+const quickAuditRoute = async (req, res) => {
+  if (failAudit) {
+    res.statusCode = 503
+    return res.end('no audit for you')
+  }
+
+  const file = auditResponse
+
+  if (!file) {
+    res.statusCode = 404
+    return res.end('not found')
+  }
+
+  if (doProxy && !(await exists(file))) {
+    const { error, data } = await proxyRegistry(req, res)
+
+    if (!error) {
+      await mkdirp(dirname(file))
+      const unzipped = await unzip(data).then(r => r.toString())
+      const obj = JSON.parse(unzipped)
+      await writeJson(file, obj)
+    }
+
+    return res.end(data)
+  }
+
+  res.setHeader('content-encoding', 'gzip')
+  const data = await fs.readFile(file).then(r => gzip(r))
+  return res.end(data)
+}
+
+const onRequest = async (req, res) => {
+  res.setHeader('connection', 'close')
+
+  if (req.url === '/-/npm/v1/security/advisories/bulk') {
+    return await bulkAdvisoriesRoute(req, res)
+  }
+
+  if (req.url === '/-/npm/v1/security/audits/quick') {
+    return await quickAuditRoute(req, res)
+  }
+
+  const f = join(__dirname, 'registry-mocks', 'content', join('/', req.url.replace(/@/g, '').replace(/%2f/gi, '/')))
+  const isCorgi = req.headers.accept.includes('application/vnd.npm.install-v1+json')
+
+  let file = f
+  if (isCorgi && await exists(`${f}.min.json`)) {
+    file += '.min.json'
+  } else if (await exists(`${f}.json`)) {
+    file += '.json'
+  } else if (await exists(`${f}/index.json`)) {
+    file += 'index.json'
+  }
+
+  const { body, error } = await fs.readFile(file)
+    .then((body) => ({ body }))
+    .catch((error) => ({ error }))
+
+  if (error) {
+    // testing things going missing from the registry somehow
+    if (missing.test(req.url)) {
+      res.statusCode = 404
+      return res.end('{"error": "not found"}')
+    }
+
+    if (doProxy) {
+      const { error: proxyError, contentType, data } = await proxyRegistry(req, res)
+
+      if (!proxyError) {
+        await mkdirp(dirname(f))
+
+        if (contentType.includes('application/json')) {
+          const file = `${f}.json`
+          const obj = JSON.parse(data.toString())
+          await Promise.all([
+            writeJson(file, obj),
+            writeJson(file.replace(/\.json$/, '.min.json'), mrm(obj)),
+          ])
+        } else {
+          await fs.writeFile(f, data)
+        }
+      }
+
+      return res.end(data)
+    }
+
+    res.statusCode = error.code === 'ENOENT' ? 404 : 500
+    if (res.method === 'GET') {
+      console.error(error)
+    }
+    res.setHeader('content-type', 'text/plain')
+    return res.end(error.stack)
+  }
+
+  res.setHeader('content-length', body.length)
+  res.setHeader('content-type', /\.min\.json$/.test(file) ? corgiDoc
+    : /\.json$/.test(file) ? 'application/json'
+    : 'application/octet-stream')
+  return res.end(body)
+}
+
+const startServer = async () => {
+  const server = exports.server = http.createServer(onRequest)
+  await new Promise(res => server.listen(PORT, res))
+}
 
 exports.auditResponse = value => {
   if (auditResponse && auditResponse !== value) {
@@ -237,6 +216,7 @@ exports.auditResponse = value => {
   auditResponse = value
   return () => auditResponse = null
 }
+
 exports.failAudit = () => {
   failAudit = true
   return () => failAudit = false
@@ -250,6 +230,7 @@ exports.advisoryBulkResponse = value => {
   advisoryBulkResponse = value
   return () => advisoryBulkResponse = null
 }
+
 exports.failAdvisoryBulk = () => {
   failAdvisoryBulk = true
   return () => failAdvisoryBulk = false
@@ -261,11 +242,9 @@ exports.start = startServer
 exports.stop = () => exports.server.close()
 
 if (require.main === module) {
-  startServer().then(() => {
-    console.log(`Mock registry live at:
-  ${exports.registry}
-Press ^D to close gracefully.`)
-  })
+  startServer()
+    .then(() => console.log(`Mock registry live at:\n${exports.registry}\nPress ^D to close gracefully.`))
+    .catch(console.error)
   process.openStdin()
   process.stdin.on('end', () => exports.stop())
 }
