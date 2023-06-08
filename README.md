@@ -34,9 +34,10 @@ to the current platform. This works fine for all users except those in use
 cases such as described previously.  
 
 With **npm-two-stage** installed over a portable npm installation on a USB
-drive, for example, one simply uses `npm download` to collect the desired
-packages and all their dependencies into a folder on the USB drive. Then
-the USB drive is taken to the target system which also has npm-two-stage
+drive, for example, one simply uses
+<span style="display:inline-block;">`npm download`</span> to collect the
+desired packages and all their dependencies into a folder on the USB drive.
+Then the USB drive is taken to the target system which also has npm-two-stage
 installed, and one runs the offline install command line (see below).  
 _Note that your npm installations modified by npm-two-stage will behave exactly
 the same as unmodified npm if you don't use the `--offline` option._
@@ -45,14 +46,14 @@ _________________________
 ## Before Proceeding
 Check that your **npm** installation is one of the versions targeted by
 this project.<br>
-**You are currently viewing the version that targets npm 8.19.4.**
+**You are currently viewing the version that targets npm 9.5.1.**
 
 ## To Install
 ### If an Internet connection is *not* available for the target platform:
 Refer to the [Manual Installation Instructions](docs/MANUAL-INSTALL.md).  
 
 ### If the target platform *can* be connected to the Internet:
-First install the npm package **@offliner/npm2stage-v8.19.4**, a command line
+First install the npm package **@offliner/npm2stage-v9.5.1**, a command line
 tool made to manage installation and removal of this version of npm-two-stage.
 Once installed, it will provide the command `npm2stage install`.
 Use of that *might* require elevated privileges, depending on the target
