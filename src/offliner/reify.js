@@ -722,7 +722,7 @@ module.exports = cls => class Reifier extends cls {
       }
       await pacote.extract(spec, node.path, {
         ...this.options,
-        Arborist: this.constructor, // MMR TODO: same as above. Figure it out.
+        Arborist: this.constructor,
         resolved: node.resolved,
         integrity: node.integrity,
       })

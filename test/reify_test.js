@@ -10,10 +10,8 @@
 
   * There is a TODO down deep in there, but it's not mine.
 */
-
 const { join, resolve, basename } = require('path')
 const url = require('url')
-const { promisify } = require('util') // TODO: this is not used. My error? check the arborist test
 const npa = require('npm-package-arg')
 const t = require('tap')
 const runScript = require('@npmcli/run-script')

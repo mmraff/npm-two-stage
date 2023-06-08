@@ -926,7 +926,7 @@ This is a one-time fix-up, please be patient...
       await cacache.tmp.withTmp(this.cache, opt, async path => {
         await pacote.extract(node.resolved, path, {
           ...opt,
-          Arborist, // MMR TODO: an Arborist arg has been introduced to pacote.extract?!!!
+          Arborist,
           resolved: node.resolved,
           integrity: node.integrity,
         })
