@@ -1,12 +1,5 @@
-const fs = require('fs')
+const { copyFile, mkdir, rename, rm } = require('fs/promises')
 const path = require('path')
-const { promisify } = require('util')
-const copyFileAsync = promisify(fs.copyFile)
-const mkdirAsync = promisify(fs.mkdir)
-const renameAsync = promisify(fs.rename)
-
-const mkdirp = require('mkdirp')
-const rimrafAsync = promisify(require('rimraf'))
 
 const graft = require('./graft')
 
@@ -30,7 +23,7 @@ const cloneNpmFiles = (list, destBase) => {
     const srcPath = path.resolve(
       __dirname, '../../node_modules/npm', list[i]
     )
-    return copyFileAsync(srcPath, path.join(destBase, list[i]))
+    return copyFile(srcPath, path.join(destBase, list[i]))
     .then(() => nextFile(i + 1))
   }
   return nextFile(0)
@@ -51,7 +44,7 @@ const cloneNodeModules = (list, destBase) => {
 const cloneSrcFile = (assets, relFilepath) => {
   const fileSrcPath = path.resolve(__dirname, '../../src', relFilepath)
   const destPath = path.resolve(__dirname, '..', assets.npmLib, relFilepath)
-  return copyFileAsync(fileSrcPath, destPath)
+  return copyFile(fileSrcPath, destPath)
 }
 
 class TestAssets {
@@ -102,23 +95,20 @@ class TestAssets {
     const startDir = process.cwd()
     const testRootDir = this.fs('rootName')
     const npmLibDir = this.fs('npmLib')
-    return rimrafAsync(testRootDir)
-    .then(() => mkdirAsync(testRootDir))
-    .then(() => mkdirAsync(this.fs('npmTmp')))
-    .then(() => mkdirAsync(this.fs('pkgPath')))
+    return rm(testRootDir, { recursive: true, force: true })
+    .then(() => mkdir(testRootDir))
+    .then(() => mkdir(this.fs('npmTmp')))
+    .then(() => mkdir(this.fs('pkgPath')))
     .then(() =>
       this[_arborist] ?
         // It's unfortunate that they didn't implement true unit tests, but we
         // can't mock any npm/node_modules when we're using test suites borrowed
         // from @npmcli/arborist.
-        // Also, something is using a funky version of mkdirp,
-        // so we can't use that here.
-        mkdirAsync(path.join(testRootDir, 'npm'))
-        .then(() => mkdirAsync(path.join(testRootDir, 'npm/lib')))
+        mkdir(path.join(testRootDir, 'npm/lib'), { recursive: true })
       : graft(fixtures.mockNPM, testRootDir)
         .then(() => {
           process.chdir(testRootDir)
-          return renameAsync('mock-npm', 'npm')
+          return rename('mock-npm', 'npm')
         })
         .then(() => process.chdir(startDir))
     )
@@ -133,7 +123,7 @@ class TestAssets {
           ? graft(path.resolve(__dirname, '../../src/offliner'), npmLibDir)
           : graft(path.join(fixtures.mockN2S, 'src/offliner'), npmLibDir)
         )
-        .then(() => mkdirAsync(this.fs('installPath')))
+        .then(() => mkdir(this.fs('installPath')))
     })
     .then(() =>
       cloneSrcFile(this, path.join('download', 'npm-package-filename.js'))

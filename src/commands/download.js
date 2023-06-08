@@ -1,14 +1,10 @@
-// built-in packages
+const { mkdir, rm } = require('fs/promises')
 const path = require('path')
 const url = require('url')
 const util = require('util')
 
-// 3rd party
-const mkdirp = require('mkdirp')
 const pacote = require('pacote')
-const rimrafAsync = util.promisify(require('rimraf'))
 
-// npm/download internals
 const BaseCommand = require('../base-command')
 const dltFactory = require('../download/dltracker')
 const lockDeps = require('../download/lock-deps')
@@ -160,7 +156,7 @@ class Download extends BaseCommand {
     .then(newTracker => {
       log.info('download', 'established download path:', newTracker.path)
       self.dlTracker = newTracker
-      return mkdirp(tempCache)
+      return mkdir(tempCache, { recursive: true })
     })
     .then(() => {
       if (!cmdOpts.packageJson) {
@@ -232,7 +228,7 @@ class Download extends BaseCommand {
     .then(async results => {
       // results is an array of arrays, 1 for each spec on the command line
       // (+1 for package-json opt if any; +1 for lockfile opt if any)
-      await rimrafAsync(path.dirname(tempCache))
+      await rm(path.dirname(tempCache), { recursive: true, force: true })
       await self.dlTracker.serialize()
 
       self.npm.output(statsMsgs + '\n\ndownload finished.')

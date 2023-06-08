@@ -1,4 +1,4 @@
-const { readFile } = require('fs').promises
+const { readFile } = require('fs/promises')
 const path = require('path')
 
 const npa = require('npm-package-arg')
@@ -13,10 +13,12 @@ const RE_HASH_SUFFIX = /#[a-f0-9]{40}$/
 tap.test('fromPackageLock', t1 => {
   t1.test('input that causes errors', t2 => {
     t2.throws(() => lockDeps.fromPackageLock(), SyntaxError)
-    for (const arg of [ undefined, null, '' ])
+    for (const arg of [ undefined, null, '' ]) {
       t2.throws(() => lockDeps.fromPackageLock(arg), SyntaxError)
-    for (const arg of [ false, 42, {}, () => {} ])
+    }
+    for (const arg of [ false, 42, {}, () => {} ]) {
       t2.throws(() => lockDeps.fromPackageLock(arg), TypeError)
+    }
 
     t2.throws(
       () => lockDeps.fromPackageLock("I don't know what JSON is"),
@@ -45,42 +47,50 @@ tap.test('fromPackageLock', t1 => {
     .then(content => {
       const depData = lockDeps.fromPackageLock(content)
       for (const dep of depData) {
-        if (typeof dep.name !== 'string' || typeof dep.version !== 'string')
+        if (typeof dep.name !== 'string' || typeof dep.version !== 'string') {
           return t2.fail('bad dependency data: ' + JSON.stringify(dep))
+        }
       }
       const gitDeps = depData.filter(dep => {
         try { return npa(dep.version).type === 'git' }
         catch (err) { return false }
       })
       for (const dep of gitDeps) {
-        if (!RE_HASH_SUFFIX.test(dep.version))
+        if (!RE_HASH_SUFFIX.test(dep.version)) {
           return t2.fail(
             'Failed to obtain full git repo spec for version value'
           )
+        }
       }
       const expectedNames = new Set([
         'balanced-match', 'brace-expansion', 'concat-map', 'fs.realpath',
         'glob', 'inflight', 'inherits', 'minimatch', 'path-is-absolute'
       ])
       const optDeps = depData.filter(dep => dep.optional)
-      if (optDeps.length !== expectedNames.size)
+      if (optDeps.length !== expectedNames.size) {
         return t2.fail(
           `${optDeps.length} optional deps found; expected ${expectedNames.size}`
         )
-      for (const dep of optDeps)
-        if (!expectedNames.has(dep.name))
+      }
+      for (const dep of optDeps) {
+        if (!expectedNames.has(dep.name)) {
           return t2.fail('Unexpected optional dep in results: ' + dep.name)
+        }
+      }
 
       const devDeps = depData.filter(dep => dep.dev)
       expectedNames.clear()
       expectedNames.add('tarball').add('tarball-no-integrity')
-      if (devDeps.length !== expectedNames.size)
+      if (devDeps.length !== expectedNames.size) {
         return t2.fail(
           `${devDeps.length} devDependencies found; expected ${expectedNames.size}`
         )
-      for (const dep of devDeps)
-        if (!expectedNames.has(dep.name))
+      }
+      for (const dep of devDeps) {
+        if (!expectedNames.has(dep.name)) {
           return t2.fail('Unexpected devDependency in results: ' + dep.name)
+        }
+      }
 
       t2.pass('dependencies data is consistent')
     })
@@ -281,15 +291,18 @@ tap.test('fromYarnLock', t1 => {
 
   t1.test('input that causes errors', t2 => {
     t2.throws(() => lockDeps.fromYarnLock(), SyntaxError)
-    for (const arg of [ undefined, null, '' ])
+    for (const arg of [ undefined, null, '' ]) {
       t2.throws(() => lockDeps.fromYarnLock(arg, {}), SyntaxError)
-    for (const arg of [ true, 42, {}, () => {} ])
+    }
+    for (const arg of [ true, 42, {}, () => {} ]) {
       t2.throws(() => lockDeps.fromYarnLock(arg, {}), TypeError)
-    for (const arg of [ ' ', '{}', 'spec: version', 'spec:\n  version' ])
+    }
+    for (const arg of [ ' ', '{}', 'spec: version', 'spec:\n  version' ]) {
       t2.throws(
         () => lockDeps.fromYarnLock(arg, {}),
         'invalid or corrupted yarn.lock file'
       )
+    }
     // NOTE: This did *not* cause a throw: 'spec:'
 
     const dummyYarnText = [
@@ -301,16 +314,18 @@ tap.test('fromYarnLock', t1 => {
       dummyIntegrityLine,
     ].join('\n')
     const expectedErrMsg = 'A package manifest is required'
-    for (const arg of [ undefined, null, '' ])
+    for (const arg of [ undefined, null, '' ]) {
       t2.throws(
         () => lockDeps.fromYarnLock(dummyYarnText, arg),
         new SyntaxError(expectedErrMsg)
       )
-    for (const arg of [ true, 42, 'BOB', () => {} ])
+    }
+    for (const arg of [ true, 42, 'BOB', () => {} ]) {
       t2.throws(
         () => lockDeps.fromYarnLock(dummyYarnText, arg),
         new TypeError(expectedErrMsg)
       )
+    }
 
     t2.end()
   })
@@ -389,8 +404,9 @@ tap.test('fromYarnLock', t1 => {
       if (failMsg) break
     }
     if (failMsg) t2.fail(failMsg)
-    else if (count !== 6)
+    else if (count !== 6) {
       t2.fail('Incorrect number of items: expected 6, actual ' + count)
+    }
     else t2.pass('as expected')
     t2.end()
   })
@@ -657,10 +673,12 @@ tap.test('extract', t1 => {
 tap.test('readFromDir', t1 => {
   t1.test('input that causes errors', t2 => {
     t2.rejects(lockDeps.readFromDir(), SyntaxError)
-    for (const arg of [ undefined, null, '' ])
+    for (const arg of [ undefined, null, '' ]) {
       t2.rejects(lockDeps.readFromDir(arg), SyntaxError)
-    for (const arg of [ false, 42, {}, () => {} ])
+    }
+    for (const arg of [ false, 42, {}, () => {} ]) {
       t2.rejects(lockDeps.readFromDir(arg), TypeError)
+    }
     t2.end()
   })
 
@@ -848,3 +866,4 @@ tap.test('readFromDir', t1 => {
 
   t1.end()
 })
+

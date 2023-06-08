@@ -4,12 +4,15 @@ const RE_GIT_REPO_SUFFIX = /\.git$/
 const RE_HASH_PREFIX = /^#/
 
 module.exports = function(npaSpec) {
-  if (arguments.length == 0)
+  if (arguments.length == 0) {
     throw new SyntaxError('No argument given')
-  if (!npaSpec || typeof npaSpec != 'object' || !('type' in npaSpec))
+  }
+  if (!npaSpec || typeof npaSpec != 'object' || !('type' in npaSpec)) {
     throw new TypeError('Argument must be a npa-package-arg parse result')
-  if (npaSpec.type != 'git')
+  }
+  if (npaSpec.type != 'git') {
     throw new TypeError('npa-package-arg parse result for a "git" spec required')
+  }
 
   const result = {}
   if (!npaSpec.hosted) {

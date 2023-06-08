@@ -1,13 +1,12 @@
 const {
-  chmod, copyFile, lstat, mkdir, readdir, readFile, symlink,
-  writeFile, unlink
-} = require('fs').promises
+  chmod, copyFile, lstat, mkdir, readdir, readFile, rm,
+  symlink, writeFile, unlink
+} = require('fs/promises')
 const path = require('path')
 const { promisify } = require('util')
 const execAsync = promisify(require('child_process').exec)
 
 const cmdShim = require('cmd-shim')
-const rimrafAsync = promisify(require('rimraf'))
 const tap = require('tap')
 const tar = require('tar')
 
@@ -15,7 +14,7 @@ const graft = require('./lib/graft')
 const gitServer = require('./lib/git-server')
 const remoteServer = require('./lib/remote-server')
 const arbFixtures = './fixtures/arborist/fixtures'
-const { registry } = require(arbFixtures + '/registry-mocks/server.js')
+const { registry } = require(arbFixtures + '/server.js')
 const mockRegistryProxy = require('./lib/mock-server-proxy')
 
 // Where the test npm will be installed
@@ -170,8 +169,8 @@ const checkDownloads = (t, pkgMap, dlPath) =>
         expectedItems.push(fname)
       }
     }
-    // It's no good using t1.same() on an array unless the sequence of 'found'
-    // matches that of 'wanted'.
+    // It's no good using t1.same() on an array unless the sequence
+    // of 'found' matches that of 'wanted'.
     t.same(
       list.sort(), expectedItems.sort(),
       'download dir contains all expected items'
@@ -372,7 +371,7 @@ tap.before(() => {
   cfg.git.hostBase = path.resolve(staging, 'srv', gitHostBaseName)
   cfg.remote.base = path.resolve(__dirname, remoteBaseRelPath)
 
-  return rimrafAsync(staging)
+  return rm(staging, { recursive: true, force: true })
   .then(() => mkdir(path.dirname(stagedNpmDir), { recursive: true }))
   .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
   .then(() => copyNpmToStaging())
@@ -406,7 +405,7 @@ tap.teardown(() => {
   return new Promise(resolve => mockRegistryProxy.stop(() => resolve()))
   .then(() => gitServer.stop())
   .then(() => remoteServer.stop())
-  .then(() => rimrafAsync(staging))
+  .then(() => rm(staging, { recursive: true, force: true }))
 })
 
 // Path component names we'll be using a lot

@@ -1,25 +1,19 @@
 /*
-  Based on pacote/lib/git.js.
-  Added requires: ssri, util.promisify, promisify(fs.readFile).
-  Added method: [_istream].
+  Based on git.js of pacote 15.1.1
   We use this only to get the manifest from a git repo, but in the process,
   we clone, and we also cache a tarball made from the clone.
 */
+const path = require('path')
+const url = require('url')
   
 const Fetcher = require('pacote/lib/fetcher.js')
 const DirFetcher = require('pacote/lib/dir.js')
 const hashre = /^[a-f0-9]{40}$/
 const git = require('@npmcli/git')
 const npa = require('npm-package-arg')
-const path = require('path')
-const url = require('url')
 const cacache = require('cacache')
 const log = require('proc-log')
 const npm = require('pacote/lib/util/npm.js')
-const ssri = require('ssri')
-
-const { promisify } = require('util')
-const readfile = promisify(require('fs').readFile)
 
 const _tarballFromResolved = Symbol.for('pacote.Fetcher._tarballFromResolved')
 const _addGitSha = Symbol('_addGitSha')
@@ -29,7 +23,6 @@ const _cloneHosted = Symbol('_cloneHosted')
 const _cloneRepo = Symbol('_cloneRepo')
 const _setResolvedWithSha = Symbol('_setResolvedWithSha')
 const _prepareDir = Symbol('_prepareDir')
-const _istream = Symbol('_istream2')
 const _readPackageJson = Symbol.for('package.Fetcher._readPackageJson')
 
 // get the repository url.
@@ -43,7 +36,7 @@ const repoUrl = (h, opts) =>
 // add git+ to the url, but only one time.
 const addGitPlus = _url => _url && `git+${_url}`.replace(/^(git\+)+/, 'git+')
 
-const filterAliases = arr => arr.filter(s => s !== 'HEAD' && !s.startsWith('refs/'))
+const filterTags = arr => arr.filter(s => s !== 'HEAD' && !s.startsWith('refs/'))
 
 class AltGitFetcher extends Fetcher {
   constructor (spec, opts) {
@@ -71,6 +64,8 @@ class AltGitFetcher extends Fetcher {
     } else {
       this.resolvedSha = ''
     }
+
+    this.Arborist = opts.Arborist || null
   }
 
   // just exposed to make it easier to test all the combinations
@@ -96,8 +91,6 @@ class AltGitFetcher extends Fetcher {
   }
 
   [_prepareDir] (dir) {
-    // The npm developers keep doing things that cause problems on Windows.
-    // Here they had: dir + '/package.json'
     return this[_readPackageJson](path.join(dir, 'package.json')).then(mani => {
       // no need if we aren't going to do any preparation.
       const scripts = mani.scripts
@@ -138,41 +131,11 @@ class AltGitFetcher extends Fetcher {
     })
   }
 
-  /*
-    Based on Fetcher[_istream], which is inaccessible to derived classes
-    (its declaration up top is Symbol(_istream) instead of Symbol.for(_istream)).
-    For explanation of specifics in this, see comments in Fetcher[_istream].
-  */
-  [_istream] (srcStream) {
-    const istream = ssri.integrityStream(this.opts)
-    istream.on('integrity', i => this.integrity = i)
-    istream.on('data', () => {}) // THIS IS THE TICKET
-    srcStream.on('error', err => {
-      srcStream.destroy()
-      istream.emit('error', err)
-    })
-
-    srcStream.pipe(istream, { end: false })
-    const cstream = cacache.put.stream(
-      this.opts.cache,
-      `pacote:tarball:${this.from}`,
-      this.opts
-    )
-    srcStream.pipe(cstream)
-    // defer istream end until after cstream
-    // cache write errors should not crash the fetch, this is best-effort.
-    cstream.promise().catch(err => {
-      log.warn('AltGitFetcher[_istream]', 'cache write error:', err.message)
-    })
-    .then(() => istream.end())
-
-    return istream
-  }
-
   // clone a git repo into a temp folder.
   // handler accepts a directory, and returns a promise that resolves
   // when we're done with it, at which point, cacache deletes it
   //
+  // MMR: This is a hybrid of actual [_clone] and [_tarballFromResolved].
   [_clone] (handler) {
     const o = { tmpPrefix: 'git-clone' }
     const ref = this.resolvedSha || this.spec.gitCommittish
@@ -193,23 +156,38 @@ class AltGitFetcher extends Fetcher {
         const remoteRefs = await git.revs(tmpFileURL, this.opts)
         if (remoteRefs) {
           const list = remoteRefs.shas[sha]
-          const aliases = list && (list instanceof Array) && filterAliases(list)
-          this.allRefs = aliases || []
+          const tags = list && (list instanceof Array) && filterTags(list)
+          this.allRefs = tags || []
         }
       }
-      // Make a tarball, put it in the cache
-      await this[_prepareDir](tmp)
-      const df = new DirFetcher(`file:${tmp}`, {
-        ...this.opts,
-        resolved: null,
-        integrity: null,
-      })
-      const dirStream = df[_tarballFromResolved]()
-      return new Promise((resolve, reject) => {
-        const istream = this[_istream](dirStream, this.opts)
-        istream.on('error', err => reject(err))
-        istream.on('finish', () => resolve(null))
-      })
+      return this[_prepareDir](tmp)
+      .then(() => new Promise((res, rej) => {
+        if (!this.Arborist) {
+          throw new Error(
+            'AltGitFetcher requires an Arborist constructor to pack a tarball'
+          )
+        }
+        const df = new DirFetcher(`file:${tmp}`, {
+          ...this.opts,
+          Arborist: this.Arborist,
+          resolved: null,
+          integrity: null,
+        })
+        const dirStream = df[_tarballFromResolved]()
+        dirStream.on('error', rej)
+        dirStream.on('end', res)
+
+        const cstream = cacache.put.stream(
+          this.opts.cache,
+          `pacote:tarball:${this.from}`,
+          this.opts
+        )
+        dirStream.pipe(cstream)
+        // cache write errors should not crash the fetch, this is best-effort.
+        cstream.promise().catch(err => {
+          log.warn('AltGitFetcher[_clone]', 'cache write error:', err.message)
+        })
+      }))
       .then(() =>  handler(tmp))
     })
   }
@@ -243,7 +221,7 @@ class AltGitFetcher extends Fetcher {
   }
 
   manifest () {
-    if (this.package) { // The already-annotated manifest
+    if (this.package) {
       return Promise.resolve(this.package)
     }
 
@@ -258,7 +236,7 @@ class AltGitFetcher extends Fetcher {
     // so that it can run scripts from the package.json "scripts" section
     // in DirFetcher[_prepareDir].
 
-    const handler = (dir) =>
+    return this[_clone](dir =>
       this[_readPackageJson](path.join(dir, 'package.json'))
       .then(mani => this.package = Object.assign(
         {
@@ -269,8 +247,7 @@ class AltGitFetcher extends Fetcher {
         },
         this.opts.multipleRefs ? { _allRefs: this.allRefs } : {}
       ))
-
-    return this[_clone](handler)
+    )
   }
 }
 module.exports = AltGitFetcher

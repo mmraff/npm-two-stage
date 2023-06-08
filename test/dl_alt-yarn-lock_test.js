@@ -1,13 +1,13 @@
 const YarnLock = require('../src/download/alt-yarn-lock')
 
 const t = require('tap')
-const {resolve, basename} = require('path')
+const { resolve, basename } = require('path')
 const arbFixturesPath = 'fixtures/arborist/fixtures'
 const fixtures = [
   resolve(__dirname, arbFixturesPath, 'tap-with-yarn-lock'),
   resolve(__dirname, arbFixturesPath, 'yarn-stuff'),
 ]
-const {readFileSync} = require('fs')
+const { readFileSync } = require('fs')
 
 fixtures.forEach(f => t.test(basename(f), t => {
   const lockdata = readFileSync(f + '/yarn.lock')
@@ -86,12 +86,12 @@ bar@foo:
 # yarn lockfile v1
 
 
-"bar@foo":
-  "version" "1.2.3"
+bar@foo:
+  version "1.2.3"
 
-"foo@bar":
-  "resolved" "https://registry.local/foo/-/foo-1.2.3.tgz"
-  "version" "1.2.3"
+foo@bar:
+  version "1.2.3"
+  resolved "https://registry.local/foo/-/foo-1.2.3.tgz"
 `)
   t.end()
 })
@@ -100,3 +100,4 @@ t.test('exports YarnLockEntry class', t => {
   t.type(YarnLock.Entry, 'function')
   t.end()
 })
+

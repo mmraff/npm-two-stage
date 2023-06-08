@@ -7,10 +7,44 @@
 const localeCompare = require('@isaacs/string-locale-compare')('en')
 const npa = require('npm-package-arg')
 
+// Sort Yarn entries respecting the yarn.lock sort order
+const yarnEntryPriorities = {
+  name: 1,
+  version: 2,
+  uid: 3,
+  resolved: 4,
+  integrity: 5,
+  registry: 6,
+  dependencies: 7,
+}
+
+const priorityThenLocaleCompare = (a, b) => {
+  if (!yarnEntryPriorities[a] && !yarnEntryPriorities[b]) {
+    return localeCompare(a, b)
+  }
+  /* istanbul ignore next */
+  return (yarnEntryPriorities[a] || 100) > (yarnEntryPriorities[b] || 100) ? 1 : -1
+}
+
+const quoteIfNeeded = val => {
+  if (
+    typeof val === 'boolean' ||
+    typeof val === 'number' ||
+    val.startsWith('true') ||
+    val.startsWith('false') ||
+    /[:\s\n\\",[\]]/g.test(val) ||
+    !/^[a-zA-Z]/g.test(val)
+  ) {
+    return JSON.stringify(val)
+  }
+
+  return val
+}
+
 // sort a key/value object into a string of JSON stringified keys and vals
 const sortKV = obj => Object.keys(obj)
   .sort(localeCompare)
-  .map(k => `    ${JSON.stringify(k)} ${JSON.stringify(obj[k])}`)
+  .map(k => `    ${quoteIfNeeded(k)} ${quoteIfNeeded(obj[k])}`)
   .join('\n')
 
 const prefix =
@@ -139,7 +173,7 @@ class YarnLock {
   toString () {
     return prefix + [...new Set([...this.entries.values()])]
       .map(e => e.toString())
-      .sort(localeCompare).join('\n\n') + '\n'
+      .sort((a, b) => localeCompare(a.replace(/"/g, ''), b.replace(/"/g, ''))).join('\n\n') + '\n'
   }
 
   static get Entry () {
@@ -162,19 +196,14 @@ class YarnLockEntry {
     // sort objects to the bottom, then alphabetical
     return ([...this[_specs]]
       .sort(localeCompare)
-      .map(JSON.stringify).join(', ') +
+      .map(quoteIfNeeded).join(', ') +
       ':\n' +
       Object.getOwnPropertyNames(this)
         .filter(prop => this[prop] !== null)
-        .sort(
-          (a, b) =>
-          /* istanbul ignore next - sort call order is unpredictable */
-            (typeof this[a] === 'object') === (typeof this[b] === 'object')
-              ? localeCompare(a, b)
-              : typeof this[a] === 'object' ? 1 : -1)
+        .sort(priorityThenLocaleCompare)
         .map(prop =>
           typeof this[prop] !== 'object'
-            ? `  ${JSON.stringify(prop)} ${JSON.stringify(this[prop])}\n`
+            ? `  ${prop} ${prop === 'integrity' ? this[prop] : JSON.stringify(this[prop])}\n`
             : Object.keys(this[prop]).length === 0 ? ''
             : `  ${prop}:\n` + sortKV(this[prop]) + '\n')
         .join('')).trim()

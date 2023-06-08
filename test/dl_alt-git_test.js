@@ -1,7 +1,6 @@
+const { rmSync } = require('fs')
 const path = require('path')
-const { promisify } = require('util')
 
-const rimrafAsync = promisify(require('rimraf'))
 const npa = require('npm-package-arg')
 const tap = require('tap')
 
@@ -119,6 +118,7 @@ function manifestMatcher(pjSrc, annotSrc) {
 const testRootName = 'tempAssets2'
 const stdOpts = { multipleRefs: true }
 let AltGitFetcher
+let AltArborist
 let mockCacache
 let mockDirFetcher
 let mockPacoteNpm
@@ -128,10 +128,12 @@ let mockLog
 let n2sAssets
 
 tap.before(() =>
-  makeAssets(testRootName, 'download/alt-git.js')
+  makeAssets(testRootName, 'download/alt-git.js', { offliner: true })
   .then(assets => {
     n2sAssets = assets
     AltGitFetcher = require(assets.libDownload + '/alt-git')
+    AltArborist = require(assets.libOffliner + '/alt-arborist')
+    stdOpts.Arborist = AltArborist
     mockCacache = require(assets.nodeModules + '/cacache')
     mockDirFetcher = require(assets.nodeModules + '/pacote/lib/dir')
     mockPacoteNpm = require(assets.nodeModules + '/pacote/lib/util/npm')
@@ -140,7 +142,24 @@ tap.before(() =>
     mockLog = require(assets.nodeModules + '/proc-log')
   })
 )
-tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
+tap.teardown(() => rmSync(
+  path.join(__dirname, testRootName), { recursive: true, force: true }
+))
+
+tap.test('no Arborist constructor in options', t => {
+  const npaSpec = npa(testConfigs[0].spec)
+  mockReadPkgJson.setTestConfig({
+    [testConfigs[0].spec]: testConfigs[0].manifest
+  })
+  mockNpmCliGit.setTestConfig({
+    [npaSpec.hosted.https()]: testConfigs[0]
+  })
+  const gitFetcher = new AltGitFetcher(testConfigs[0].spec, {})
+  return t.rejects(
+    gitFetcher.manifest(),
+    { message: 'AltGitFetcher requires an Arborist constructor to pack a tarball' }
+  )
+})
 
 tap.test('shortcut spec without committish', t => {
   const npaSpec = npa(testConfigs[0].spec)
@@ -205,7 +224,7 @@ tap.test('shortcut spec with commit hash, but no multipleRefs option', t => {
   })
   mockLog.purge()
   const gitFetcher = new AltGitFetcher(
-    fullSpec, { log: mockLog }
+    fullSpec, { log: mockLog, Arborist: AltArborist }
   )
   gitFetcher.manifest().then(mani => {
     t.not('_allRefs' in mani, true,
@@ -407,7 +426,7 @@ tap.test('stream to cache has an error', t => {
     const expectedMani = manifestMatcher(testData, testData)
     t.match(mani, expectedMani, 'yields manifest with expected fields')
     t.match(mockLog.getList(), [{
-      level: 'warn', prefix: 'AltGitFetcher[_istream]',
+      level: 'warn', prefix: 'AltGitFetcher[_clone]',
       message: /^cache write error:/
     }])
     t.end()
@@ -493,4 +512,3 @@ tap.test('get types()', t => {
   t.same(gitFetcher.types, [ 'git' ])
   t.end()
 })
-

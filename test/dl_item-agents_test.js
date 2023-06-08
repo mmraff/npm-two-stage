@@ -1,7 +1,6 @@
+const { rmSync } = require('fs')
 const path = require('path')
-const { promisify } = require('util')
 
-const rimrafAsync = promisify(require('rimraf'))
 const npa = require('npm-package-arg')
 const tap = require('tap')
 
@@ -134,16 +133,17 @@ function createDependencyTestConfig(parentItem, depItem, depCategory) {
 }
 
 const testRootName = 'tempAssets1'
-let mockDlt
 let gitTrackerKeys
 let itemAgents
+let mockDlt
 let mockLockDeps
 let mockLog
 let mockPacote
 let npf
 
 tap.before(() =>
-  makeAssets(testRootName, 'download/item-agents.js')
+  // offliner because AltArborist is required
+  makeAssets(testRootName, 'download/item-agents.js', { offliner: true })
   .then(assets => {
     gitTrackerKeys = require(assets.libDownload + '/git-tracker-keys')
     itemAgents = require(assets.libDownload + '/item-agents')
@@ -154,7 +154,9 @@ tap.before(() =>
     mockPacote = require(assets.nodeModules + '/pacote')
   })
 )
-tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
+tap.teardown(() => rmSync(
+  path.join(__dirname, testRootName), { recursive: true, force: true }
+))
 
 const makeOpts = (pkgDir) =>  ({
   dlTracker: mockDlt.createSync(pkgDir),

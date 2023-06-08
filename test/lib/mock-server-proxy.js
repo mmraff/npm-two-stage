@@ -1,5 +1,5 @@
 const arbFixtures = '../fixtures/arborist/fixtures'
-const registryMock = require(arbFixtures + '/registry-mocks/server.js')
+const registryMock = require(arbFixtures + '/server.js')
 
 const INACTIVE = 0
 const PENDING_START = 1

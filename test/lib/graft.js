@@ -1,11 +1,6 @@
-const fs = require('fs')
+const { COPYFILE_EXCL } = require('fs').constants
+const { copyFile, lstat, mkdir, readdir, rm } = require('fs/promises')
 const path = require('path')
-const { promisify } = require('util')
-const copyFileAsync = promisify(fs.copyFile)
-const lstatAsync = promisify(fs.lstat)
-const mkdirAsync = promisify(fs.mkdir)
-const readdirAsync = promisify(fs.readdir)
-const rimrafAsync = promisify(require('rimraf'))
 
 /*
   copyEntries: Copy everything# in src into dest
@@ -19,16 +14,16 @@ function copyEntries(src, dest) {
     if (i >= list.length) return Promise.resolve()
     const item = list[i]
     const srcItemPath = path.join(src, offset, item)
-    return lstatAsync(srcItemPath).then(srcStats => {
+    return lstat(srcItemPath).then(srcStats => {
       const target = path.join(dest, offset, item)
       let p
       if (srcStats.isDirectory())
-        p = readdirAsync(srcItemPath).then(entries =>
-          mkdirAsync(target)
+        p = readdir(srcItemPath).then(entries =>
+          mkdir(target)
           .then(() => nextEntry(path.join(offset, item), entries, 0))
         )
       else if (srcStats.isFile())
-        p = copyFileAsync(srcItemPath, target, fs.constants.COPYFILE_EXCL)
+        p = copyFile(srcItemPath, target, COPYFILE_EXCL)
       else {
         // This should never happen, but potential harm is neutralized
         p = Promise.resolve()
@@ -41,7 +36,7 @@ function copyEntries(src, dest) {
     })
   }
 
-  return readdirAsync(src)
+  return readdir(src)
   .then(entries => nextEntry('', entries, 0))
 }
 
@@ -51,13 +46,15 @@ module.exports = function (src, dest) {
   try { newPath = path.join(dest, path.basename(src)) }
   catch (err) { return Promise.reject(err) }
   let mkdirSucceeded = false
-  return mkdirAsync(newPath).then(() => {
+  return mkdir(newPath).then(() => {
     mkdirSucceeded = true
     return copyEntries(src, newPath)
   })
   .catch(err => {
-    if (mkdirSucceeded)
-      return rimrafAsync(newPath).then(() => { throw err })
+    if (mkdirSucceeded) {
+      return rm(newPath, { recursive: true, force: true })
+      .then(() => { throw err })
+    }
     throw err
   })
 }

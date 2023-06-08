@@ -1,5 +1,5 @@
 /*
-  Based on test/arborist/build-ideal-tree.js of @npmcli/arborist v5.6.3.
+  Based on test/arborist/build-ideal-tree.js of @npmcli/arborist v6.2.3.
   Almost all of this suite was created by the developers of @npmcli/arborist.
   Origin comments are preserved. All of the fixtures from the arborist test
   collection are also present in fixtures/arborist.
@@ -25,12 +25,10 @@ const arbFixturesAbsPath = resolve(__dirname, arbFixtures)
 require(arbFixtures)
 const {
   registry, auditResponse
-} = require(arbFixtures + '/registry-mocks/server.js')
+} = require(arbFixtures + '/server.js')
 const { start, stop } = require('./lib/mock-server-proxy')
 const npa = require('npm-package-arg')
 const fs = require('fs')
-const { promisify } = require('util')
-const rimrafAsync = promisify(require('rimraf'))
 const nock = require('nock')
 const semver = require('semver')
 
@@ -57,7 +55,9 @@ t.before(() =>
 )
 t.teardown(() => {
   return new Promise(resolve => stop(() => resolve()))
-  .then(() => rimrafAsync(join(__dirname, testRootName)))
+  .then(() => fs.rmSync(
+    join(__dirname, testRootName), { recursive: true, force: true }
+  ))
 })
 
 const cache = t.testdir()
@@ -404,7 +404,7 @@ t.test('dedupe example - deduped because preferDedupe=true', t => {
 t.test('dedupe example - nested because legacyBundling=true', t => {
   const path = resolve(arbFixturesAbsPath, 'dedupe-tests')
   return t.resolveMatchSnapshot(printIdeal(path, {
-    legacyBundling: true,
+    installStrategy: 'nested',
     preferDedupe: true,
   }))
 })
@@ -647,7 +647,7 @@ t.test('link dep within node_modules and outside root', t => {
 })
 
 t.test('global style', t => t.resolveMatchSnapshot(printIdeal(t.testdir(), {
-  globalStyle: true,
+  installStrategy: 'shallow',
   add: ['rimraf'],
 })))
 
@@ -713,7 +713,7 @@ t.test('empty update should not trigger old lockfile', async t => {
     'package-lock.json': JSON.stringify({
       name: 'empty-update',
       version: '1.0.0',
-      lockfileVersion: 2,
+      lockfileVersion: 3,
       requires: true,
       packages: {
         '': {
@@ -1176,7 +1176,7 @@ t.test('resolve links in global mode', async t => {
 
 t.test('dont get confused if root matches duped metadep', async t => {
   const path = resolve(arbFixturesAbsPath, 'test-root-matches-metadep')
-  const arb = new Arborist({ path, ...OPT })
+  const arb = new Arborist({ path, installStrategy: 'hoisted', ...OPT })
   const tree = await arb.buildIdealTree()
   t.matchSnapshot(printTree(tree))
 })

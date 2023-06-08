@@ -4,6 +4,8 @@
 /* eslint-disable camelcase */
 const fs = require('fs')
 const util = require('util')
+// MMR Warning: npm 9.5.1 install.js is still using util.promisify on
+// fs.readdir! While that remains, we keep this as is:
 const readdir = util.promisify(fs.readdir)
 const reifyFinish = require('../utils/reify-finish.js')
 const log = require('../utils/log-shim.js')
@@ -25,8 +27,9 @@ class Install extends ArboristWorkspaceCmd {
     'save',
     'save-exact',
     'global',
-    'global-style',
+    'install-strategy',
     'legacy-bundling',
+    'global-style',
     'omit',
     'strict-peer-deps',
     'package-lock',
@@ -178,7 +181,6 @@ class Install extends ArboristWorkspaceCmd {
           args: [],
           scriptShell,
           stdio: 'inherit',
-          stdioString: true,
           banner: !this.npm.silent,
           event,
         })

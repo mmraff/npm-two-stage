@@ -1,6 +1,5 @@
-const promisify = require('util').promisify
-const readdirAsync = promisify(require('graceful-fs').readdir)
-const npf = require('./npm-package-filename') // CHANGED from '@offliner/npm-package-filename'
+const { readdir } = require('fs/promises')
+const npf = require('./npm-package-filename')
 
 module.exports = reconstructMap
 
@@ -73,7 +72,7 @@ function reconstructMap(dir, log) {
 
   // Recognize anything that looks like a package file in the
   // given directory, and table it
-  return readdirAsync(dir).then(files => {
+  return readdir(dir).then(files => {
     const map = {}
     iterateAndAdd(files, map, log)
     return map

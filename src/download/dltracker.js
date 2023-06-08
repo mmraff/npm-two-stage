@@ -1,18 +1,10 @@
-// built-ins
+const { lstat, readFile, writeFile } = require('fs/promises')
 const path = require('path')
 const url = require('url')
-const promisify = require('util').promisify
 
-// 3rd party dependencies
-const fs = require('graceful-fs')
 const semver = require('semver')
-const npf = require('./npm-package-filename') // CHANGED from '@offliner/npm-package-filename'
-
+const npf = require('./npm-package-filename')
 const reconstructMap = require('./reconstruct-map')
-
-const lstatAsync = promisify(fs.lstat)
-const readFileAsync = promisify(fs.readFile)
-const writeFileAsync = promisify(fs.writeFile)
 
 const dummyFunc = () => {}
 const dummyLog = {
@@ -56,7 +48,7 @@ function auditOne(type, data, dir) {
     return Promise.reject(err)
   }
   const filePath = path.resolve(dir, fileSpec)
-  return lstatAsync(filePath).then(stats => {
+  return lstat(filePath).then(stats => {
     let err
     if (!stats.isFile()) {
       err = new Error('Not a regular file')
@@ -207,7 +199,7 @@ function create(where, opts) {
 
   const pkgDir = (where) ? path.resolve(where) : path.resolve()
 
-  return lstatAsync(pkgDir).then(stats => {
+  return lstat(pkgDir).then(stats => {
     if (!stats.isDirectory()) {
       const errNotDir = new Error('Given path is not a directory')
       errNotDir.path = pkgDir
@@ -226,7 +218,7 @@ function create(where, opts) {
     Object.freeze(publicSelf)
 
     const mapFilepath = path.join(pkgDir, MAPFILE_NAME)
-    return readFileAsync(mapFilepath, 'utf8').then(str => {
+    return readFile(mapFilepath, 'utf8').then(str => {
       let map
       // Strip BOM, if any
       if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1)
@@ -698,7 +690,7 @@ function create(where, opts) {
 
     const filepath = path.join(pkgDir, MAPFILE_NAME)
     log.verbose('DownloadTracker.serialize', 'writing to', filepath)
-    return writeFileAsync(filepath, JSON.stringify(map))
+    return writeFile(filepath, JSON.stringify(map))
     .then(() => {
       log.verbose('DownloadTracker.serialize', 'Map file written successfully.')
       delete tables.dirty

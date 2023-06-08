@@ -1,7 +1,6 @@
+const { rmSync } = require('fs')
 const path = require('path')
-const { promisify } = require('util')
 
-const rimrafAsync = promisify(require('rimraf'))
 const t = require('tap')
 
 const Edge = require('@npmcli/arborist/lib/edge')
@@ -27,9 +26,9 @@ t.before(() =>
     Arborist = require(assets.libOffliner + '/alt-arborist')
   })
 )
-t.teardown(() => {
-  return rimrafAsync(path.join(__dirname, testRootName))
-})
+t.teardown(() => rmSync(
+  path.join(__dirname, testRootName), { recursive: true, force: true }
+))
 
 t.test('basic stuff', t => {
   const a = new Arborist({ path: '/some/kind/of/path' })
@@ -240,7 +239,7 @@ t.test('excludeSet includes nonworkspace metadeps', async t => {
     spec: 'file:pkgs/b',
   })
 
-  const arb = new Arborist()
+  const arb = new Arborist({})
   const filter = arb.excludeWorkspacesDependencySet(tree)
 
   t.equal(filter.size, 3)
@@ -270,5 +269,13 @@ t.test('valid replaceRegistryHost values', t => {
   t.equal(new Arborist({ replaceRegistryHost: undefined }).options.replaceRegistryHost, 'registry.npmjs.org')
   t.equal(new Arborist({ replaceRegistryHost: 'always' }).options.replaceRegistryHost, 'always')
   t.equal(new Arborist({ replaceRegistryHost: 'never' }).options.replaceRegistryHost, 'never')
+  t.end()
+})
+
+t.test('valid global/installStrategy values', t => {
+  t.equal(new Arborist({ global: true }).options.installStrategy, 'shallow')
+  t.equal(new Arborist({ global: false }).options.installStrategy, 'hoisted')
+  t.equal(new Arborist({}).options.installStrategy, 'hoisted')
+  t.equal(new Arborist({ installStrategy: 'hoisted' }).options.installStrategy, 'hoisted')
   t.end()
 })

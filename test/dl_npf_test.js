@@ -30,9 +30,10 @@ tap.test('makeTarballName', t1 => {
     t2.end()
   })
   t1.test('Wrong type of argument', t2 => {
-    for (const item of [ true, 42, 'whatever', function(){}, new String('Hi') ])
+    const wrongArgs = [ true, 42, 'whatever', function(){}, new String('Hi') ]
+    for (const item of wrongArgs) {
       t2.throws(() => npf.makeTarballName(item), TypeError)
-
+    }
     t2.throws(() => npf.makeTarballName({}), SyntaxError)
     t2.throws(getHackedDataTester('semver', 'type', undefined), SyntaxError)
     t2.throws(getHackedDataTester('semver', 'type', null), SyntaxError)
@@ -154,8 +155,9 @@ tap.test('parse', t1 => {
     t2.end()
   })
   t1.test('Wrong type of argument', t2 => {
-    for (const item of [ true, 42, {}, function(){}, new String('Hi') ])
+    for (const item of [ true, 42, {}, function(){}, new String('Hi') ]) {
       t2.throws(() => npf.parse(item), TypeError)
+    }
     t2.end()
   })
   t1.test('Empty string argument', t2 => {
@@ -268,14 +270,16 @@ tap.test('isVersionAmbiguous', t1 => {
     t2.end()
   })
   t1.test('Non-string name argument', t2 => {
-    for (const value of badArgs)
+    for (const value of badArgs) {
       t2.throws(() => npf.isVersionAmbiguous(value), TypeError)
+    }
     t2.end()
   })
   t1.test('Non-string version argument', t2 => {
     t2.throws(() => npf.isVersionAmbiguous('dummy', null), SyntaxError)
-    for (const value of badArgs)
+    for (const value of badArgs) {
       t2.throws(() => npf.isVersionAmbiguous('dummy', value), TypeError)
+    }
     t2.end()
   })
 

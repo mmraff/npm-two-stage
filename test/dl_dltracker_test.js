@@ -1,9 +1,10 @@
 const path = require('path')
 
 const npf = require('../src/download/npm-package-filename')
-const mockCommitHash = require('./lib/mock-commit-hash')
 const tap = require('tap')
+const mockCommitHash = require('./lib/mock-commit-hash')
 const mockLog = require('./fixtures/mock-npm/lib/utils/log-shim')
+
 const dltLogGetPrefix = 'DownloadTracker.getData'
 function checkLogAndReset(t, start, count, matchData) {
   const logList = mockLog.getList()
@@ -17,48 +18,58 @@ const fsErr = {}
 const dirList = []
 const fileContents = {}
 const fsStats =  {}
-const mockGracefulFS = {
+const argCountRejection = (mock, wanted, args) =>
+  Promise.reject(
+    new Error(`mock ${mock}: expected ${wanted} arg, actual ${args.length}`)
+  )
+
+const mockFS = {
   lstat (...args) {
-    tap.equal(args.length, 2)
-    if (fsErr.lstat) return process.nextTick(() => args.pop()(fsErr.lstat))
+    if (args.length !== 1) {
+      return argCountRejection('lstat', 1, args)
+    }
+    if (fsErr.lstat) return Promise.reject(fsErr.lstat)
     const stats = fsStats[args[0]]
     if (!stats) {
       const err = new Error('mock lstat error')
       err.code = 'ENOENT'
       err.path = args[0]
-      return process.nextTick(() => args.pop()(err))
+      return Promise.reject(err)
     }
-    return process.nextTick(() => args.pop()(null, stats))
+    return Promise.resolve(stats)
   },
   readdir (...args) {
-    tap.equal(args.length, 2)
-    if (fsErr.readdir)
-      return process.nextTick(() => args.pop()(fsErr.readdir))
-    return process.nextTick(() => args.pop()(null, dirList))
+    if (args.length !== 1) {
+      return argCountRejection('readdir', 1, args)
+    }
+    if (fsErr.readdir) return Promise.reject(fsErr.readdir)
+    return Promise.resolve(dirList)
   },
   readFile (...args) {
-    tap.equal(args.length, 3)
-    if (fsErr.readFile)
-      return process.nextTick(() => args.pop()(fsErr.readFile))
+    if (args.length !== 2) {
+      return argCountRejection('readFile', 2, args)
+    }
+    if (fsErr.readFile) return Promise.reject(fsErr.readFile)
     const contents = fileContents[args[0]]
     if (contents === undefined) {
       const err = new Error('mock readFile error')
       err.code = 'ENOENT'
-      return process.nextTick(() => args.pop()(err))
+      return Promise.reject(err)
     }
-    return process.nextTick(() => args.pop()(null, contents))
+    return Promise.resolve(contents)
   },
   writeFile (...args) {
-    tap.equal(args.length, 3)
-    if (fsErr.writeFile)
-      return process.nextTick(() => args.pop()(fsErr.writeFile))
+    if (args.length !== 2) {
+      return argCountRejection('writeFile', 2, args)
+    }
+    if (fsErr.writeFile) return Promise.reject(fsErr.writeFile)
     fileContents[args[0]] = args[1]
-    return process.nextTick(() => args.pop()())
+    return Promise.resolve()
   }
 }
 const dlt = tap.mock('../src/download/dltracker.js', {
-  'graceful-fs': mockGracefulFS
-  // NOTE: reconstruct-map inherits use of mockGracefulFS by this mock
+  'fs/promises': mockFS
+  // NOTE: reconstruct-map inherits use of this mock fs
 })
 
 const emptyArgs = [ undefined, null, '' ]

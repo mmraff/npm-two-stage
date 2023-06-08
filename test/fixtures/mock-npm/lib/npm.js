@@ -1,11 +1,15 @@
 /*
-  TODO: say something here
+  Based on actual lib/npm.js of npm cli v9.5.1
 */
 
+const Arborist = require('@npmcli/arborist')
 const { resolve, dirname } = require('path')
 const Config = require('@npmcli/config')
 
-module.exports = class {
+const pkg = require('../package.json')
+
+class Npm {
+// TODO: verify the following comment for 9.5.1:
   // NOTE: actual npm is instantiated (in cli.js) with *no arguments*!
   // Also, npm.exec is passed 2 args: cmd and npm.argv
   constructor ({ // NOTE arguments only exist in this mock!
@@ -40,6 +44,12 @@ module.exports = class {
 
   get flatOptions () { // VERBATIM
     const { flat } = this.config
+    // the Arborist constructor is used almost everywhere we call pacote, it's
+    // easiest to attach it to flatOptions so it goes everywhere without having
+    // to touch every call
+    flat.Arborist = Arborist
+    flat.nodeVersion = process.version
+    flat.npmVersion = pkg.version
     if (this.command) {
       flat.npmCommand = this.command
     }
@@ -50,19 +60,19 @@ module.exports = class {
     return this.config.get('global') || this.config.get('location') === 'global'
   }
 
-  get globalPrefix () {
+  get globalPrefix () { // VERBATIM
     return this.config.globalPrefix
   }
 
-  get localPrefix () {
+  get localPrefix () { // VERBATIM
     return this.config.localPrefix
   }
 
-  get prefix () {
+  get prefix () { // ***
     return this.config.get('global') ? this.globalPrefix : this.localPrefix
   }
 
-  get globalDir () {
+  get globalDir () { // VERBATIM
     return process.platform !== 'win32'
       ? resolve(this.globalPrefix, 'lib', 'node_modules')
       : resolve(this.globalPrefix, 'node_modules')
@@ -74,4 +84,4 @@ module.exports = class {
     // To purge, call this.outputMsgs.splice(0).
   }
 }
-
+module.exports = Npm

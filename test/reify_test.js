@@ -1,5 +1,5 @@
 /*
-  Based on test/arborist/reify.js of @npmcli/arborist v5.6.3.
+  Based on test/arborist/reify.js of @npmcli/arborist v6.2.3.
   Almost all of this suite was created by the developers of @npmcli/arborist.
   Origin comments are preserved.* All of the fixtures from the arborist test
   collection are also present in fixtures/arborist.
@@ -13,43 +13,30 @@
 
 const { join, resolve, basename } = require('path')
 const url = require('url')
-const { promisify } = require('util')
+const { promisify } = require('util') // TODO: this is not used. My error? check the arborist test
 const npa = require('npm-package-arg')
 const t = require('tap')
 const runScript = require('@npmcli/run-script')
 const localeCompare = require('@isaacs/string-locale-compare')('en')
 const tnock = require('./fixtures/npmcli/tnock')
-
-// mock rimraf so we can make it fail in rollback tests
-const realRimraf = require('rimraf')
-let failRimraf = false
-const rimrafMock = (...args) => {
-  if (!failRimraf) {
-    return realRimraf(...args)
-  } else {
-    return args.pop()(new Error('rimraf fail'))
-  }
-}
-rimrafMock.sync = (...args) => {
-  if (!failRimraf) {
-    return realRimraf.sync(...args)
-  } else {
-    throw new Error('rimraf fail')
-  }
-}
 const fs = require('fs')
+const fsp = require('fs/promises')
+const npmFs = require('@npmcli/fs')
+
+let failRm = false
 let failRename = null
 let failRenameOnce = null
 let failMkdir = null
-const {rename: realRename, mkdir: realMkdir} = fs
+const { rename: realRename, rm: realRm, mkdir: realMkdir } = fs
 const fsMock = {
   ...fs,
   mkdir (...args) {
     if (failMkdir) {
       process.nextTick(() => args.pop()(failMkdir))
+      return
     }
 
-    realMkdir(...args)
+    return realMkdir(...args)
   },
   rename (...args) {
     if (failRename) {
@@ -59,13 +46,52 @@ const fsMock = {
       failRenameOnce = null
       process.nextTick(() => args.pop()(er))
     } else {
-      realRename(...args)
+      return realRename(...args)
     }
   },
+  rm (...args) {
+    if (failRm) {
+      process.nextTick(() => args.pop()(new Error('rm fail')))
+      return
+    }
+
+    realRm(...args)
+  },
 }
+const fspMock = {
+  ...fsp,
+  mkdir: async (...args) => {
+    if (failMkdir) {
+      throw failMkdir
+    }
+
+    return fsp.mkdir(...args)
+  },
+  rename: async (...args) => {
+    if (failRename) {
+      throw failRename
+    } else if (failRenameOnce) {
+      const er = failRenameOnce
+      failRenameOnce = null
+      throw er
+    } else {
+      return fsp.rename(...args)
+    }
+  },
+  rm: async (...args) => {
+    if (failRm) {
+      throw new Error('rm fail')
+    }
+
+    return fsp.rm(...args)
+  },
+}
+// need this to be injected so that it doesn't pull from main cache
+const { moveFile } = t.mock('@npmcli/fs', { 'fs/promises': fspMock })
 const mocks = {
   fs: fsMock,
-  rimraf: rimrafMock,
+  'fs/promises': fspMock,
+  '@npmcli/fs': { ...npmFs, moveFile },
 }
 
 const oldLockfileWarning = [
@@ -78,14 +104,6 @@ so supplemental metadata must be fetched from the registry.
 This is a one-time fix-up, please be patient...
 `,
 ]
-
-// need this to be injected so that it doesn't pull from main cache
-const moveFile = t.mock('@npmcli/move-file', { fs: fsMock })
-mocks['@npmcli/move-file'] = moveFile
-const mkdirp = t.mock('mkdirp', mocks)
-mocks.mkdirp = mkdirp
-const mkdirpInferOwner = t.mock('mkdirp-infer-owner', mocks)
-mocks['mkdirp-infer-owner'] = mkdirpInferOwner
 
 // track the warnings that are emitted.  returns a function that removes
 // the listener and provides the list of what it saw.
@@ -122,7 +140,7 @@ const { start, stop } = require('./lib/mock-server-proxy')
 const {
   registry,
   advisoryBulkResponse
-} = require(arbFixtures + '/registry-mocks/server.js')
+} = require(arbFixtures + '/server.js')
 
 const testRootName = 'tempAssets5'
 let Arborist
@@ -152,7 +170,9 @@ t.before(() =>
 )
 t.teardown(() => {
   return new Promise(resolve => stop(() => resolve()))
-  .then(() => realRimraf.sync(join(__dirname, testRootName)))
+  .then(() => fs.rmSync(
+    join(__dirname, testRootName), { recursive: true, force: true }
+  ))
 })
 
 const cache = t.testdir()
@@ -314,7 +334,11 @@ t.test('update a bundling node without updating all of its deps', t => {
     : () => t.ok(fs.lstatSync(bin).isSymbolicLink(), 'created symlink')
 
   const checkPackageLock = () => {
-    t.matchSnapshot(require(path + '/package-lock.json').dependencies.fsevents,
+    t.match(require(path + '/package-lock.json').packages['node_modules/fsevents'],
+      {
+        dev: true,
+        optional: true,
+      },
       'contains fsevents in lockfile')
   }
 
@@ -393,7 +417,7 @@ t.test('omit optional dep', t => {
   return arb.reify({ omit: ['optional'] }).then(tree => {
     t.equal(tree.children.get('fsevents'), undefined, 'no fsevents in tree')
     t.throws(() => fs.statSync(path + '/node_modules/fsevents'), 'no fsevents unpacked')
-    t.match(require(path + '/package-lock.json').dependencies.fsevents, {
+    t.match(require(path + '/package-lock.json').packages['node_modules/fsevents'], {
       dev: true,
       optional: true,
     }, 'fsevents present in lockfile')
@@ -478,7 +502,7 @@ t.test('tracks changes of shrinkwrapped dep correctly', async t => {
   t.match(install2, update2, 'update maintains the same correct tree')
 
   // delete a dependency that was installed as part of the shrinkwrap
-  realRimraf.sync(resolve(path, 'node_modules/@nlf/shrinkwrapped-dep-updates-a/node_modules/@nlf/shrinkwrapped-dep-updates-b'))
+  fs.rmSync(resolve(path, 'node_modules/@nlf/shrinkwrapped-dep-updates-a/node_modules/@nlf/shrinkwrapped-dep-updates-b'), { recursive: true, force: true })
   const repair = await printReified(path)
   t.match(repair, install2, 'tree got repaired')
 })
@@ -557,7 +581,7 @@ t.test('update a child of a node with bundled deps', t => {
   const path = fixture(t, 'testing-bundledeps-legacy-bundling')
   return t.resolveMatchSnapshot(printReified(path, {
     update: ['@isaacs/testing-bundledeps-c'],
-    legacyBundling: true,
+    installStrategy: 'nested',
   }))
 })
 
@@ -646,7 +670,7 @@ t.test('warn on reifying deprecated dependency', t => {
 t.test('rollbacks', { buffered: false }, t => {
   t.test('fail retiring shallow nodes', t => {
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const expect = new Error('rename fail')
     const kRenamePath = Symbol.for('renamePath')
     const renamePath = a[kRenamePath]
@@ -671,9 +695,9 @@ t.test('rollbacks', { buffered: false }, t => {
     }), expect).then(() => t.equal(rolledBack, true, 'rolled back'))
   })
 
-  t.test('fail retiring nodes because rimraf fails after eexist', t => {
+  t.test('fail retiring nodes because rm fails after eexist', t => {
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const eexist = new Error('rename fail')
     eexist.code = 'EEXIST'
     const kRenamePath = Symbol.for('renamePath')
@@ -681,7 +705,7 @@ t.test('rollbacks', { buffered: false }, t => {
     a[kRenamePath] = (from, to) => {
       a[kRenamePath] = renamePath
       failRename = eexist
-      failRimraf = true
+      failRm = true
       return a[kRenamePath](from, to)
     }
     const kRollback = Symbol.for('rollbackRetireShallowNodes')
@@ -690,8 +714,8 @@ t.test('rollbacks', { buffered: false }, t => {
     a[kRollback] = er => {
       rolledBack = true
       failRename = new Error('some other error')
-      failRimraf = false
-      t.match(er, new Error('rimraf fail'))
+      failRm = false
+      t.match(er, new Error('rm fail'))
       a[kRollback] = rollbackRetireShallowNodes
       return a[kRollback](er).then(er => {
         failRename = null
@@ -704,13 +728,13 @@ t.test('rollbacks', { buffered: false }, t => {
 
     return t.rejects(a.reify({
       update: ['@isaacs/testing-bundledeps-parent'],
-    }), new Error('rimraf fail'))
+    }), new Error('rm fail'))
       .then(() => t.equal(rolledBack, true, 'rolled back'))
   })
 
-  t.test('fail retiring node, but then rimraf fixes it', t => {
+  t.test('fail retiring node, but then rm fixes it', async t => {
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const eexist = new Error('rename fail')
     eexist.code = 'EEXIST'
     const kRenamePath = Symbol.for('renamePath')
@@ -728,16 +752,17 @@ t.test('rollbacks', { buffered: false }, t => {
       return a[kRollback](er)
     }
 
-    return t.resolveMatchSnapshot(a.reify({
+    const tree = await a.reify({
       update: ['@isaacs/testing-bundledeps-parent'],
       save: false,
-    }).then(printTree))
+    })
+    return printTree(tree)
   })
 
   t.test('fail creating sparse tree', t => {
     t.teardown(() => failMkdir = null)
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const kCreateST = Symbol.for('createSparseTree')
     const createSparseTree = a[kCreateST]
     a[kCreateST] = () => {
@@ -760,9 +785,9 @@ t.test('rollbacks', { buffered: false }, t => {
 
   t.test('fail rolling back from creating sparse tree', t => {
     failMkdir = null
-    failRimraf = null
+    failRm = null
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
 
     const kCreateST = Symbol.for('createSparseTree')
     const kRetireShallowNodes = Symbol.for('retireShallowNodes')
@@ -770,7 +795,7 @@ t.test('rollbacks', { buffered: false }, t => {
     a[kRetireShallowNodes] = async () => {
       a[kRetireShallowNodes] = retireShallowNodes
       await a[kRetireShallowNodes]()
-      failRimraf = true
+      failRm = true
     }
     const createSparseTree = a[kCreateST]
     t.teardown(() => failMkdir = null)
@@ -801,16 +826,16 @@ t.test('rollbacks', { buffered: false }, t => {
             'warn',
             'cleanup',
             'Failed to remove some directories',
-            [[String, new Error('rimraf fail')]],
+            [[String, new Error('rm fail')]],
           ],
         ])
       })
-      .then(() => failRimraf = false)
+      .then(() => failRm = false)
   })
 
   t.test('fail loading shrinkwraps and updating trees', t => {
     const path = fixture(t, 'shrinkwrapped-dep-no-lock-empty')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const kLoadSW = Symbol.for('loadShrinkwrapsAndUpdateTrees')
     const loadShrinkwrapsAndUpdateTrees = a[kLoadSW]
     a[kLoadSW] = seen => {
@@ -836,7 +861,7 @@ t.test('rollbacks', { buffered: false }, t => {
 
   t.test('fail loading bundles and updating trees', t => {
     const path = fixture(t, 'two-bundled-deps')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const kLoadBundles = Symbol.for('loadBundlesAndUpdateTrees')
     const loadBundlesAndUpdateTrees = a[kLoadBundles]
     a[kLoadBundles] = (depth, bundlesByDepth) => {
@@ -854,7 +879,7 @@ t.test('rollbacks', { buffered: false }, t => {
 
   t.test('fail unpacking new modules', t => {
     const path = fixture(t, 'two-bundled-deps')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const kUnpack = Symbol.for('unpackNewModules')
     const unpackNewModules = a[kUnpack]
     a[kUnpack] = () => {
@@ -872,7 +897,7 @@ t.test('rollbacks', { buffered: false }, t => {
 
   t.test('fail moving back retired unchanged', t => {
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const kMoveback = Symbol.for('moveBackRetiredUnchanged')
 
     const moveBackRetiredUnchanged = a[kMoveback]
@@ -900,11 +925,11 @@ t.test('rollbacks', { buffered: false }, t => {
 
   t.test('fail removing retired and deleted nodes', t => {
     const path = fixture(t, 'testing-bundledeps-3')
-    const a = newArb({ path, legacyBundling: true })
+    const a = newArb({ path, installStrategy: 'nested' })
     const kRemove = Symbol.for('removeTrash')
     const removeRetiredAndDeletedNodes = a[kRemove]
     a[kRemove] = () => {
-      failRimraf = true
+      failRm = true
       a[kRemove] = removeRetiredAndDeletedNodes
       return a[kRemove]()
     }
@@ -923,11 +948,11 @@ t.test('rollbacks', { buffered: false }, t => {
           'warn',
           'cleanup',
           'Failed to remove some directories',
-          [[String, new Error('rimraf fail')]],
+          [[String, new Error('rm fail')]],
         ],
       ])
     })
-      .then(() => failRimraf = false)
+      .then(() => failRm = false)
   })
 
   t.end()
@@ -1163,7 +1188,7 @@ t.test('global style', t => {
   const rbinPart = '.bin/rimraf' +
     (process.platform === 'win32' ? '.cmd' : '')
   const rbin = resolve(nm, rbinPart)
-  return reify(path, { add: ['rimraf@2'], globalStyle: true})
+  return reify(path, { add: ['rimraf@2'], installStrategy: 'shallow' })
     .then(() => fs.statSync(rbin))
     .then(() => t.strictSame(fs.readdirSync(nm).sort(), ['.bin', '.package-lock.json', 'rimraf']))
 })
@@ -1524,7 +1549,7 @@ t.test('rollback if process is terminated during reify process', async t => {
         // ensure that we end up with the same thing we started with,
         // if it was something other than we're installing
         const a = resolve(path, 'node_modules/abbrev')
-        mkdirp.sync(a)
+        fs.mkdirSync(a, { recursive: true })
         const pj = resolve(a, 'package.json')
         fs.writeFileSync(pj, JSON.stringify({
           name: 'abbrev',
@@ -1810,7 +1835,6 @@ console.log('ok 1 - this is fine')
     event: 'test',
     path,
     pkg,
-    stdioString: true,
     stdio: 'pipe',
   }), 'test result')
 })
@@ -2396,7 +2420,7 @@ t.test('never unpack into anything other than a real directory', async t => {
   const wrappy = resolve(path, 'node_modules/once/node_modules/wrappy')
   arb[kUnpack] = () => {
     // will have already created it
-    realRimraf.sync(wrappy)
+    fs.rmSync(wrappy, { recursive: true, force: true })
     const target = resolve(path, 'target')
     fs.symlinkSync(target, wrappy, 'junction')
     arb[kUnpack] = unpackNewModules
@@ -3190,6 +3214,64 @@ t.only('should preserve exact ranges, missing actual tree', async (t) => {
       replaceRegistryHost: 'always',
     })
     await arb.reify()
+  })
+})
+
+t.test('install stategy linked', async (t) => {
+  const Arborist = require(n2sAssets.libOffliner + '/alt-arborist')
+  const abbrev = resolve(__dirname,
+    arbFixtures + '/registry-mocks/content/abbrev/-/abbrev-1.1.1.tgz')
+  const abbrevTGZ = fs.readFileSync(abbrev)
+
+  const abbrevPackument = JSON.stringify({
+    _id: 'abbrev',
+    _rev: 'lkjadflkjasdf',
+    name: 'abbrev',
+    'dist-tags': { latest: '1.1.1' },
+    versions: {
+      '1.1.1': {
+        name: 'abbrev',
+        version: '1.1.1',
+        dist: {
+          tarball: 'https://registry.npmjs.org/abbrev/-/abbrev-1.1.1.tgz',
+        },
+      },
+    },
+  })
+
+  t.test('should install package linked', async (t) => {
+    const testdir = t.testdir({
+      project: {
+        'package.json': JSON.stringify({
+          name: 'myproject',
+          version: '1.0.0',
+          dependencies: {
+            abbrev: '1.1.1',
+          },
+        }),
+      },
+    })
+
+    tnock(t, 'https://registry.npmjs.org')
+      .get('/abbrev')
+      .reply(200, abbrevPackument)
+
+    tnock(t, 'https://registry.npmjs.org')
+      .get('/abbrev/-/abbrev-1.1.1.tgz')
+      .reply(200, abbrevTGZ)
+
+    const path = resolve(testdir, 'project')
+    const arb = new Arborist({
+      path,
+      registry: 'https://registry.npmjs.org',
+      cache: resolve(testdir, 'cache'),
+      installStrategy: 'linked',
+    })
+    await arb.reify({ installStrategy: 'linked' })
+    const abbrev = fs.lstatSync(resolve(path, 'node_modules', 'abbrev'))
+    const store = fs.lstatSync(resolve(path, 'node_modules', '.store'))
+    t.ok(store.isDirectory(), 'abbrev got installed')
+    t.ok(abbrev.isSymbolicLink(), 'abbrev got installed')
   })
 })
 

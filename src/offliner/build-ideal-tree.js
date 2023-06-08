@@ -22,14 +22,12 @@ const promiseCallLimit = require('promise-call-limit')
 const realpath = require(N2S_REQ_PREFIX + '/realpath.js') // reloc
 const path = require('path')
 const { join, resolve, dirname } = path
-const { promisify } = require('util')
 const treeCheck = require(N2S_REQ_PREFIX + '/tree-check.js') // reloc
-const readdir = promisify(require('readdir-scoped-modules'))
-const fs = require('fs')
-const lstat = promisify(fs.lstat)
-const readlink = promisify(fs.readlink)
+const { readdirScoped } = require('@npmcli/fs') // 8->9: formerly readdir-scoped-modules
+const { lstat, readlink } = require('fs/promises')
 const { depth } = require('treeverse')
 const log = require('proc-log')
+const { cleanUrl } = require('npm-registry-fetch')
 
 const {
   OK,
@@ -66,7 +64,6 @@ const _flagsSuspect = Symbol.for('flagsSuspect')
 const _workspaces = Symbol.for('workspaces')
 const _prune = Symbol('prune')
 const _preferDedupe = Symbol('preferDedupe')
-const _legacyBundling = Symbol('legacyBundling')
 const _parseSettings = Symbol('parseSettings')
 const _initTree = Symbol('initTree')
 const _applyUserRequests = Symbol('applyUserRequests')
@@ -97,7 +94,7 @@ const _loadFailures = Symbol('loadFailures')
 const _pruneFailedOptional = Symbol('pruneFailedOptional')
 const _linkNodes = Symbol('linkNodes')
 const _follow = Symbol('follow')
-const _globalStyle = Symbol('globalStyle')
+const _installStrategy = Symbol('installStrategy')
 const _globalRootNode = Symbol('globalRootNode')
 const _usePackageLock = Symbol.for('usePackageLock')
 const _rpcache = Symbol.for('realpathCache')
@@ -136,7 +133,7 @@ module.exports = cls => class IdealTreeBuilder extends cls {
       follow = false,
       force = false,
       global = false,
-      globalStyle = false,
+      installStrategy = 'hoisted',
       idealTree = null,
       includeWorkspaceRoot = false,
       installLinks = false,
@@ -171,7 +168,7 @@ module.exports = cls => class IdealTreeBuilder extends cls {
 
     this[_usePackageLock] = packageLock
     this[_global] = !!global
-    this[_globalStyle] = this[_global] || globalStyle
+    this[_installStrategy] = global ? 'shallow' : installStrategy
     this[_follow] = !!follow
 
     if (this[_workspaces].length && this[_global]) {
@@ -180,7 +177,6 @@ module.exports = cls => class IdealTreeBuilder extends cls {
 
     this[_explicitRequests] = new Set()
     this[_preferDedupe] = false
-    this[_legacyBundling] = false
     this[_depsSeen] = new Set()
     this[_depsQueue] = []
     this[_currentDep] = null
@@ -294,20 +290,18 @@ module.exports = cls => class IdealTreeBuilder extends cls {
 
     this[_complete] = !!options.complete
     this[_preferDedupe] = !!options.preferDedupe
-    this[_legacyBundling] = !!options.legacyBundling
 
     // validates list of update names, they must
     // be dep names only, no semver ranges are supported
     for (const name of update.names) {
       const spec = npa(name)
       const validationError =
-        new TypeError(`Update arguments must not contain package version specifiers
-
-Try using the package name instead, e.g:
+        new TypeError(`Update arguments must only contain package names, eg:
     npm update ${spec.name}`)
       validationError.code = 'EUPDATEARGS'
 
-      if (spec.fetchSpec !== 'latest') {
+      // If they gave us anything other than a bare package name
+      if (spec.raw !== spec.name) {
         throw validationError
       }
     }
@@ -372,8 +366,7 @@ Try using the package name instead, e.g:
           if (tree.children.size) {
             root.meta.loadedFromDisk = true
             // set these so that we don't try to ancient lockfile reload it
-            root.meta.originalLockfileVersion = defaultLockfileVersion
-            root.meta.lockfileVersion = defaultLockfileVersion
+            root.meta.originalLockfileVersion = root.meta.lockfileVersion = this.options.lockfileVersion || defaultLockfileVersion
           }
         }
         root.meta.inferFormattingOptions(root.package)
@@ -496,7 +489,8 @@ Try using the package name instead, e.g:
     const globalExplicitUpdateNames = []
     if (this[_global] && (this[_updateAll] || this[_updateNames].length)) {
       const nm = resolve(this.path, 'node_modules')
-      for (const name of await readdir(nm).catch(() => [])) {
+      const paths = await readdirScoped(nm).catch(() => [])
+      for (const name of paths.map((p) => p.replace(/\\/g, '/'))) {
         tree.package.dependencies = tree.package.dependencies || {}
         const updateName = this[_updateNames].includes(name)
         if (this[_updateAll] || updateName) {
@@ -721,14 +715,16 @@ Try using the package name instead, e.g:
             continue
           }
 
-          const { isSemVerMajor, version } = fixAvailable
+          // name may be different if parent fixes the dep
+          // see Vuln fixAvailable setter
+          const { isSemVerMajor, version, name: fixName } = fixAvailable
           const breakingMessage = isSemVerMajor
             ? 'a SemVer major change'
             : 'outside your stated dependency range'
-          log.warn('audit', `Updating ${name} to ${version}, ` +
+          log.warn('audit', `Updating ${fixName} to ${version}, ` +
             `which is ${breakingMessage}.`)
 
-          await this[_add](node, { add: [`${name}@${version}`] })
+          await this[_add](node, { add: [`${fixName}@${version}`] })
           nodesTouched.add(node)
         }
       }
@@ -853,7 +849,9 @@ This is a one-time fix-up, please be patient...
     // yes, yes, this isn't the "original" version, but now that it's been
     // upgraded, we need to make sure we don't do the work to upgrade it
     // again, since it's now as new as can be.
-    meta.originalLockfileVersion = defaultLockfileVersion
+    if (!this.options.lockfileVersion && !meta.hiddenLockfile) {
+      meta.originalLockfileVersion = defaultLockfileVersion
+    }
     this.finishTracker('idealTree:inflate')
     process.emit('timeEnd', 'idealTree:inflate')
   }
@@ -928,6 +926,7 @@ This is a one-time fix-up, please be patient...
       await cacache.tmp.withTmp(this.cache, opt, async path => {
         await pacote.extract(node.resolved, path, {
           ...opt,
+          Arborist, // MMR TODO: an Arborist arg has been introduced to pacote.extract?!!!
           resolved: node.resolved,
           integrity: node.integrity,
         })
@@ -1040,16 +1039,15 @@ This is a one-time fix-up, please be patient...
         edge,
         dep,
 
-        explicitRequest: this[_explicitRequests].has(edge),
-        updateNames: this[_updateNames],
         auditReport: this.auditReport,
+        explicitRequest: this[_explicitRequests].has(edge),
         force: this[_force],
-        preferDedupe: this[_preferDedupe],
-        legacyBundling: this[_legacyBundling],
-        strictPeerDeps: this[_strictPeerDeps],
         installLinks: this.installLinks,
+        installStrategy: this[_installStrategy],
         legacyPeerDeps: this.legacyPeerDeps,
-        globalStyle: this[_globalStyle],
+        preferDedupe: this[_preferDedupe],
+        strictPeerDeps: this[_strictPeerDeps],
+        updateNames: this[_updateNames],
       }))
 
     const promises = []
@@ -1308,7 +1306,8 @@ This is a one-time fix-up, please be patient...
     if (this[_manifests].has(spec.raw)) {
       return this[_manifests].get(spec.raw)
     } else {
-      log.silly('fetch manifest', spec.raw)
+      const cleanRawSpec = cleanUrl(spec.rawSpec)
+      log.silly('fetch manifest', spec.raw.replace(spec.rawSpec, cleanRawSpec))
 
       let altSpec = { ...spec }
       let dltData
@@ -1351,6 +1350,7 @@ This is a one-time fix-up, please be patient...
     const isWorkspace = this.idealTree.workspaces && this.idealTree.workspaces.has(spec.name)
 
     // spec is a directory, link it unless installLinks is set or it's a workspace
+    // TODO post arborist refactor, will need to check for installStrategy=linked
     if (spec.type === 'directory' && (isWorkspace || !installLinks)) {
       return this[_linkFromSpec](name, spec, parent, edge)
     }

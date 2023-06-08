@@ -1,8 +1,7 @@
 const fs = require('fs')
+const { rmSync } = fs
 const path = require('path')
-const { promisify } = require('util')
 
-const rimrafAsync = promisify(require('rimraf'))
 const tap = require('tap')
 
 const makeAssets = require('./lib/make-assets')
@@ -69,7 +68,9 @@ tap.before(() =>
     mockPacote = require(n2sAssets.nodeModules + '/pacote')
   })
 )
-tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
+tap.teardown(() => rmSync(
+  path.join(__dirname, testRootName), { recursive: true, force: true }
+))
 
 tap.test('exec() on installer instantiated without npm object', t1 => {
   const inst = new Install()

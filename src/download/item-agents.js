@@ -5,6 +5,7 @@ const npa = require('npm-package-arg')
 const pacote = require('pacote')
 const retry = require('promise-retry')
 
+const AltArborist = require('../offliner/alt-arborist')
 const AltGitFetcher = require('./alt-git')
 const dltFactory = require('./dltracker')
 const npf = require('./npm-package-filename')
@@ -136,7 +137,9 @@ class ItemAgent {
 
   [_pacoteOpts](extra) {
     if (!extra) extra = {}
-    const newOpts = Object.assign({}, extra, this.opts.flatOpts)
+    const newOpts = Object.assign(
+      { Arborist: AltArborist }, extra, this.opts.flatOpts
+    )
     return newOpts
   }
 

@@ -10,14 +10,16 @@ tap.test('Syntax errors and Type errors', t1 => {
 
   t1.test('No arguments', t2 => t2.rejects(readTar(), SyntaxError))
 
-  for (const val of [ undefined, null, '' ])
+  for (const val of [ undefined, null, '' ]) {
     t1.test('1st arg is ' + val, t2 =>
       t2.rejects(readTar(val, [ 'LICENSE' ]), SyntaxError)
     )
-  for (const val of nonStrings)
+  }
+  for (const val of nonStrings) {
     t1.test('1st arg is of type ' + typeof val, t2 =>
       t2.rejects(readTar(val, [ 'LICENSE' ]), TypeError)
     )
+  }
   t1.test('No 2nd arg', t2 =>
     t2.rejects(readTar(validTarball), SyntaxError)
   )
@@ -27,10 +29,11 @@ tap.test('Syntax errors and Type errors', t1 => {
   t1.test('2nd arg is null', t2 =>
     t2.rejects(readTar(validTarball, null), SyntaxError)
   )
-  for (const val of [ true, 42, 'blue', {} ])
+  for (const val of [ true, 42, 'blue', {} ]) {
     t1.test('2nd arg is of type ' + typeof val, t2 =>
       t2.rejects(readTar(validTarball, val), TypeError)
     )
+  }
   t1.test('2nd arg is an empty array', t2 =>
     t2.rejects(readTar(validTarball, []), SyntaxError)
   )

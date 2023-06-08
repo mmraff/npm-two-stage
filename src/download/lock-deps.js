@@ -1,5 +1,5 @@
 const path = require('path')
-const readFileAsync = require('util').promisify(require('fs').readFile)
+const { readFile } = require('fs/promises')
 
 const validate = require('validate-npm-package-name')
 const YarnLock = require('./alt-yarn-lock')
@@ -394,21 +394,21 @@ module.exports.readFromDir = (dir, logger) => {
   }
 
   const opts = { encoding: 'utf8' }
-  return readFileAsync(path.join(dir, 'npm-shrinkwrap.json'), opts)
+  return readFile(path.join(dir, 'npm-shrinkwrap.json'), opts)
   .then(contents => fromPackageLock(contents))
   .catch(err => {
     logger.info('download',
       'Failed to read npm-shrinkwrap.json at given lockfile-dir')
     /* istanbul ignore next */
     if (err.code) logger.info('download', 'Error code:', err.code)
-    return readFileAsync(path.join(dir, 'package-lock.json'), opts)
+    return readFile(path.join(dir, 'package-lock.json'), opts)
     .then(contents => fromPackageLock(contents))
     .catch(err => {
       logger.info('download',
         'Failed to read package-lock.json at given lockfile-dir')
       /* istanbul ignore next */
       if (err.code) logger.info('download', 'Error code:', err.code)
-      return readFileAsync(path.join(dir, 'yarn.lock'), opts)
+      return readFile(path.join(dir, 'yarn.lock'), opts)
       .catch(err => {
         logger.info('download',
           'Failed to read yarn.lock at given lockfile-dir')
@@ -417,7 +417,7 @@ module.exports.readFromDir = (dir, logger) => {
         throw err
       })
       .then(contents =>
-        readFileAsync(path.join(dir, 'package.json'), opts)
+        readFile(path.join(dir, 'package.json'), opts)
         .catch(err => {
           logger.warn('download',
             'Failed to read package.json at given lockfile-dir')

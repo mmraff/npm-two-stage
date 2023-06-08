@@ -1,19 +1,19 @@
-const fs = require('graceful-fs')
-// This is for if we need to restore graceful-fs for any test suites run in the
-// same pass as this that need real readdir:
-// (TODO: find out if this is really something to worry about)
-const { readdir: realReaddir } = fs
-const npf = require('../src/download/npm-package-filename')
-const mockCommitHash = require('./lib/mock-commit-hash')
 const tap = require('tap')
+const mockCommitHash = require('./lib/mock-commit-hash')
 const mockLog = require('./fixtures/mock-npm/lib/utils/log-shim')
+const npf = require('../src/download/npm-package-filename')
+
 let errReaddir = null
 const dirList = []
 const reconstructMap = tap.mock('../src/download/reconstruct-map', {
-  'graceful-fs': {
+  'fs/promises': {
     readdir (...args) {
-      if (errReaddir) return process.nextTick(() => args.pop()(errReaddir))
-      return process.nextTick(() => args.pop()(null, dirList))
+      if (args.length !== 1) {
+        return Promise.reject(new Error(
+          'mock readdir: expected 1 arg, actual ' + args.length
+        ))
+      }
+      return errReaddir ? Promise.reject(errReaddir) : Promise.resolve(dirList)
     }
   }
 })
@@ -53,21 +53,26 @@ for (const type in goodData) {
     item.filename = npf.makeTarballName(filenameData)
   }
 }
-for (const item of goodData.git)
+for (const item of goodData.git) {
   item.repo = npf.parse(item.filename).repo
-for (const item of goodData.url)
+}
+for (const item of goodData.url) {
   item.storedUrl = npf.parse(item.filename).url
+}
 
 tap.test('Misuse', t1 => {
   t1.rejects(reconstructMap(), /No path given/)
-  for (const item of [ undefined, null, '' ])
+  for (const item of [ undefined, null, '' ]) {
     t1.rejects(reconstructMap(item), /No path given/)
-  for (const item of [ true, 42, {}, [], function(){}, new String('Hi') ])
+  }
+  for (const item of [ true, 42, {}, [], function(){}, new String('Hi') ]) {
     t1.rejects(reconstructMap(item), TypeError)
+  }
 
   // logger argument
-  for (const item of [ true, 42, 'Howdy', function(){} ])
+  for (const item of [ true, 42, 'Howdy', function(){} ]) {
     t1.rejects(reconstructMap('dummyDir', item), TypeError)
+  }
 
   const testLogger = {}
 

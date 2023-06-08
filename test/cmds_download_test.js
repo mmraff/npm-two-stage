@@ -1,8 +1,7 @@
-const fs = require('fs')
+const { rm } = require('fs/promises')
 const path = require('path')
 const { promisify } = require('util')
 
-const rimrafAsync = promisify(require('rimraf'))
 const tap = require('tap')
 
 const makeAssets = require('./lib/make-assets')
@@ -58,7 +57,9 @@ tap.before(() =>
     mockLockDeps = require(assets.libDownload + '/lock-deps.js')
   })
 )
-tap.teardown(() => rimrafAsync(path.join(__dirname, testRootName)))
+tap.teardown(() => rm(
+  path.join(__dirname, testRootName), { recursive: true, force: true }
+))
 
 tap.test('No arguments, no package-json or lockfile-dir options', t1 => {
   const mockNpm = makeMockNpm()
