@@ -1,4 +1,5 @@
-const { rm } = require('fs/promises')
+const fsp = require('fs/promises')
+const { rm } = fsp
 const path = require('path')
 const { promisify } = require('util')
 
@@ -638,5 +639,56 @@ tap.test('A duplicate spec occurs', t1 => {
       new RegExp(`Nothing new to download for ${pkgName}@[^]1`)
     )
     t1.match(mockNpm.outputMsgs[0], /\(1 duplicate spec skipped\)/)
+  })
+})
+
+tap.test('OS raises EPERM on rm of temp directory', t1 => {
+  const mockNpm = makeMockNpm({ 'dl-dir': n2sAssets.fs('pkgPath') })
+  const MockDl = t1.mock(n2sAssets.npmLib + '/commands/download', {
+    'fs/promises': {
+      ...fsp,
+      'rm': () => Promise.reject(Object.assign(
+        new Error('OS is paranoid'),
+        { code: 'EPERM' }
+      ))
+    },
+    [n2sAssets.libDownload + '/item-agents.js']: mockItemAgents
+  })
+  const dl = new MockDl(mockNpm)
+  const pkgName = 'dummy1'
+  const injectedData = [ { spec: pkgName, name: pkgName } ]
+  mockItemAgents.setTestConfig('getOperations', {
+    [pkgName]: injectedData
+  })
+  return dl.exec([ pkgName ]).then(results => {
+    t1.same(results, [ injectedData ])
+    t1.match(
+      mockNpm.outputMsgs[0],
+      new RegExp(`Downloaded tarballs to satisfy ${pkgName} and 0 dependencies`)
+    )
+  })
+})
+
+tap.test('OS raises mystery error on rm of temp directory', t1 => {
+  const mockNpm = makeMockNpm({ 'dl-dir': n2sAssets.fs('pkgPath') })
+  const MockDl = t1.mock(n2sAssets.npmLib + '/commands/download', {
+    'fs/promises': {
+      ...fsp,
+      'rm': () => Promise.reject(new Error('OS is spooky'))
+    },
+    [n2sAssets.libDownload + '/item-agents.js']: mockItemAgents
+  })
+  const dl = new MockDl(mockNpm)
+  const pkgName = 'dummy1'
+  const injectedData = [ { spec: pkgName, name: pkgName } ]
+  mockItemAgents.setTestConfig('getOperations', {
+    [pkgName]: injectedData
+  })
+  return dl.exec([ pkgName ]).then(results => {
+    t1.same(results, [ injectedData ])
+    t1.match(
+      mockNpm.outputMsgs[0],
+      new RegExp(`Downloaded tarballs to satisfy ${pkgName} and 0 dependencies`)
+    )
   })
 })

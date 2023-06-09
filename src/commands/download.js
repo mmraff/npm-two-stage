@@ -228,8 +228,24 @@ class Download extends BaseCommand {
     .then(async results => {
       // results is an array of arrays, 1 for each spec on the command line
       // (+1 for package-json opt if any; +1 for lockfile opt if any)
-      await rm(path.dirname(tempCache), { recursive: true, force: true })
       await self.dlTracker.serialize()
+      await rm(path.dirname(tempCache), {
+        recursive: true, force: true,
+        maxRetries: 4, retryDelay: 1000
+      })
+      .catch(err => {
+        // TODO: either concoct tests for this, or do istanbul ignore
+        if (err.code == 'EPERM' || err.code == 'EBUSY') {
+          return log.warn('download', `
+  The operating system does not want to let go of the temporary directory.
+  You should manually delete this when you can, since it's not needed:
+  ${path.dirname(tempCache)}\n`
+          )
+        }
+        log.warn('download', 'Mystery error on removing the temp dir:', err.message)
+        // but this is not bad enough to crash the operation...
+        // after all, we're finished
+      })
 
       self.npm.output(statsMsgs + '\n\ndownload finished.')
       // QUESTION: Why are we returning results? Who is the caller, and
