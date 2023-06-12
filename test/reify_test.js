@@ -150,7 +150,9 @@ t.before(() =>
 )
 t.teardown(() => {
   return new Promise(resolve => stop(() => resolve()))
-  .then(() => realRimraf.sync(join(__dirname, testRootName)))
+  .then(() => realRimraf.sync(
+    join(__dirname, testRootName), { maxBusyTries: 12 }
+  ))
 })
 
 const cache = t.testdir()
