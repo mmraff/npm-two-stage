@@ -56,7 +56,11 @@ t.before(() =>
 t.teardown(() => {
   return new Promise(resolve => stop(() => resolve()))
   .then(() => fs.rmSync(
-    join(__dirname, testRootName), { recursive: true, force: true }
+    join(__dirname, testRootName), {
+      recursive: true, force: true,
+      // Windows has sporadically  been a pain with this test suite
+      maxRetries: 4, retryDelay: 1000
+    }
   ))
 })
 

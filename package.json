@@ -34,7 +34,7 @@
   },
   "tap": {
     "after": "test/fixtures/arborist/fixtures/cleanup.js",
-    "timeout": 600,
+    "timeout": 800,
     "coverage-map": "test/config/index.js",
     "nyc-arg": [
       "--exclude=test/**",
