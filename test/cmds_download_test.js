@@ -158,20 +158,41 @@ tap.test('package-json options', t1 => {
     const mockNpm = makeMockNpm({ 'package-json': '.' })
     const dl = new Download(mockNpm)
     return t2.resolves(dl.exec([]))
-    //.then(() => {
-      // TODO: see if we can't follow the intent of this somehow:
-      //t2.equal(mockDlCfg.get('opts').packageJson, './')
-    //})
+    .then(() => {
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+    })
   })
 
   t1.test('--package-json=package.json', t2 => {
     const mockNpm = makeMockNpm({ 'package-json': 'package.json' })
     const dl = new Download(mockNpm)
     return t2.resolves(dl.exec([]))
-    //.then(() => {
-      // TODO: see if we can't follow the intent of this somehow:
-      //t2.equal(mockDlCfg.get('opts').packageJson, './')
-    //})
+    .then(() => {
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+    })
+  })
+
+  t1.test('--package-json=./package.json', t2 => {
+    const mockNpm = makeMockNpm({ 'package-json': './package.json' })
+    const dl = new Download(mockNpm)
+    return t2.resolves(dl.exec([]))
+    .then(() => {
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+    })
+  })
+
+  t1.test('--package-json=..', t2 => {
+    const mockNpm = makeMockNpm({ 'package-json': '..' })
+    const dl = new Download(mockNpm)
+    mockPacote.setTestConfig({
+      '../': {
+        name: 'dummy1', version: '1.0.0',
+      }
+    })
+    return t2.resolves(dl.exec([]))
+    .then(() => {
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, '../')
+    })
   })
 
   t1.test('-J, package.json in cwd, has deps', t2 => {
@@ -312,6 +333,18 @@ tap.test('lockfile-dir option', t1 => {
     return dl.exec([]).then(results => {
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, './')
+    })
+  })
+
+  t1.test('--lockfile-dir=..', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': '..' })
+    const dl = new Download(mockNpm)
+    const name = 'dummy2'
+    const version = '2.0.0'
+    mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
+    return dl.exec([]).then(results => {
+      t2.same(results, [[ { name, spec: version } ]])
+      t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, '../')
     })
   })
 
