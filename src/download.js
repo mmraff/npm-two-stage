@@ -237,12 +237,25 @@ class Download extends BaseCommand {
     .then(results => {
       // results is an array of arrays, 1 for each spec on the command line
       // (+1 for package-json opt if any; +1 for lockfile opt if any)
-      rimraf(path.dirname(tempCache), function(rimrafErr) {
-        /* istanbul ignore if: a condition not worth the overhead of testing */
-        if (rimrafErr)
-          log.warn('download', 'failed to delete the temp dir ' + tempCache)
-
-        self.dlTracker.serialize().then(() => {
+      self.dlTracker.serialize().then(() => {
+        rimraf(path.dirname(tempCache), function(err) {
+          if (err) {
+            if (err.code == 'EPERM' || err.code == 'EBUSY') {
+              log.warn('download', `
+      The operating system does not want to let go of the temporary directory.
+      You should manually delete this when you can, since it's not needed:
+      ${path.dirname(tempCache)}\n`
+              )
+            }
+            else {
+              log.warn(
+                'download', 'Mystery error on removing the temp dir:',
+                err.message
+              )
+            }
+            // In neither case is it bad enough to crash the operation...
+            // after all, we're finished
+          }
           self.npm.output(statsMsgs + '\n\ndownload finished.')
           // QUESTION: Why are we returning results? Who is the caller, and
           // does it do anything with them?
