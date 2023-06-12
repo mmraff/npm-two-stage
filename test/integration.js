@@ -26,6 +26,7 @@ const stagedNpmDir = path.join(
 const testNpm = path.join(
   staging, process.platform == 'win32' ? '' : 'bin', 'npm'
 )
+const testLogsDir = path.join(staging, 'logs')
 const execMode = 0o777 & (~process.umask())
 
 const copyNpmToStaging = () => {
@@ -131,6 +132,11 @@ const runNpmCmd = async (npmBin, cmd, argList, opts, prepend) => {
   // * In download.js, we set the cache to a custom location:
   //   'dl-temp/cache' in the dl-dir.
   if (!argList) argList = []
+  // The cache for the download command is already covered in download.js;
+  // in this suite, we also need a temporary cache for the install command:
+  if (cmd === 'install') {
+    argList.unshift('--cache', testCache)
+  }
   // Defective behavior has been seen from @npmcli/config. We have adapted
   // download.js to handle some of that, so we need this flexibility in the
   // arrangement of the command line arguments in order to test error cases:
@@ -308,6 +314,7 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
   })
 
 const testCacheName = 'tempcache'
+let testCache
 
 const repoName1 = 'top-repo'
 const repoCfg1 = {
@@ -363,7 +370,7 @@ tap.before(() => {
   const rootPath = tap.testdir({
     [testCacheName]: {}
   })
-  const cache = path.resolve(rootPath, testCacheName)
+  testCache = path.resolve(rootPath, testCacheName)
   // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
   // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
   // says "The fixture directory cleanup will always happen after any
@@ -374,6 +381,15 @@ tap.before(() => {
 
   return rimrafAsync(staging)
   .then(() => mkdir(path.dirname(stagedNpmDir), { recursive: true }))
+  // We would like to avoid leaving any test traces in the user's filesystem
+  // outside of the test directory:
+  .then(() => mkdir(testLogsDir))
+  .then(() => mkdir(path.join(staging, 'etc')))
+  .then(() => writeFile(
+    path.join(staging, 'etc/npmrc'),
+    `logs-dir=${testLogsDir}\nupdate-notifier=false\n`
+    // Note: logs-dir not available in npm < 8
+  ))
   .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
   .then(() => copyNpmToStaging())
   .then(() => makeNpmBinLinks())
@@ -556,7 +572,7 @@ tap.test('before option', t1 => {
       'installed the latest version instead of the requested one'
     )
   )
-  .catch(err => console.log(err))
+  //.catch(err => console.log(err))
 })
 
 // Case 3: package with a flat set of regular deps
@@ -1721,7 +1737,7 @@ tap.test('install from pj', t1 => {
     }
     t1.match(data.packages, lockExpected)
   })
-  .catch(err => console.log('install-from-pj case:', err))
+  //.catch(err => console.log('install-from-pj case:', err))
 })
 
 tap.test('alias spec', t1 => {
