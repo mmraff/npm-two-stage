@@ -152,6 +152,7 @@ tap.test('package-json options', t1 => {
       t2.end()
     })
   })
+
   t1.test('--package-json=.', t2 => {
     mockNpmCfg.set('package-json', '.')
     const dl = new Download({
@@ -159,10 +160,12 @@ tap.test('package-json options', t1 => {
     })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
       mockNpmCfg.set('package-json', undefined)
       t2.end()
     })
   })
+
   t1.test('--package-json=package.json', t2 => {
     mockNpmCfg.set('package-json', 'package.json')
     const dl = new Download({
@@ -170,7 +173,38 @@ tap.test('package-json options', t1 => {
     })
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
-      //t2.equal(mockDlCfg.get('opts').packageJson, './')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+      mockNpmCfg.set('package-json', undefined)
+      t2.end()
+    })
+  })
+
+  t1.test('--package-json=./package.json', t2 => {
+    mockNpmCfg.set('package-json', './package.json')
+    const dl = new Download({
+      config: mockNpmCfg, output: makeOutputFn([])
+    })
+    dl.exec([], function(err, results) {
+      t2.error(err, 'expect no error')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+      mockNpmCfg.set('package-json', undefined)
+      t2.end()
+    })
+  })
+
+  t1.test('--package-json=..', t2 => {
+    mockNpmCfg.set('package-json', '..')
+    const dl = new Download({
+      config: mockNpmCfg, output: makeOutputFn([])
+    })
+    mockPacote.setTestConfig({
+      '../': {
+        name: 'dummy1', version: '1.0.0',
+      }
+    })
+    dl.exec([], function(err, results) {
+      t2.error(err, 'expect no error')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, '../')
       mockNpmCfg.set('package-json', undefined)
       t2.end()
     })
@@ -321,6 +355,23 @@ tap.test('lockfile-dir option', t1 => {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, './')
+      mockNpmCfg.set('lockfile-dir', undefined)
+      t2.end()
+    })
+  })
+
+  t1.test('--lockfile-dir=..', t2 => {
+    const name = 'dummy1'
+    const version = '1.0.0'
+    mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
+    mockNpmCfg.set('lockfile-dir', '..')
+    const dl = new Download({
+      config: mockNpmCfg, output: makeOutputFn([])
+    })
+    dl.exec([], function(err, results) {
+      t2.error(err, 'expect no error')
+      t2.same(results, [[ { name, spec: version } ]])
+      t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, '../')
       mockNpmCfg.set('lockfile-dir', undefined)
       t2.end()
     })
