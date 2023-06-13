@@ -55,7 +55,9 @@ t.before(() =>
 )
 t.teardown(() => {
   return new Promise(resolve => stop(() => resolve()))
-  .then(() => rimrafAsync(join(__dirname, testRootName)))
+  .then(() => rimrafAsync(
+    join(__dirname, testRootName), { maxBusyTries: 12 }
+  ))
 })
 
 const cache = t.testdir()
