@@ -266,6 +266,56 @@ tap.test('fromPackageLock', t1 => {
     })
   })
 
+  t1.test('lockfileVersion 1 dep with alias-type spec', t2 => {
+    const regName = "abbrev"
+    const regSpec = "1.1.1"
+    const aliasSpec = `npm:${regName}@${regSpec}`
+    const s = JSON.stringify({
+      name: "no-name", version: "1.0.0",
+      lockfileVersion: 1,
+      dependencies: {
+        "mr-smith": {
+          "version": aliasSpec,
+          "resolved": "https://registry.npmjs.org/abbrev/-/abbrev-1.1.1.tgz"
+        }
+      }
+    })
+    const depData = lockDeps.fromPackageLock(s)
+    t2.same(
+      depData[0], { name: regName, version: regSpec },
+      'translates alias to npm registry spec'
+    )
+    t2.end()
+  })
+
+  t1.test('lockfileVersion 2/3 dep with alias-type spec', t2 => {
+    const regName = "abbrev"
+    const regSpec = "1.1.1"
+    const aliasSpec = `npm:${regName}@^${regSpec}`
+    const s = JSON.stringify({
+      name: "no-name", version: "1.0.0",
+      lockfileVersion: 2,
+      packages: {
+        "": {
+          dependencies: {
+            "mr-smith": aliasSpec
+          }
+        },
+        "node_modules/mr-smith": {
+          name: regName,
+          version: regSpec,
+          resolved: "https://registry.npmjs.org/abbrev/-/abbrev-1.1.1.tgz"
+        }
+      }
+    })
+    const depData = lockDeps.fromPackageLock(s)
+    t2.same(
+      depData[0], { name: regName, version: regSpec },
+      'translates alias to npm registry spec'
+    )
+    t2.end()
+  })
+
   t1.end()
 })
 

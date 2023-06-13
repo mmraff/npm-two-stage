@@ -62,12 +62,15 @@ const fromPackageLock = module.exports.fromPackageLock = (lockText) => {
       // NOTE that if !src.resolved, maybe src.inBundle...
       if (!matches || src.link || !src.version || !src.resolved)
         continue
-      const data = { name: matches[1], version: src.version }
-      evaluateAlias(data)
+      // If the record has a 'name' field, we should use that, because the
+      // name from the path may be an alias
+      const data = { name: src.name || matches[1], version: src.version }
       // "registry.yarnpkg.com" resolved values have been seen in the wild!
       if (RE_YARN_URL.test(src.resolved)) {
         src.resolved = src.resolved.replace(RE_YARN_URL, NPM_REG_URL)
       }
+      // If the value of 'resolved' is not an npm registry URL at this point,
+      // we should use it as the version specifier (git repo or remote)
       if (!RE_NPM_URL.test(src.resolved)) {
         data.version = src.resolved
       }
