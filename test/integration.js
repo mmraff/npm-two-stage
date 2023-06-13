@@ -363,7 +363,7 @@ tap.before(() => {
   const rootPath = tap.testdir({
     [testCacheName]: {}
   })
-  const cache = path.resolve(rootPath, testCacheName)
+  const testCache = path.resolve(rootPath, testCacheName)
   let pkgPath
   // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
   // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
@@ -375,6 +375,13 @@ tap.before(() => {
 
   return rimrafAsync(staging)
   .then(() => mkdir(path.dirname(stagedNpmDir), { recursive: true }))
+  // We would like to avoid leaving any test traces in the user's filesystem
+  // outside of the test directory:
+  .then(() => mkdir(path.join(staging, 'etc')))
+  .then(() => writeFile(
+    path.join(staging, 'etc/npmrc'),
+    `cache=${testCache}\nupdate-notifier=false\n`
+  ))
   .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
   .then(() => copyNpmToStaging())
   .then(() => makeNpmBinLinks())
