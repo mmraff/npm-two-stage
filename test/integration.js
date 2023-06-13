@@ -132,11 +132,6 @@ const runNpmCmd = async (npmBin, cmd, argList, opts, prepend) => {
   // * In download.js, we set the cache to a custom location:
   //   'dl-temp/cache' in the dl-dir.
   if (!argList) argList = []
-  // The cache for the download command is already covered in download.js;
-  // in this suite, we also need a temporary cache for the install command:
-  if (cmd === 'install') {
-    argList.unshift('--cache', testCache)
-  }
   // Defective behavior has been seen from @npmcli/config. We have adapted
   // download.js to handle some of that, so we need this flexibility in the
   // arrangement of the command line arguments in order to test error cases:
@@ -314,7 +309,6 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
   })
 
 const testCacheName = 'tempcache'
-let testCache
 
 const repoName1 = 'top-repo'
 const repoCfg1 = {
@@ -370,7 +364,7 @@ tap.before(() => {
   const rootPath = tap.testdir({
     [testCacheName]: {}
   })
-  testCache = path.resolve(rootPath, testCacheName)
+  const testCache = path.resolve(rootPath, testCacheName)
   // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
   // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
   // says "The fixture directory cleanup will always happen after any
@@ -387,8 +381,7 @@ tap.before(() => {
   .then(() => mkdir(path.join(staging, 'etc')))
   .then(() => writeFile(
     path.join(staging, 'etc/npmrc'),
-    `logs-dir=${testLogsDir}\nupdate-notifier=false\n`
-    // Note: logs-dir not available in npm < 8
+    `cache=${testCache}\nupdate-notifier=false\n`
   ))
   .then(() => mkdir(cfg.git.hostBase, { recursive: true }))
   .then(() => copyNpmToStaging())
