@@ -144,6 +144,7 @@ tap.test('package-json options', t1 => {
     const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
       t2.end()
     })
   })
@@ -153,8 +154,32 @@ tap.test('package-json options', t1 => {
     const dl = new Download(mockNpm)
     dl.exec([], function(err, results) {
       t2.error(err, 'expect no error')
-      // TODO: see if we can't follow the intent of this somehow:
-      //t2.equal(mockDlCfg.get('opts').packageJson, './')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+      t2.end()
+    })
+  })
+
+  t1.test('--package-json=./package.json', t2 => {
+    const mockNpm = makeMockNpm({ 'package-json': './package.json' })
+    const dl = new Download(mockNpm)
+    dl.exec([], function(err, results) {
+      t2.error(err, 'expect no error')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, './')
+      t2.end()
+    })
+  })
+
+  t1.test('--package-json=..', t2 => {
+    const mockNpm = makeMockNpm({ 'package-json': '..' })
+    const dl = new Download(mockNpm)
+    mockPacote.setTestConfig({
+      '../': {
+        name: 'dummy1', version: '1.0.0',
+      }
+    })
+    dl.exec([], function(err, results) {
+      t2.error(err, 'expect no error')
+      t2.equal(mockItemAgents.getLastOpts().cmd.packageJson, '../')
       t2.end()
     })
   })
@@ -292,6 +317,20 @@ tap.test('lockfile-dir option', t1 => {
       t2.error(err, 'expect no error')
       t2.same(results, [[ { name, spec: version } ]])
       t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, './')
+      t2.end()
+    })
+  })
+
+  t1.test('--lockfile-dir=..', t2 => {
+    const mockNpm = makeMockNpm({ 'lockfile-dir': '..' })
+    const dl = new Download(mockNpm)
+    const name = 'dummy1'
+    const version = '1.0.0'
+    mockLockDeps.setTestConfig('readFromDir', { data: [{ name, version }] })
+    dl.exec([], function(err, results) {
+      t2.error(err, 'expect no error')
+      t2.same(results, [[ { name, spec: version } ]])
+      t2.equal(mockItemAgents.getLastOpts().cmd.lockfileDir, '../')
       t2.end()
     })
   })

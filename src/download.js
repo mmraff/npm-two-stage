@@ -112,9 +112,19 @@ class Download extends BaseCommand {
     // of package-json, looking for a hyphen as the 1st character:
     let optPj
     if (pkgJson) {
-      if (typeof pkgJson !== 'string' || pkgJson.startsWith('-'))
+      if (typeof pkgJson !== 'string' || pkgJson.startsWith('-')) {
         return cb(new Error('package-json option must be given a path'))
-      optPj = pkgJson == '.' ? './' : pkgJson // For consistency
+      }
+      // For consistency:
+      optPj = pkgJson === '.'
+        ? './'
+        : pkgJson === '..' ? '../' : pkgJson
+      // A relative path without a dot prefix gets mishandled,
+      // something like the way a bash script in the current directory is
+      // not found unless it is dot-prefixed:
+      if (!path.isAbsolute(optPj) && !/^\.\.?[/\\]/.test(optPj)) {
+        optPj = './' + optPj
+      }
     }
     else if (J) {
       /* istanbul ignore if - we're not hitting this given current config. */
@@ -123,8 +133,9 @@ class Download extends BaseCommand {
       optPj = './'
     }
     if (optPj) {
-      cmdOpts.packageJson = optPj.replace(/(^|[/\\])package\.json$/, '')
-      if (!cmdOpts.packageJson) cmdOpts.packageJson = './'
+      // The processing above ensures that even if optPj ends with
+      // 'package.json', there is always a non-empty prefix
+      cmdOpts.packageJson = optPj.replace(/(^|[/\\])package\.json$/, '$1')
     }
 
     // Same issue as above for the lockfile directory option
@@ -132,7 +143,13 @@ class Download extends BaseCommand {
     if (lockfileDir) {
       if (typeof lockfileDir !== 'string' || lockfileDir.startsWith('-'))
         return cb(new Error('lockfile-dir option must be given a path'))
-      cmdOpts.lockfileDir = lockfileDir === '.' ? './' : lockfileDir
+      cmdOpts.lockfileDir = lockfileDir === '.'
+        ? './'
+        : lockfileDir === '..' ? '../' : lockfileDir
+      if (!path.isAbsolute(cmdOpts.lockfileDir)
+          && !/^\.\.?[/\\]/.test(cmdOpts.lockfileDir)) {
+        cmdOpts.lockfileDir = path.normalize('./') + cmdOpts.lockfileDir
+      }
       if (lockfileDir.endsWith('npm-shrinkwrap.json'))
         cmdOpts.lockfileDir = lockfileDir.replace(/(^|[/\\])npm-shrinkwrap\.json$/, '')
       else if (lockfileDir.endsWith('package-lock.json'))
