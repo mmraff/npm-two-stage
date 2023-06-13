@@ -659,3 +659,52 @@ tap.test('A duplicate spec occurs', t1 => {
   })
 })
 
+tap.test('OS raises EPERM on rm of temp directory', t1 => {
+  const MockDl = t1.mock(n2sAssets.npmLib + '/download', {
+    'rimraf': (dir, cb) => process.nextTick(() => {
+      cb(Object.assign(new Error('OS is paranoid'), { code: 'EPERM' }))
+    }),
+    [n2sAssets.libDownload + '/item-agents.js']: mockItemAgents
+  })
+  const mockNpm = makeMockNpm({ 'dl-dir': n2sAssets.fs('pkgPath') })
+  const pkgName = 'dummy1'
+  const injectedData = [ { spec: pkgName, name: pkgName } ]
+  mockItemAgents.setTestConfig('getOperations', {
+    [pkgName]: injectedData
+  })
+  const dl = new MockDl(mockNpm)
+  dl.exec([pkgName], function(err, results) {
+    t1.error(err, 'expect no error')
+    t1.same(results, [ injectedData ])
+    t1.match(
+      mockNpm.outputMsgs[0],
+      new RegExp(`Downloaded tarballs to satisfy ${pkgName} and 0 dependencies`)
+    )
+    t1.end()
+  })
+})
+
+tap.test('OS raises mystery error on rm of temp directory', t1 => {
+  const MockDl = t1.mock(n2sAssets.npmLib + '/download', {
+    'rimraf': (dir, cb) => process.nextTick(() => {
+      cb(new Error('OS is spooky'))
+    }),
+    [n2sAssets.libDownload + '/item-agents.js']: mockItemAgents
+  })
+  const mockNpm = makeMockNpm({ 'dl-dir': n2sAssets.fs('pkgPath') })
+  const pkgName = 'dummy1'
+  const injectedData = [ { spec: pkgName, name: pkgName } ]
+  mockItemAgents.setTestConfig('getOperations', {
+    [pkgName]: injectedData
+  })
+  const dl = new MockDl(mockNpm)
+  dl.exec([pkgName], function(err, results) {
+    t1.error(err, 'expect no error')
+    t1.same(results, [ injectedData ])
+    t1.match(
+      mockNpm.outputMsgs[0],
+      new RegExp(`Downloaded tarballs to satisfy ${pkgName} and 0 dependencies`)
+    )
+    t1.end()
+  })
+})
