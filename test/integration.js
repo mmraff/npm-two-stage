@@ -308,7 +308,6 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
   })
 
 const testCacheName = 'tempcache'
-let testCache
 
 const repoName1 = 'top-repo'
 const repoCfg1 = {
@@ -364,7 +363,7 @@ tap.before(() => {
   const rootPath = tap.testdir({
     [testCacheName]: {}
   })
-  testCache = path.resolve(rootPath, testCacheName)
+  const testCache = path.resolve(rootPath, testCacheName)
   let pkgPath
   // NOTE: formerly had cfg.git.hostBase in the tap.testdir; but was getting
   // EBUSY error from rmdir on teardown, even though the tap doc for fixtures
