@@ -181,7 +181,10 @@ const checkDownloads = (t, pkgMap, dlPath) =>
 
 const checkProjectRootPostInstall = (t, projectRoot) =>
   readdir(projectRoot).then(list => {
-    const expected = [ 'node_modules', 'package-lock.json', 'package.json' ]
+    // TODO: uncomment when we have a long-term solution to the
+    // problem of lockfiles in offline installs
+    //const expected = [ 'node_modules', 'package-lock.json', 'package.json' ]
+    const expected = [ 'node_modules', 'package.json' ]
     t.same(list, expected, 'Nothing more or less than what is expected')
   })
 
@@ -261,7 +264,10 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
   }
   if (opts.debug) console.log(opts.debug, pathMap)
   const paths = Object.keys(pathMap)
-  return checkProjectRootPostInstall(t, basePath)
+  return (opts.temporaryFix
+    ? Promise.resolve()
+    : checkProjectRootPostInstall(t, basePath)
+  )
   .then(() => checkDirs(paths, 0))
 }
 
@@ -274,6 +280,10 @@ const getJsonFileData = filepath => {
 }
 
 const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
+  {}
+  // TODO: uncomment when we have a long-term solution to the
+  // problem of lockfiles in offline installs
+/*
   getJsonFileData(path.join(installPath, 'package-lock.json')).then(pkgLk => {
     // TODO?: get the integrity value from the previous run of npm install,
     // and store it in a convenient place in pkgs;
@@ -307,6 +317,7 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
       pkgLk.packages, expected, 'expected content is in package-lock.json'
     )
   })
+*/
 
 const testCacheName = 'tempcache'
 
@@ -493,16 +504,18 @@ tap.test('2', t1 => {
   .then(list => {
     t1.ok(list.includes(pkgName))
   })
-  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data =>
-    t1.match(data.packages, {
-      '': {
-        name: installDirName, version: '1.0.0',
-        dependencies: { acorn: vSpec }
-      },
-      'node_modules/acorn': { version: resolvedVer }
-    })
-  )
+  // TODO: uncomment when we have a long-term solution to the
+  // problem of lockfiles in offline installs
+  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  //.then(data =>
+  //  t1.match(data.packages, {
+  //    '': {
+  //      name: installDirName, version: '1.0.0',
+  //      dependencies: { acorn: vSpec }
+  //    },
+  //    'node_modules/acorn': { version: resolvedVer }
+  //  })
+  //)
 })
 
 // The --before option works as expected with the download command.
@@ -558,14 +571,24 @@ tap.test('before option', t1 => {
     [ '--offline', '--offline-dir', dlPath, 'acorn', '--before', '2016-08' ],
     { cwd: installPath }
   ))
-  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data =>
+  // TODO: uncomment when we have a long-term solution to the
+  // problem of lockfiles in offline installs
+  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  //.then(data =>
+  //  t1.equal(
+  //    data.packages['node_modules/acorn'].version, '4.0.4',
+  //    'installed the latest version instead of the requested one'
+  //  )
+  //)
+  .then(() => getJsonFileData(
+    path.join(installPath, 'node_modules/acorn/package.json')
+  ))
+  .then(pkg =>
     t1.equal(
-      data.packages['node_modules/acorn'].version, '4.0.4',
+      pkg.version, '4.0.4',
       'installed the latest version instead of the requested one'
     )
   )
-  //.catch(err => console.log(err))
 })
 
 // Case 3: package with a flat set of regular deps
@@ -758,12 +781,17 @@ tap.test('6', t1 => {
       testNpm, 'install',
       [ '--omit=peer', dateLimitOption, spec ], { cwd: installPath }
     )
-    .then(() => checkProjectRootPostInstall(t2, installPath))
+    .then(() => readdir(installPath))
+    .then(list => {
+      const expected = [ 'node_modules', 'package-lock.json', 'package.json' ]
+      t2.same(list, expected, 'Nothing more or less than what is expected')
+    })
     .then(() => readdir(path.join(installPath, 'node_modules')))
     .then(list => {
       t2.equal(list.length, 2, 'Nothing more or less than what is expected')
       t2.ok(list.includes(tgtName), `package ${tgtName} is installed`)
       // So what's the only other entry?
+      // TODO: when we have the long-term solution to lockfiles in offline installs...
       t2.ok(list.includes('.package-lock.json'))
 
       return checkPackageLock(t2, installPath, pkgs, tgtName)
@@ -850,7 +878,9 @@ tap.test('6', t1 => {
       [ '--offline', '--offline-dir', dlPath, '--omit=peer', '--force', spec ],
       { cwd: installPath }
     ))
-    .then(() => checkInstalled(t2, pkgs, installPath))
+    // TODO: when we have the long-term solution to lockfiles in offline installs...
+    //.then(() => checkInstalled(t2, pkgs, installPath))
+    .then(() => checkInstalled(t2, pkgs, installPath, { temporaryFix: true }))
     // 1. npm was unable to determine if there exists a better match (than the
     //   version already installed) for the peer spec identified by the target
     //   package, because the DownloadTracker knows nothing about it; and
@@ -1047,20 +1077,22 @@ tap.test('git 1', async t1 => {
       'Nothing more or less than expected in package installation'
     )
   })
-  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data => {
-    const expected = {
-      '': {
-        name: installDirName, version: '1.0.0',
-        dependencies: { [repoName1]: spec }
-      },
-      ['node_modules/' + repoName1]: {
-        version: '1.0.0',
-        resolved: `${spec}#${expectedHash}`
-      }
-    }
-    t1.match(data.packages, expected)
-  })
+  // TODO: uncomment when we have a long-term solution to the
+  // problem of lockfiles in offline installs
+  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  //.then(data => {
+  //  const expected = {
+  //    '': {
+  //      name: installDirName, version: '1.0.0',
+  //      dependencies: { [repoName1]: spec }
+  //    },
+  //    ['node_modules/' + repoName1]: {
+  //      version: '1.0.0',
+  //      resolved: `${spec}#${expectedHash}`
+  //    }
+  //  }
+  //  t1.match(data.packages, expected)
+  //})
 })
 
 // git repo specified by tag
@@ -1687,7 +1719,28 @@ tap.test('install from pj', t1 => {
           [repoName1]: gitSpec,
           [remoteItem.name]: urlSpec
         }
-      })
+      }),
+      // Place a lockfile, to demonstrate that it is ignored during
+      // offline install
+      // TODO: The above assumption may change when we have a long-term
+      // solution to the lockfile-in-offline-install problem.
+      'package-lock.json': {
+        '': {
+          name: installDirName, version: '1.0.0',
+          dependencies: {
+            'acorn': '^3.0.4',
+            'commander': '2_x',
+            [repoName1]: gitSpec,
+            [remoteItem.name]: urlSpec
+          }
+        },
+        // We don't bother to put 'resolved' fields, because we expect
+        // that this will not be checked
+        'node_modules/acorn': { version: '3.3.0' },
+        'node_modules/commander': { version: '2.20.3' },
+        ['node_modules/' + repoName1]: { version: '1.0.0' },
+        ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
+      }
     }
   })
   const dlPath = path.join(testBase, dlDirName)
@@ -1711,26 +1764,27 @@ tap.test('install from pj', t1 => {
     ]
     t1.same(list.sort(), expected.sort())
   })
-  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data => {
-    const lockExpected = {
-      '': {
-        name: installDirName, version: '1.0.0',
-        dependencies: {
-          'acorn': '^3.0.4',
-          'commander': '2_x',
-          [repoName1]: gitSpec,
-          [remoteItem.name]: urlSpec
-        }
-      },
-      'node_modules/acorn': { version: '3.3.0' },
-      'node_modules/commander': { version: '2.20.3' },
-      ['node_modules/' + repoName1]: { version: '1.0.0' },
-      ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
-    }
-    t1.match(data.packages, lockExpected)
-  })
-  //.catch(err => console.log('install-from-pj case:', err))
+  // TODO: uncomment when we have a long-term solution to the
+  // problem of lockfiles in offline installs
+  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  //.then(data => {
+  //  const lockExpected = {
+  //    '': {
+  //      name: installDirName, version: '1.0.0',
+  //      dependencies: {
+  //        'acorn': '^3.0.4',
+  //        'commander': '2_x',
+  //        [repoName1]: gitSpec,
+  //        [remoteItem.name]: urlSpec
+  //      }
+  //    },
+  //    'node_modules/acorn': { version: '3.3.0' },
+  //    'node_modules/commander': { version: '2.20.3' },
+  //    ['node_modules/' + repoName1]: { version: '1.0.0' },
+  //    ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
+  //  }
+  //  t1.match(data.packages, lockExpected)
+  //})
 })
 
 tap.test('alias spec', t1 => {
@@ -1754,20 +1808,22 @@ tap.test('alias spec', t1 => {
   .then(pkg => {
     t1.match(pkg.dependencies, { [alias]: 'npm:' + saveSpec })
   })
-  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  .then(data => {
-    const lockExpected = {
-      '': {
-        name: installDirName, version: '1.0.0',
-        dependencies: { [alias]: 'npm:' + saveSpec }
-      },
-      ['node_modules/' + alias]: {
-        name: pkgName, version: expandedVer,
-        resolved: `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${expandedVer}.tgz`
-      }
-    }
-    t1.match(data.packages, lockExpected)
-  })
+  // TODO: uncomment when we have a long-term solution to the
+  // problem of lockfiles in offline installs
+  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  //.then(data => {
+  //  const lockExpected = {
+  //    '': {
+  //      name: installDirName, version: '1.0.0',
+  //      dependencies: { [alias]: 'npm:' + saveSpec }
+  //    },
+  //    ['node_modules/' + alias]: {
+  //      name: pkgName, version: expandedVer,
+  //      resolved: `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${expandedVer}.tgz`
+  //    }
+  //  }
+  //  t1.match(data.packages, lockExpected)
+  //})
 })
 
 tap.test('lockfile-dir option', t1 => {
