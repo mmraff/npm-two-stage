@@ -152,12 +152,11 @@ class Install extends ArboristWorkspaceCmd {
       const offlineDir = this.npm.config.get('offline-dir')
       const isOffline = !!(opts.offline && offlineDir)
       if (!isOffline) {
-	return new Arborist(opts)
+        return new Arborist(opts)
       }
       // mmr: User wants to use local fs source for all packages to install.
       // Validate the user-supplied path to local tarball directory:
       log.verbose('install', 'offline and offline-dir options given')
-      //opts.offline = true // tautism?
       opts.packageLock = false
       const arb = new AltArborist(opts)
       // TODO: *consider* putting these in the opts passed to AltArborist
