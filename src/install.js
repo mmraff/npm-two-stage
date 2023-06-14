@@ -174,25 +174,22 @@ class Install extends ArboristWorkspaceCmd {
       add: args,
       workspaces: this.workspaceNames,
     }
-    //const arb = new Arborist(opts)
-    //*******************************************
-    const offlineDir = this.npm.config.get('offline-dir')
-    const isOffline = !!(this.npm.config.get('offline') && offlineDir)
-    const arb = isOffline ? new AltArborist(opts) : new Arborist(opts)
-    if (isOffline) {
-      // User wants to use local fs source for all packages to install.
+    const arb = await (async () => {
+      const offlineDir = this.npm.config.get('offline-dir')
+      const isOffline = !!(opts.offline && offlineDir)
+      if (!isOffline) {
+        return new Arborist(opts)
+      }
+      // mmr: User wants to use local fs source for all packages to install.
       // Validate the user-supplied path to local tarball directory:
-      this.npm.log.verbose('install', 'offline option given')
+      log.verbose('install', 'offline and offline-dir options given')
+      opts.packageLock = false
+      const arb = new AltArborist(opts)
       // TODO: *consider* putting these in the opts passed to AltArborist
-      arb.dlTracker = await dlt.create(offlineDir, {log: this.npm.log})
+      arb.dlTracker = await dlt.create(offlineDir, { log })
       arb.dltTypeMap = dlt.typeMap
-      // NEW: up to this point, we have our copies of build-ideal-tree and
-      // reify assuming offline simply because they are only used by AltArborist.
-      // But we must change this attitude/strategy for the sake of easier
-      // integration with Arborist.
-      opts.offline = isOffline
-    }
-    //*******************************************
+      return arb
+    })()
     await arb.reify(opts)
 
     if (!args.length && !isGlobalInstall && !ignoreScripts) {
