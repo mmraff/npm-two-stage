@@ -26,7 +26,6 @@ const stagedNpmDir = path.join(
 const testNpm = path.join(
   staging, process.platform == 'win32' ? '' : 'bin', 'npm'
 )
-const testLogsDir = path.join(staging, 'logs')
 const execMode = 0o777 & (~process.umask())
 
 const copyNpmToStaging = () => {
@@ -264,7 +263,7 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
   }
   if (opts.debug) console.log(opts.debug, pathMap)
   const paths = Object.keys(pathMap)
-  return (opts.temporaryFix
+  return (opts.temporaryFix // TODO: won't need this when... (see other TODOs)
     ? Promise.resolve()
     : checkProjectRootPostInstall(t, basePath)
   )
@@ -388,7 +387,6 @@ tap.before(() => {
   .then(() => mkdir(path.dirname(stagedNpmDir), { recursive: true }))
   // We would like to avoid leaving any test traces in the user's filesystem
   // outside of the test directory:
-  .then(() => mkdir(testLogsDir))
   .then(() => mkdir(path.join(staging, 'etc')))
   .then(() => writeFile(
     path.join(staging, 'etc/npmrc'),
@@ -580,6 +578,7 @@ tap.test('before option', t1 => {
   //    'installed the latest version instead of the requested one'
   //  )
   //)
+  // instead of this:
   .then(() => getJsonFileData(
     path.join(installPath, 'node_modules/acorn/package.json')
   ))
@@ -791,7 +790,6 @@ tap.test('6', t1 => {
       t2.equal(list.length, 2, 'Nothing more or less than what is expected')
       t2.ok(list.includes(tgtName), `package ${tgtName} is installed`)
       // So what's the only other entry?
-      // TODO: when we have the long-term solution to lockfiles in offline installs...
       t2.ok(list.includes('.package-lock.json'))
 
       return checkPackageLock(t2, installPath, pkgs, tgtName)
@@ -1724,7 +1722,7 @@ tap.test('install from pj', t1 => {
       // offline install
       // TODO: The above assumption may change when we have a long-term
       // solution to the lockfile-in-offline-install problem.
-      'package-lock.json': {
+      'package-lock.json': JSON.stringify({
         '': {
           name: installDirName, version: '1.0.0',
           dependencies: {
@@ -1740,7 +1738,7 @@ tap.test('install from pj', t1 => {
         'node_modules/commander': { version: '2.20.3' },
         ['node_modules/' + repoName1]: { version: '1.0.0' },
         ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
-      }
+      })
     }
   })
   const dlPath = path.join(testBase, dlDirName)
