@@ -22,7 +22,7 @@ _________________________
 
 ## Introduction
 **npm** is a Javascript package manager and much more. You get it automatically
-with a proper installation of the server-side JavaScript engine
+with a proper installation of the cross-platform JavaScript runtime environment
 **[node.js](http://nodejs.org/download/)**.
  
 [This link is to the official documentation of npm](https://docs.npmjs.com/).  
@@ -53,8 +53,9 @@ this project.<br>
 Refer to the [Manual Installation Instructions](docs/MANUAL-INSTALL.md).  
 
 ### If the target platform *can* be connected to the Internet:
-First install the npm package **@offliner/npm2stage-v9.5.1**, a command line
-tool made to manage installation and removal of this version of npm-two-stage.
+First install the npm registry package **@offliner/npm2stage-v9.5.1**, a
+command line tool made to manage installation and removal of this version
+of npm-two-stage.
 Once installed, it will provide the command `npm2stage install`.
 Use of that *might* require elevated privileges, depending on the target
 npm location.
@@ -63,18 +64,42 @@ npm location.
 The installation management tool named above also provides the command
 `npm2stage uninstall`.
 
+## Updates - Caution
+This code is not published to a registry, because it is not a self-contained
+package.
+The strategy used in the installation management package mentioned above,
+which names this repo as a dependency, is to specify the branch name in the
+git spec (instead of a commit hash or a commit tag). This causes npm to fetch
+the HEAD of the named branch on first installation, and that is exactly what
+is intended, because occasionally there may be need for a patch. This also
+helps avoid versioning complications.
+However, `npm install` resolves what is fetched to a specific commit, and
+that is what will be written to package-lock.json; so a naive attempt to
+update npm-two-stage will either get the same version instead of the patched
+one, or it will fail with a git error, unless the following steps are taken:
+1. Execute the command `npm2stage uninstall`
+2. Use **npm** to uninstall **@offliner/npm2stage-v9.5.1**.
+3. Clear the cache: `npm cache clear --force`
+    * or you could be more surgically precise with this:<br>
+      `npm cache clear $(npm cache ls |grep "npm-two-stage")`
+4. Use **npm** to re-install **@offliner/npm2stage-v9.5.1**.
+5. Execute `npm2stage install`
+
+After that, your applied npm-two-stage code will be current.
+
 ## Before Other Changes To Your npm Installation
 * Note that backup copies of the original files modified by the installation
  manager are created in the same location. If you ever want to uninstall
- npm-two-stage, and you want to avoid complications, it's best if you leave
- the backup files where they are.
-* If you need to update npm or update your node.js installation, you must
+ npm-two-stage with the installation manager, and you want to avoid
+ complications, you will get best results if you don't touch the backup files.
+* If you want to update npm or update your node.js installation, you must
  do that before installing this. If you have already installed npm-two-stage,
- you should first run the uninstall command of the installation manager.
+ you should first run the `uninstall` command of the installation manager.
 _________________________
 
 ## Usage
-<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1) that is valid to npm in an install context...
+<a id="src1"></a>Where `PACKAGE_SPEC` can have [almost any form<sup>1</sup>](#fn1)
+that is valid to npm in an install context...
 
 ### Download Stage
 ```
@@ -85,11 +110,11 @@ npm download PACKAGE_SPEC
 npm download PACKAGE_SPEC --dl-dir path/to/put/tarballs
 ```
 will fetch the version of the package that best matches the specifier, plus
-all the packages in its dependency tree, as gzipped tar archives, with no
-redundant downloads.  
-* Shorthand `dl` may be substituted for `download`.  
-* Without the `--dl-dir` option, downloads will go to the current directory.  
-* Any number of package specifiers can be given on a single command line.  
+all non-development packages in its dependency tree, as gzipped tar archives,
+with no redundant downloads.
+* Shorthand `dl` may be substituted for `download`.
+* Without the `--dl-dir` option, downloads will go to the current directory.
+* Any number of package specifiers can be given on a single command line.
 * Most version ranges must be put in quotes so that your shell will not
  misinterpret any special characters in the specifier
  (e.g. `<`, `>`, `-`).
@@ -98,6 +123,7 @@ redundant downloads.
 Alternatively (or additionally), the option `--package-json`, followed
 by the path of a directory that contains a package.json file, may be given to
 tell `npm download` to fetch the dependencies listed there.
+* devDependencies are omitted unless the option `--include=dev` is given.
 * `--pj` is a convenient abbreviation for `--package-json`.
 * `-J` is equivalent to `--package-json` with no path given, where the
 package.json is expected to be in the current directory.
@@ -105,32 +131,35 @@ package.json is expected to be in the current directory.
 ```
 npm download --package-json ../path/to/packageJson/dir
 ```
-will fetch the dependencies listed in the package.json found at the given path
-(and all transitive dependencies), saving them to the current directory.
+will fetch the non-development dependencies listed in the package.json found
+at the given path (and all transitive dependencies), saving them to the
+current directory.
 ```
 npm download -J --dl-dir ../path/to/put/tarballs
 ```
-will fetch the dependencies listed in the package.json found in the current
-directory (and all transitive dependencies), saving them to the given path.
+will fetch the non-development dependencies listed in the package.json found
+in the current directory (and all transitive dependencies), saving them to
+the given path.
 * While `--package-json` must be followed by a path argument, `-J` does not
  take any argument.
 
 #### lockfile-dir Option
 Alternatively (or additionally), the option `--lockfile-dir` followed by the
-path of a directory that contains a lock file (npm-shrinkwrap.json,
-package-lock.json, or yarn.lock v1), may be given to tell `npm download` to
+path of a directory that contains a lockfile (npm-shrinkwrap.json,
+package-lock.json, or yarn.lock), may be given to tell `npm download` to
 fetch the dependencies listed there.
-* If the lock file is a yarn.lock, only version 1 is supported.
-* If the lock file is a yarn.lock, it *must* be accompanied by a matching
+* devDependencies are omitted unless the option `--include=dev` is given.
+* If the lockfile is a yarn.lock, only version 1 is supported.
+* If the lockfile is a yarn.lock, it *must* be accompanied by a matching
  package.json file.
 ```
 npm download --lockfile-dir ../path/that/contains
 ```
-will fetch the dependencies listed in the lock file found at the given path,
-saving them to the current directory.
+will fetch the non-development dependencies listed in the lockfile found at
+the given path, saving them to the current directory.
 
 The command line examples given above will fetch regular, peer, and optional
-dependencies, and packaged lock files will be honored.
+dependencies, and packaged lockfiles will be honored.
 Options are available for changing how dependencies are fetched:
 ```
   --include=<dev|optional|peer>
@@ -150,26 +179,30 @@ is merged into the dltracker.json file. This can be done any number of times.
 ```
 npm install --offline --offline-dir path/to/find/tarballs PACKAGE_SPEC
 ```
+The arrangement of arguments can be any that is valid for unmodified npm,
+but the `--offline` switch and the path for `--offline-dir` (to the tarball
+directory) must be given.
 
-If `PACKAGE_SPEC` is omitted, it will do the reasonable thing: look for
+#### `npm install` without a spec:
+If `PACKAGE_SPEC` is omitted, it will do the reasonable thing: look for a
 package.json in the current directory, and try to install the dependencies
 listed there.
 
+Note that while `npm install` without the `--offline` option will be driven
+by a lockfile (npm-shrinkwrap.json, package-lock.json, or yarn.lock) if there
+is one present and no spec is given, currently
+<span style="display:inline-block;">**npm-two-stage** `npm install --offline`</span>
+will only look at a package.json in the current directory.
+
+Future support for lockfile-driven installations is planned. In the meantime,
+the behavior is the same as what you would get for that (minus the writing of
+a package-lock.json) unless the content of the tarball directory changes
+between successive installations.
+
 _________________________
 ## Footnotes
-<a id="fn1" href="#src1"><sup>1</sup></a> Gists are not yet supported by `npm download`. File and directory package specs are meaningless in the download context, of course.
-
-`npm download --help` will show the supported forms as follows:
-```
-  npm download [<@scope>/]<pkg>
-  npm download [<@scope>/]<pkg>@<tag>
-  npm download [<@scope>/]<pkg>@<version>
-  npm download [<@scope>/]<pkg>@<version range>
-  npm download <github username>/<github project>
-  npm download <git-host>:<git-user>/<repo-name>
-  npm download <git:// url>
-  npm download <tarball url>
-```        
+<a id="fn1" href="#src1"><sup>1</sup></a> File and directory package specs
+ are meaningless in the download context, of course.
 
         
 _________________________
