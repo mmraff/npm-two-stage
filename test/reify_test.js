@@ -172,7 +172,7 @@ t.teardown(() => {
     join(__dirname, testRootName), {
       recursive: true, force: true,
       // Windows has sporadically  been a pain with this test suite
-      maxRetries: 4, retryDelay: 1000
+      maxRetries: 8, retryDelay: 1000
     }
   ))
 })
@@ -3481,6 +3481,86 @@ t.test('offline cases', async t => {
       path: join(installPath, 'node_modules', name),
       resolved: spec
     })
+  })
+
+  const makeLockfileProjectDir = (t, pkgName, pkgVer) => {
+    const res = `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${pkgVer}.tgz`
+    const testPath = t.testdir({
+      'package.json': JSON.stringify({
+        dependencies: {
+          [pkgName]: '*',
+        },
+      }),
+      'package-lock.json': JSON.stringify({
+        lockfileVersion: 2,
+        requires: true,
+        packages: {
+          '': {
+            dependencies: {
+              [pkgName]: '*',
+            },
+          },
+          ['node_modules/' + pkgName]: {
+            version: pkgVer,
+            resolved: res,
+          },
+        },
+        dependencies: {
+          [pkgName]: {
+            version: pkgVer,
+            resolved: res,
+          },
+        },
+      })
+    })
+    return testPath
+  }
+
+  t.test('driven by lockfile', async t => {
+    const pkgName = 'dummy-pkg'
+    const pkgVer = '2.1.0'
+    const testPath = makeLockfileProjectDir(t, pkgName, pkgVer)
+    const res = `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${pkgVer}.tgz`
+    const dlData = {
+      name: pkgName, version: pkgVer, spec: 'greatest',
+      _resolved: res
+    }
+    dlData.filename = `${pkgName}-${pkgVer}.tgz`
+    const arb = newArb({ path: testPath, offline: true })
+    arb.dltTypeMap = mockDlt.typeMap
+    arb.dlTracker = mockDlt.createSync(
+      resolve(__dirname,  'fixtures/data/dlpkgs')
+    )
+    arb.dlTracker.add('tag', dlData)
+    const tree = await arb.reify()
+    const newChild = tree.children.get(dlData.name)
+    t.hasStrict(newChild, {
+      name: dlData.name, version: dlData.version,
+      location: `node_modules/${dlData.name}`,
+      path: join(testPath, 'node_modules', dlData.name),
+      resolved: res
+    })
+  })
+
+  t.test('lockfile dep unknown to dltracker', async t => {
+    const pkgName = 'unknown-pkg'
+    const pkgVer = '9.9.9'
+    const testPath = makeLockfileProjectDir(t, pkgName, pkgVer)
+    const res = `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${pkgVer}.tgz`
+    const dlData = {
+      name: pkgName, version: pkgVer, spec: 'greatest',
+      _resolved: res
+    }
+    dlData.filename = `${pkgName}-${pkgVer}.tgz`
+    const arb = newArb({ path: testPath, offline: true })
+    arb.dltTypeMap = mockDlt.typeMap
+    arb.dlTracker = mockDlt.createSync(
+      resolve(__dirname,  'fixtures/data/dlpkgs')
+    )
+    t.rejects(
+      arb.reify(),
+      { message: `Download Tracker knows nothing about "${pkgName}@${pkgVer}"` }
+    )
   })
 })
 
