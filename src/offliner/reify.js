@@ -22,7 +22,7 @@ const npa = require('npm-package-arg')
 const debug = require(N2S_REQ_PREFIX + '/debug.js')
 const walkUp = require('walk-up-path')
 
-const {dirname, resolve, relative} = require('path')
+const {dirname, join, relative, resolve} = require('path')
 const {depth: dfwalk} = require('treeverse')
 const fs = require('fs')
 const {promisify} = require('util')
@@ -110,8 +110,9 @@ const _pruneBundledMetadeps = Symbol('pruneBundledMetadeps')
 const _resolvedAdd = Symbol.for('resolvedAdd')
 const _usePackageLock = Symbol.for('usePackageLock')
 const _formatPackageLock = Symbol.for('formatPackageLock')
-const _isOffline = Symbol.for('isOffline') // add - see offliner/build-ideal-tree
-const _downloadMap = Symbol.for('downloadMap') // add - ditto
+const _isOffline = Symbol.for('isOffline') // add
+const _downloadMap = Symbol.for('downloadMap') // add
+const _getDownloadData = Symbol.for('getDownloadData') // add
 
 module.exports = cls => class Reifier extends cls {
   constructor (options) {
@@ -666,10 +667,25 @@ module.exports = cls => class Reifier extends cls {
       })
       let spec = res
       if (this[_isOffline]) {
-        const filepath = this[_downloadMap][node.resolved]
-        /* istanbul ignore if: apparently impossible to get here */
+        // When we have previously called this[_fetchManifest],
+        // we will already have the tarball filepath in this[_downloadMap]
+        let filepath = this[_downloadMap][node.resolved]
         if (!filepath) {
-          throw new Error(`Unrecognized resolved spec ${node.resolved}. Aborting.`)
+          // We get here when the 'resolved' is from a lockfile,
+          // because then there's no need to fetchManifest.
+          // Throws if the spec is not known.
+          const dltData = this[_getDownloadData](npa(spec))
+          // NOTE that the filename from the dltracker data is already
+          // URI-encoded, so the encodeURIComponent call in the following
+          // should be unnecessary;
+          // however, someone added a "fix" to npm-package-arg, circa npm 7,
+          // that has it decoding URI-encoded filepaths. That causes problems
+          // for offline use of dltracker data.
+          // The remedy is to double-encode the filename.
+          filepath = join(
+            this.dlTracker.path,
+            encodeURIComponent(dltData.filename)
+          )
         }
         spec = filepath
       }

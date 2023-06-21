@@ -56,7 +56,7 @@ t.before(() =>
 t.teardown(() => {
   return new Promise(resolve => stop(() => resolve()))
   .then(() => rimrafAsync(
-    join(__dirname, testRootName), { maxBusyTries: 10 }
+    join(__dirname, testRootName), { maxBusyTries: 12 }
   ))
 })
 
@@ -2830,6 +2830,20 @@ t.test('offline cases', async t => {
       packageName: dlData1.name, version: dlData1.version,
       location: 'node_modules/' + alias,
       path: join(installPath, 'node_modules', alias),
+      resolved: dlData1._resolved
+    })
+  })
+
+  t.test('registry URL', async t => {
+    const arb = new Arborist({ ...OPT, path: installPath, offline: true })
+    arb.dltTypeMap = mockDlt.typeMap
+    arb.dlTracker = dlTracker
+    const tree = await arb.buildIdealTree({ add: [ dlData1._resolved ] })
+    const newChild = arb.idealTree.children.get(dlData1.name)
+    t.hasStrict(newChild, {
+      packageName: dlData1.name, version: dlData1.version,
+      location: `node_modules/${dlData1.name}`,
+      path: join(installPath, 'node_modules', dlData1.name),
       resolved: dlData1._resolved
     })
   })

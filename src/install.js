@@ -183,7 +183,6 @@ class Install extends ArboristWorkspaceCmd {
       // mmr: User wants to use local fs source for all packages to install.
       // Validate the user-supplied path to local tarball directory:
       log.verbose('install', 'offline and offline-dir options given')
-      opts.packageLock = false
       const arb = new AltArborist(opts)
       // TODO: *consider* putting these in the opts passed to AltArborist
       arb.dlTracker = await dlt.create(offlineDir, { log })

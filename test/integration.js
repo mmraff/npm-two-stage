@@ -180,10 +180,7 @@ const checkDownloads = (t, pkgMap, dlPath) =>
 
 const checkProjectRootPostInstall = (t, projectRoot) =>
   readdir(projectRoot).then(list => {
-    // TODO: uncomment when we have a long-term solution to the
-    // problem of lockfiles in offline installs
-    //const expected = [ 'node_modules', 'package-lock.json', 'package.json' ]
-    const expected = [ 'node_modules', 'package.json' ]
+    const expected = [ 'node_modules', 'package-lock.json', 'package.json' ]
     t.same(list, expected, 'Nothing more or less than what is expected')
   })
 
@@ -263,10 +260,7 @@ const checkInstalled = (t, pkgMap, basePath, opts) => {
   }
   if (opts.debug) console.log(opts.debug, pathMap)
   const paths = Object.keys(pathMap)
-  return (opts.temporaryFix // TODO: won't need this when... (see other TODOs)
-    ? Promise.resolve()
-    : checkProjectRootPostInstall(t, basePath)
-  )
+  return checkProjectRootPostInstall(t, basePath)
   .then(() => checkDirs(paths, 0))
 }
 
@@ -279,10 +273,6 @@ const getJsonFileData = filepath => {
 }
 
 const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
-  {}
-  // TODO: uncomment when we have a long-term solution to the
-  // problem of lockfiles in offline installs
-/*
   getJsonFileData(path.join(installPath, 'package-lock.json')).then(pkgLk => {
     // TODO?: get the integrity value from the previous run of npm install,
     // and store it in a convenient place in pkgs;
@@ -316,7 +306,6 @@ const checkPackageLock = (t, installPath, pkgs, tgtName, opts) =>
       pkgLk.packages, expected, 'expected content is in package-lock.json'
     )
   })
-*/
 
 const testCacheName = 'tempcache'
 
@@ -500,18 +489,16 @@ tap.test('2', t1 => {
   .then(list => {
     t1.ok(list.includes(pkgName))
   })
-  // TODO: uncomment when we have a long-term solution to the
-  // problem of lockfiles in offline installs
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data =>
-  //  t1.match(data.packages, {
-  //    '': {
-  //      name: installDirName, version: '1.0.0',
-  //      dependencies: { acorn: vSpec }
-  //    },
-  //    'node_modules/acorn': { version: resolvedVer }
-  //  })
-  //)
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data =>
+   t1.match(data.packages, {
+     '': {
+       name: installDirName, version: '1.0.0',
+       dependencies: { acorn: vSpec }
+     },
+     'node_modules/acorn': { version: resolvedVer }
+   })
+  )
 })
 
 // The --before option works as expected with the download command.
@@ -567,16 +554,13 @@ tap.test('before option', t1 => {
     [ '--offline', '--offline-dir', dlPath, 'acorn', '--before', '2016-08' ],
     { cwd: installPath }
   ))
-  // TODO: uncomment when we have a long-term solution to the
-  // problem of lockfiles in offline installs
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data =>
-  //  t1.equal(
-  //    data.packages['node_modules/acorn'].version, '4.0.4',
-  //    'installed the latest version instead of the requested one'
-  //  )
-  //)
-  // instead of this:
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data =>
+   t1.equal(
+     data.packages['node_modules/acorn'].version, '4.0.4',
+     'installed the latest version instead of the requested one'
+   )
+  )
   .then(() => getJsonFileData(
     path.join(installPath, 'node_modules/acorn/package.json')
   ))
@@ -874,9 +858,7 @@ tap.test('6', t1 => {
       [ '--offline', '--offline-dir', dlPath, '--omit=peer', '--force', spec ],
       { cwd: installPath }
     ))
-    // TODO: when we have the long-term solution to lockfiles in offline installs...
-    //.then(() => checkInstalled(t2, pkgs, installPath))
-    .then(() => checkInstalled(t2, pkgs, installPath, { temporaryFix: true }))
+    .then(() => checkInstalled(t2, pkgs, installPath))
     // 1. npm was unable to determine if there exists a better match (than the
     //   version already installed) for the peer spec identified by the target
     //   package, because the DownloadTracker knows nothing about it; and
@@ -1073,22 +1055,20 @@ tap.test('git 1', async t1 => {
       'Nothing more or less than expected in package installation'
     )
   })
-  // TODO: uncomment when we have a long-term solution to the
-  // problem of lockfiles in offline installs
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data => {
-  //  const expected = {
-  //    '': {
-  //      name: installDirName, version: '1.0.0',
-  //      dependencies: { [repoName1]: spec }
-  //    },
-  //    ['node_modules/' + repoName1]: {
-  //      version: '1.0.0',
-  //      resolved: `${spec}#${expectedHash}`
-  //    }
-  //  }
-  //  t1.match(data.packages, expected)
-  //})
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data => {
+   const expected = {
+     '': {
+       name: installDirName, version: '1.0.0',
+       dependencies: { [repoName1]: spec }
+     },
+     ['node_modules/' + repoName1]: {
+       version: '1.0.0',
+       resolved: `${spec}#${expectedHash}`
+     }
+   }
+   t1.match(data.packages, expected)
+  })
 })
 
 // git repo specified by tag
@@ -1700,87 +1680,107 @@ tap.test('dl multiple cmdline specs', t1 => {
   })
 })
 
-tap.test('install from pj', t1 => {
+tap.test('JSON-driven install', t1 => {
   const gitSpec = `git://${gitRepoId1}#v1.0.0`
   const remoteItem = cfg.remote.items[1]
   const urlSpec = `http://${remoteItem.id}`
-  const testBase = t1.testdir({
-    [dlDirName]: {},
-    [installDirName]: {
-      'package.json': JSON.stringify({
-        name: installDirName, version: '1.0.0',
-        dependencies: {
-          'acorn': '^3.0.4',
-          'commander': '2_x',
-          [repoName1]: gitSpec,
-          [remoteItem.name]: urlSpec
-        }
-      }),
-      // Place a lockfile, to demonstrate that it is ignored during
-      // offline install
-      // TODO: The above assumption may change when we have a long-term
-      // solution to the lockfile-in-offline-install problem.
-      'package-lock.json': JSON.stringify({
+  const rootDeps = {
+    'acorn': '>=3',
+    'commander': '2_x',
+    [repoName1]: 'git://' + gitRepoId1,
+    [remoteItem.name]: urlSpec
+  }
+  const specList = [ 'acorn@3.3.0', 'commander@2_x', gitSpec, urlSpec ]
+
+  // The package.json case will cause npm to write a package-lock.json;
+  // we'll use that data to set up the package-lock case:
+  let lockfileData
+
+  t1.test('from package json', t2 => {
+    const testBase = t2.testdir({
+      [dlDirName]: {},
+      [installDirName]: {
+        'package.json': JSON.stringify({
+          name: installDirName, version: '1.0.0',
+          dependencies: rootDeps
+        })
+      }
+    })
+    const dlPath = path.join(testBase, dlDirName)
+    const installPath = path.join(testBase, installDirName)
+
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir', dlPath ].concat(specList)
+    )
+    .then(() => runNpmCmd(
+      testNpm, 'install',
+      // No spec --> for lack of a lockfile, refer to the package.json in cwd
+      [ '--offline', '--offline-dir', dlPath ],
+      { cwd: installPath }
+    ))
+    .then(() => readdir(path.join(installPath, 'node_modules')))
+    .then(list => {
+      const expected = [
+        '.bin', '.package-lock.json', 'acorn', 'commander',
+        repoName1, remoteItem.name
+      ]
+      t2.same(list.sort(), expected.sort())
+    })
+    .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+    .then(data => {
+      const lockExpected = {
         '': {
           name: installDirName, version: '1.0.0',
-          dependencies: {
-            'acorn': '^3.0.4',
-            'commander': '2_x',
-            [repoName1]: gitSpec,
-            [remoteItem.name]: urlSpec
-          }
+          dependencies: rootDeps
         },
-        // We don't bother to put 'resolved' fields, because we expect
-        // that this will not be checked
         'node_modules/acorn': { version: '3.3.0' },
         'node_modules/commander': { version: '2.20.3' },
         ['node_modules/' + repoName1]: { version: '1.0.0' },
         ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
-      })
-    }
+      }
+      t2.match(data.packages, lockExpected)
+      lockfileData = data
+    })
   })
-  const dlPath = path.join(testBase, dlDirName)
-  const installPath = path.join(testBase, installDirName)
-  const specList = [ '"acorn@^3.0.4"', 'commander@2_x', gitSpec, urlSpec ]
 
-  return runNpmCmd(
-    testNpm, 'download', [ '--dl-dir', dlPath ].concat(specList)
-  )
-  .then(() => runNpmCmd(
-    testNpm, 'install',
-    // No spec --> refer to the package.json in cwd
-    [ '--offline', '--offline-dir', dlPath ],
-    { cwd: installPath }
-  ))
-  .then(() => readdir(path.join(installPath, 'node_modules')))
-  .then(list => {
-    const expected = [
-      '.bin', '.package-lock.json', 'acorn', 'commander',
-      repoName1, remoteItem.name
-    ]
-    t1.same(list.sort(), expected.sort())
+  t1.test('from package-lock', t2 => {
+    // There are a couple of differences between the package.json specs
+    // and the corresponding resolved values in the pacakage-lock.json,
+    // so that we'll know what installation was really driven by
+    const testBase = t2.testdir({
+      [dlDirName]: {},
+      [installDirName]: {
+        'package.json': JSON.stringify({
+          name: installDirName, version: '1.0.0',
+          dependencies: rootDeps
+        }),
+        'package-lock.json': JSON.stringify(lockfileData)
+      }
+    })
+    const dlPath = path.join(testBase, dlDirName)
+    const installPath = path.join(testBase, installDirName)
+
+    return runNpmCmd(
+      testNpm, 'download', [ '--dl-dir', dlPath ].concat(specList)
+    )
+    .then(() => runNpmCmd(
+      testNpm, 'install',
+      // No spec --> refer to the JSON files in cwd
+      [ '--offline', '--offline-dir', dlPath ],
+      { cwd: installPath }
+    ))
+    .then(() => readdir(path.join(installPath, 'node_modules')))
+    .then(list => {
+      // acorn 3.3.0 has bin files; the other packages do not
+      const expected = [
+        '.bin', '.package-lock.json', 'acorn', 'commander',
+        repoName1, remoteItem.name
+      ]
+      t2.same(list.sort(), expected.sort())
+    })
   })
-  // TODO: uncomment when we have a long-term solution to the
-  // problem of lockfiles in offline installs
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data => {
-  //  const lockExpected = {
-  //    '': {
-  //      name: installDirName, version: '1.0.0',
-  //      dependencies: {
-  //        'acorn': '^3.0.4',
-  //        'commander': '2_x',
-  //        [repoName1]: gitSpec,
-  //        [remoteItem.name]: urlSpec
-  //      }
-  //    },
-  //    'node_modules/acorn': { version: '3.3.0' },
-  //    'node_modules/commander': { version: '2.20.3' },
-  //    ['node_modules/' + repoName1]: { version: '1.0.0' },
-  //    ['node_modules/' + remoteItem.name]: { version: remoteItem.version }
-  //  }
-  //  t1.match(data.packages, lockExpected)
-  //})
+
+  t1.end()
 })
 
 tap.test('alias spec', t1 => {
@@ -1804,22 +1804,20 @@ tap.test('alias spec', t1 => {
   .then(pkg => {
     t1.match(pkg.dependencies, { [alias]: 'npm:' + saveSpec })
   })
-  // TODO: uncomment when we have a long-term solution to the
-  // problem of lockfiles in offline installs
-  //.then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
-  //.then(data => {
-  //  const lockExpected = {
-  //    '': {
-  //      name: installDirName, version: '1.0.0',
-  //      dependencies: { [alias]: 'npm:' + saveSpec }
-  //    },
-  //    ['node_modules/' + alias]: {
-  //      name: pkgName, version: expandedVer,
-  //      resolved: `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${expandedVer}.tgz`
-  //    }
-  //  }
-  //  t1.match(data.packages, lockExpected)
-  //})
+  .then(() => getJsonFileData(path.join(installPath, 'package-lock.json')))
+  .then(data => {
+   const lockExpected = {
+     '': {
+       name: installDirName, version: '1.0.0',
+       dependencies: { [alias]: 'npm:' + saveSpec }
+     },
+     ['node_modules/' + alias]: {
+       name: pkgName, version: expandedVer,
+       resolved: `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${expandedVer}.tgz`
+     }
+   }
+   t1.match(data.packages, lockExpected)
+  })
 })
 
 tap.test('lockfile-dir option', t1 => {
