@@ -1,6 +1,6 @@
 {
   "name": "npm-two-stage",
-  "version": "9.0.0",
+  "version": "9.0.1",
   "description": "Divide `npm install` into download and offline-install stages",
   "author": "Matthew Rafferty <mmraff@gmail.com>",
   "license": "Artistic-2.0",
