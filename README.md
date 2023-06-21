@@ -183,19 +183,9 @@ directory) must be given.
 
 #### `npm install` without a spec:
 If `PACKAGE_SPEC` is omitted, it will do the reasonable thing: look for a
-package.json in the current directory, and try to install the dependencies
-listed there.
-
-Note that while `npm install` without the `--offline` option will be driven
-by a lockfile (npm-shrinkwrap.json, package-lock.json, or yarn.lock) if there
-is one present and no spec is given, currently
-<span style="display:inline-block;">**npm-two-stage** `npm install --offline`</span>
-will only look at a package.json in the current directory.
-
-Future support for lockfile-driven installations is planned. In the meantime,
-the behavior is the same as what you would get for that (minus the writing of
-a package-lock.json) unless the content of the tarball directory changes
-between successive installations.
+package.json and lockfile in the current directory, and try to install the
+dependencies listed there. If a lockfile is present, that will drive the
+installation; otherwise the package.json will be the authority.
 
 _________________________
 ## Footnotes
