@@ -4106,6 +4106,20 @@ t.test('offline cases', async t => {
     })
   })
 
+  t.test('registry URL', async t => {
+    const arb = new Arborist({ ...OPT, path: installPath, offline: true })
+    arb.dltTypeMap = mockDlt.typeMap
+    arb.dlTracker = dlTracker
+    const tree = await arb.buildIdealTree({ add: [ dlData1._resolved ] })
+    const newChild = arb.idealTree.children.get(dlData1.name)
+    t.hasStrict(newChild, {
+      packageName: dlData1.name, version: dlData1.version,
+      location: `node_modules/${dlData1.name}`,
+      path: join(installPath, 'node_modules', dlData1.name),
+      resolved: dlData1._resolved
+    })
+  })
+
   t.test('package spec that download tracker does not recognize', async t => {
     const newArb = new Arborist({ ...OPT, path: installPath, offline: true })
     newArb.dltTypeMap = mockDlt.typeMap
