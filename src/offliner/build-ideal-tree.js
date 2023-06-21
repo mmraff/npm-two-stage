@@ -111,7 +111,6 @@ const _checkEngine = Symbol('checkEngine')
 const _checkPlatform = Symbol('checkPlatform')
 const _virtualRoots = Symbol('virtualRoots')
 const _virtualRoot = Symbol('virtualRoot')
-const _getDownloadData = Symbol('getDownloadData') // add
 const _fixNpaMangling = Symbol('fixNpaMangling') // add
 
 const _failPeerConflict = Symbol('failPeerConflict')
@@ -127,6 +126,20 @@ const _global = Symbol.for('global')
 const _idealTreePrune = Symbol.for('idealTreePrune')
 const _isOffline = Symbol.for('isOffline') // add
 const _downloadMap = Symbol.for('downloadMap') // add
+const _getDownloadData = Symbol.for('getDownloadData') // add
+
+// Needed for getting package keys from specs with registry 'resolved'
+const RE_REGURL = /\/((?:@[^/]+\/)?([^/]+))\/-\/(.+)\.tgz$/
+const getSpecKeys = pkgUrl => {
+  const matches = RE_REGURL.exec(pkgUrl)
+  if (!matches || !matches[3].startsWith(matches[2])) {
+    return null
+  }
+  return {
+    name: matches[1],
+    version: matches[3].replace(matches[2] + '-', '')
+  }
+}
 
 module.exports = cls => class IdealTreeBuilder extends cls {
   constructor (options) {
@@ -555,6 +568,13 @@ module.exports = cls => class IdealTreeBuilder extends cls {
       spec.fetchSpec = '*'
       spec.type = 'range'
     }
+    else if (spec.type === 'remote') {
+      // Handle a registry URL from a 'resolved' field
+      const keys = getSpecKeys(spec.raw)
+      if (keys) {
+        spec = npa(keys.name + '@' + keys.version)
+      }
+    }
 
     const dltType = this.dltTypeMap[spec.type]
     /* istanbul ignore if: should be impossible */
@@ -596,7 +616,7 @@ module.exports = cls => class IdealTreeBuilder extends cls {
     }
 
     let altSpec = { ...spec }
-    if (this[_isOffline] && spec.type != 'file') {
+    if (this[_isOffline] && spec.type != 'file' && spec.type != 'directory') {
       const dltData = this[_getDownloadData](spec)
       altSpec = npa(path.join(this.dlTracker.path, dltData.filename))
       this[_fixNpaMangling](altSpec)
@@ -1278,7 +1298,7 @@ This is a one-time fix-up, please be patient...
 
       let altSpec = { ...spec }
       let dltData
-      if (this[_isOffline] && spec.type != 'file') {
+      if (this[_isOffline] && spec.type != 'file' && spec.type != 'directory') {
         dltData = this[_getDownloadData](spec)
         altSpec = npa(path.join(this.dlTracker.path, dltData.filename))
         this[_fixNpaMangling](altSpec)
