@@ -1,6 +1,6 @@
 {
   "name": "npm-two-stage",
-  "version": "9.0.1",
+  "version": "9.1.0",
   "description": "Divide `npm install` into download and offline-install stages",
   "author": "Matthew Rafferty <mmraff@gmail.com>",
   "license": "Artistic-2.0",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/mmraff/npm-two-stage.git"
   },
-  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm9.5.1#readme",
+  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm9.6.7#readme",
   "bugs": {
     "url": "https://github.com/mmraff/npm-two-stage/issues"
   },
@@ -53,14 +53,18 @@
     ]
   },
   "devDependencies": {
-    "@npmcli/arborist": "6.2.3",
-    "cmd-shim": "6.0.1",
+    "@isaacs/string-locale-compare": "^1.1.0",
+    "@npmcli/arborist": "6.2.9",
+    "@npmcli/fs": "^3.1.0",
+    "@npmcli/run-script": "^6.0.2",
+    "cmd-shim": "^6.0.1",
     "minify-registry-metadata": "^3.0.0",
     "nock": "^13.3.1",
-    "npm": "9.5.1",
+    "npm": "9.6.7",
     "npm-package-arg": "^10.1.0",
-    "semver": "^7.3.7",
+    "pacote": "^15.2.0",
+    "semver": "^7.5.3",
     "tap": "^16.3.4",
-    "tar": "^6.1.11"
+    "tar": "^6.1.15"
   }
 }

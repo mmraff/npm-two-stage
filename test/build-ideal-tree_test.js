@@ -59,7 +59,7 @@ t.teardown(() => {
     join(__dirname, testRootName), {
       recursive: true, force: true,
       // Windows has sporadically  been a pain with this test suite
-      maxRetries: 6, retryDelay: 1000
+      maxRetries: 8, retryDelay: 1000
     }
   ))
 })
@@ -911,6 +911,52 @@ t.test('workspaces', t => {
       path,
       add: [
         'workspace-b',
+      ],
+    })
+
+    // just assert that the buildIdealTree call resolves, if there's a
+    // problem here it will reject because of nock disabling requests
+    await t.resolves(tree)
+
+    t.matchSnapshot(printTree(await tree))
+  })
+
+  t.test('should allow cyclic peer dependencies between workspaces and packages from a repository', async t => {
+    generateNocks(t, {
+      foo: {
+        versions: ['1.0.0'],
+        peerDependencies: ['workspace-a'],
+      },
+    })
+    const path = t.testdir({
+      'package.json': JSON.stringify({
+        name: 'root',
+        dependencies: {
+          'workspace-a': '*',
+        },
+        workspaces: ['workspace-a'],
+      }),
+      'workspace-a': {
+        'package.json': JSON.stringify({
+          name: 'workspace-a',
+          version: '1.0.0',
+          dependencies: {
+            foo: '>=1.0.0',
+          },
+        }),
+      },
+    })
+
+    const arb = new Arborist({
+      ...OPT,
+      path,
+      workspaces: ['workspace-a'],
+    })
+
+    const tree = arb.buildIdealTree({
+      path,
+      add: [
+        'foo',
       ],
     })
 

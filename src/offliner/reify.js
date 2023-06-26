@@ -16,16 +16,16 @@ const N2S_REQ_PREFIX =
 const onExit = require(N2S_REQ_PREFIX + '/signal-handling.js')
 const pacote = require('pacote')
 const AuditReport = require(N2S_REQ_PREFIX + '/audit-report.js')
-const {subset, intersects} = require('semver')
+const { subset, intersects } = require('semver')
 const npa = require('npm-package-arg')
 const semver = require('semver')
 const debug = require(N2S_REQ_PREFIX + '/debug.js')
-const walkUp = require('walk-up-path')
+const { walkUp } = require('walk-up-path')
 const log = require('proc-log')
 const hgi = require('hosted-git-info')
 const rpj = require('read-package-json-fast')
 
-const { dirname, join, relative, resolve } = require('path')
+const { dirname, resolve, relative, join } = require('path')
 const { depth: dfwalk } = require('treeverse')
 const {
   lstat,
@@ -552,9 +552,17 @@ module.exports = cls => class Reifier extends cls {
           await this[_renamePath](d, retired)
         }
       }
-      const made = await mkdir(node.path, { recursive: true })
       this[_sparseTreeDirs].add(node.path)
-      this[_sparseTreeRoots].add(made)
+      const made = await mkdir(node.path, { recursive: true })
+      // if the directory already exists, made will be undefined. if that's the case
+      // we don't want to remove it because we aren't the ones who created it so we
+      // omit it from the _sparseTreeRoots
+      /* istanbul ignore else:
+          not my job to write the missing test if the code change is not mine (mmraff)
+      */
+      if (made) {
+        this[_sparseTreeRoots].add(made)
+      }
     }))
       .then(() => process.emit('timeEnd', 'reify:createSparse'))
   }
@@ -738,7 +746,6 @@ module.exports = cls => class Reifier extends cls {
       }
       await pacote.extract(spec, node.path, {
         ...this.options,
-        Arborist: this.constructor,
         resolved: node.resolved,
         integrity: node.integrity,
       })

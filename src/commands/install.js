@@ -4,14 +4,10 @@
 /* eslint-disable camelcase */
 const fs = require('fs')
 const util = require('util')
-// MMR Warning: npm 9.5.1 install.js is still using util.promisify on
-// fs.readdir! While that remains, we keep this as is:
 const readdir = util.promisify(fs.readdir)
 const reifyFinish = require('../utils/reify-finish.js')
 const log = require('../utils/log-shim.js')
 const { resolve, join } = require('path')
-const Arborist = require('@npmcli/arborist')
-const AltArborist = require('../offliner/alt-arborist')
 const runScript = require('@npmcli/run-script')
 const pacote = require('pacote')
 const checks = require('npm-install-checks')
@@ -23,6 +19,7 @@ class Install extends ArboristWorkspaceCmd {
   static name = 'install'
 
   // These are in the order they will show up in when running "-h"
+  // If adding to this list, consider adding also to ci.js
   static params = [
     'save',
     'save-exact',
@@ -144,6 +141,8 @@ class Install extends ArboristWorkspaceCmd {
       throw this.usageError()
     }
 
+    const Arborist = require('@npmcli/arborist')
+    const AltArborist = require('../offliner/alt-arborist')
     const opts = {
       ...this.npm.flatOptions,
       auditLevel: null,

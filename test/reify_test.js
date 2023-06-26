@@ -1,5 +1,5 @@
 /*
-  Based on test/arborist/reify.js of @npmcli/arborist v6.2.3.
+  Based on test/arborist/reify.js of @npmcli/arborist v6.2.9.
   Almost all of this suite was created by the developers of @npmcli/arborist.
   Origin comments are preserved.* All of the fixtures from the arborist test
   collection are also present in fixtures/arborist.

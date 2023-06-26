@@ -14,7 +14,7 @@ const mixins = [
   require('@npmcli/arborist/lib/arborist/deduper.js'),
   require('@npmcli/arborist/lib/arborist/audit.js'),
   require('./build-ideal-tree.js'),
-  require('@npmcli/arborist/lib/arborist/load-workspaces.js'),
+  require('@npmcli/arborist/lib/arborist/set-workspaces.js'),
   require('@npmcli/arborist/lib/arborist/load-actual.js'),
   require('@npmcli/arborist/lib/arborist/load-virtual.js'),
   require('@npmcli/arborist/lib/arborist/rebuild.js'),
@@ -48,6 +48,7 @@ class AltArborist extends Base {
     this.options = {
       nodeVersion: process.version,
       ...options,
+      Arborist: this.constructor,
       path: options.path || '.',
       cache: options.cache || `${homedir()}/.npm/_cacache`,
       packumentCache: options.packumentCache || new Map(),

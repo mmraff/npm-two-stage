@@ -883,11 +883,12 @@ tap.test('readFromDir', t1 => {
   t1.test('yarn.lock with invalid package.json', t2 => {
     const yarnLkSrc = path.join(basePath, 'yarn-lock-mkdirp/yarn.lock')
     let lockDir
+    let garbage = '!@#$%^&*()'
     return readFile(yarnLkSrc, { encoding: 'utf8' })
     .then(content => {
       lockDir = t2.testdir({
         'yarn.lock': content,
-        'package.json': '!@#$%^&*()'
+        'package.json': garbage
       })
       messages.splice(0)
       return lockDeps.readFromDir(lockDir, logger)
@@ -901,7 +902,7 @@ tap.test('readFromDir', t1 => {
             level: 'warn', cmd,
             msg: [
               'Failed to parse package.json: ',
-              'Unexpected token ! in JSON at position 0'
+              `Unexpected token '!', "${garbage}" is not valid JSON`
             ].join('')
           },
           {

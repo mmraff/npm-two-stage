@@ -1,10 +1,9 @@
-const localeCompare = require('@isaacs/string-locale-compare')('en')
 const tap = require('tap')
 const oldCmdList = require('../node_modules/npm/lib/utils/cmd-list')
 const newCmdList = require('../src/utils/cmd-list')
 
-const objects = [ 'abbrevs', 'aliases' ]
-const lists = [ 'allCommands', 'commands', 'plumbing' ]
+const objects = [ 'aliases' ]
+const lists = [ 'commands' ]
 
 tap.test('All exports covered', t1 => {
   for (const item in newCmdList) {
@@ -54,48 +53,13 @@ tap.test('array exports', t1 => {
 })
 
 tap.test('differences between modified and original', t1 => {
-  t1.strictSame(newCmdList.plumbing, oldCmdList.plumbing)
-
   const modifiedOldCmds =
-    [ ...oldCmdList.commands, 'download' ].sort(localeCompare)
-  const newCmds = [ ...newCmdList.commands ].sort(localeCompare)
+    [ ...oldCmdList.commands, 'download' ].sort()
+  const newCmds = [ ...newCmdList.commands ].sort()
   t1.strictSame(newCmds, modifiedOldCmds)
 
   const modifiedOldAliases = { ...oldCmdList.aliases, dl: 'download' }
   t1.strictSame(newCmdList.aliases, modifiedOldAliases)
-
-  const modifiedOldAllCommands =
-    [ ...modifiedOldCmds, ...oldCmdList.plumbing ].sort(localeCompare)
-  t1.strictSame(newCmdList.allCommands, modifiedOldAllCommands)
-
-  const newAbbrevs = {}
-  for (const key in newCmdList.abbrevs) {
-    if (!(key in oldCmdList.abbrevs)) {
-      newAbbrevs[key] = newCmdList.abbrevs[key]
-    }
-  }
-  if ('dl' in newAbbrevs) {
-    delete newAbbrevs['dl']
-  }
-  else {
-    t1.fail('"dl" is missing from modified abbrevs')
-  }
-  for (const key in newAbbrevs) {
-    if (!'download'.startsWith(key)) {
-      t1.fail(`Unexpected new item "${key}" in modified abbrevs`)
-    }
-    else if (newAbbrevs[key] !== 'download') {
-      t1.fail([
-        'New item "', key, '" in modified abbrevs maps to "',
-        newAbbrevs[key], '" instead of "download"'
-      ].join(''))
-    }
-  }
-  for (const key in oldCmdList.abbrevs) {
-    if (!(key in newCmdList.abbrevs)) {
-      t1.fail(`Original item "${key}" is missing from modified abbrevs`)
-    }
-  }
 
   t1.end()
 })
