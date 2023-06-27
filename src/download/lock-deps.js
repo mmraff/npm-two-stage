@@ -1,6 +1,7 @@
 const path = require('path')
 const readFileAsync = require('util').promisify(require('fs').readFile)
 
+const parseJson = require('json-parse-even-better-errors')
 const validate = require('validate-npm-package-name')
 const YarnLock = require('./alt-yarn-lock')
 const readTar = require('./read-from-tarball')
@@ -46,7 +47,7 @@ const fromPackageLock = module.exports.fromPackageLock = (lockText) => {
     throw new SyntaxError(argErrMsg)
   if (typeof lockText !== 'string') throw new TypeError(argErrMsg)
 
-  const lockData = JSON.parse(lockText)
+  const lockData = parseJson(lockText)
   // Removed validation of the contents from here:
   // lockfileVersion 1 can have no 'dependencies' section, and
   // of course has no 'packages' (that's lockfileVersion 2);
@@ -336,17 +337,12 @@ const fromYarnLock = module.exports.fromYarnLock = (yarnText, pkg) => {
 }
 
 const parsePkgJsonContent = content => {
-  let s = content.toString()
-  /* istanbul ignore next: a tried-and-true pattern, not worth the trivial test */
-  if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1)
+  const s = content.toString()
   try {
-    return JSON.parse(s)
+    return parseJson(s)
   }
   catch (err) {
-    err = Object.assign(
-      new Error('Failed to parse package.json: ' + err.message),
-      { code: 'EJSONPARSE' }
-    )
+    err.message = 'Failed to parse package.json: ' + err.message
     throw err
   }
 }
