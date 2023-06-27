@@ -900,7 +900,7 @@ tap.test('readFromDir', t1 => {
         messages[4],
         {
           level: 'warn', cmd,
-          msg: /Failed to parse package.json: Unexpected token "!"/
+          msg: /Failed to parse package.json: Unexpected token ['"]!['"]/
         }
       )
       t2.same(
