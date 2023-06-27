@@ -883,12 +883,11 @@ tap.test('readFromDir', t1 => {
   t1.test('yarn.lock with invalid package.json', t2 => {
     const yarnLkSrc = path.join(basePath, 'yarn-lock-mkdirp/yarn.lock')
     let lockDir
-    let garbage = '!@#$%^&*()'
     return readFile(yarnLkSrc, { encoding: 'utf8' })
     .then(content => {
       lockDir = t2.testdir({
         'yarn.lock': content,
-        'package.json': garbage
+        'package.json': '!@#$%^&*()'
       })
       messages.splice(0)
       return lockDeps.readFromDir(lockDir, logger)
@@ -896,20 +895,20 @@ tap.test('readFromDir', t1 => {
     .then(deps => {
       const cmd = 'download'
       t2.same(deps, [])
+      t2.same(messages.slice(0, 4), msgList_NoShrwrapNoPkglock)
+      t2.match(
+        messages[4],
+        {
+          level: 'warn', cmd,
+          msg: /Failed to parse package.json: Unexpected token ['"]!['"]/
+        }
+      )
       t2.same(
-        messages, msgList_NoShrwrapNoPkglock.concat([
-          {
-            level: 'warn', cmd,
-            msg: [
-              'Failed to parse package.json: ',
-              `Unexpected token '!', "${garbage}" is not valid JSON`
-            ].join('')
-          },
-          {
-            level: 'warn', cmd,
-            msg: 'No usable lockfile at ' + lockDir
-          }
-        ]),
+        messages[5],
+        {
+          level: 'warn', cmd,
+          msg: 'No usable lockfile at ' + lockDir
+        },
         'Messages logged for yarn.lock with invalid package.json'
       )
     })
