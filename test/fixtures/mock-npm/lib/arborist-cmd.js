@@ -1,11 +1,9 @@
 /* Install extends this. Almost nothing of the actual is used by Install. */
+const BaseCommand = require('./base-command')
 
-class ArboristCmd {
-  constructor (npm) {
-    // In the actual code, this class extends BaseCommand, which is the only
-    // class in the lineage with a constructor. That constructor takes an
-    // npm object and sets this.npm. We don't need BaseCommand.
-    this.npm = npm
+class ArboristCmd extends BaseCommand {
+  get isArboristCmd () {
+    return true
   }
 
   static params = [
@@ -14,6 +12,13 @@ class ArboristCmd {
     'include-workspace-root',
     'install-links',
   ]
+
+  static workspaces = true
+  static ignoreImplicitWorkspace = false
+
+  async execWorkspaces (args) {
+    return this.exec(args)
+  }
 }
 
 module.exports = ArboristCmd

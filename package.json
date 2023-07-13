@@ -1,6 +1,6 @@
 {
   "name": "npm-two-stage",
-  "version": "9.1.1",
+  "version": "9.2.0",
   "description": "Divide `npm install` into download and offline-install stages",
   "author": "Matthew Rafferty <mmraff@gmail.com>",
   "license": "Artistic-2.0",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/mmraff/npm-two-stage.git"
   },
-  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm9.6.7#readme",
+  "homepage": "https://github.com/mmraff/npm-two-stage/tree/npm9.7.2#readme",
   "bugs": {
     "url": "https://github.com/mmraff/npm-two-stage/issues"
   },
@@ -45,7 +45,7 @@
       "--exclude=!test/tempAssets5/npm/lib/offliner/reify.js",
       "--exclude=!test/tempAssets6/npm/lib/commands/install.js",
       "--exclude=!test/tempAssets7/npm/lib/commands/download.js",
-      "--exclude=!test/tempAssets8/npm/lib/utils/config/definitions.js",
+      "--exclude=!test/tempAssets8/npm/lib/npm.js",
       "--exclude=!test/staging/lib/node_modules/npm/lib/commands/download.js",
       "--exclude=!test/staging/lib/node_modules/npm/lib/download/*.js",
       "--exclude=!test/staging/lib/node_modules/npm/lib/commands/install.js",
@@ -54,16 +54,16 @@
   },
   "devDependencies": {
     "@isaacs/string-locale-compare": "^1.1.0",
-    "@npmcli/arborist": "6.2.9",
+    "@npmcli/arborist": "6.2.10",
     "@npmcli/fs": "^3.1.0",
     "@npmcli/run-script": "^6.0.2",
-    "cmd-shim": "^6.0.1",
+    "cmd-shim": "^6.0.0",
     "minify-registry-metadata": "^3.0.0",
-    "nock": "^13.3.1",
-    "npm": "9.6.7",
+    "nock": "^13.3.0",
+    "npm": "9.7.2",
     "npm-package-arg": "^10.1.0",
     "pacote": "^15.2.0",
-    "semver": "^7.5.3",
+    "semver": "^7.5.2",
     "tap": "^16.3.4",
     "tar": "^6.1.15"
   }

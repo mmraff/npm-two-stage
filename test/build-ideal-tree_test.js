@@ -39,6 +39,11 @@ let Arborist
 let mockDlt
 let n2sAssets
 
+// Time after time, this feature is causing EPERM grief; I'm sick of it.
+// Doing it differently; see in t.before().
+//const cache = t.testdir()
+let cache
+
 t.before(() =>
   makeAssets(
     testRootName, 'offliner/build-ideal-tree.js',
@@ -46,6 +51,7 @@ t.before(() =>
   )
   .then(assets => {
     n2sAssets = assets
+    cache = assets.fs('npmTmp')
     Arborist = require(assets.libOffliner + '/alt-arborist')
     mockDlt = require(assets.libDownload + '/dltracker')
     // registry-mocks/server.start returns a Promise.
@@ -58,13 +64,11 @@ t.teardown(() => {
   .then(() => fs.rmSync(
     join(__dirname, testRootName), {
       recursive: true, force: true,
-      // Windows has sporadically  been a pain with this test suite
-      maxRetries: 8, retryDelay: 1000
+      // Windows has sporadically  been a pain with this test suite (EPERM)
+      //maxRetries: 8, retryDelay: 1000
     }
   ))
 })
-
-const cache = t.testdir()
 
 // track the warnings that are emitted.  returns a function that removes
 // the listener and provides the list of what it saw.

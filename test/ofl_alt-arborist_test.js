@@ -17,6 +17,9 @@ const normalizePath = path => path.replace(/[A-Z]:/, '').replace(/\\/g, '/')
 let Arborist
 let n2sAssets
 
+const usedMocksMsgs = []
+const reportMockUsage = msg => usedMocksMsgs.push(msg)
+
 t.before(() =>
   makeAssets(testRootName, 'offliner/alt-arborist.js', {
     arborist: true, offliner: true
@@ -24,11 +27,17 @@ t.before(() =>
   .then(assets => {
     n2sAssets = assets
     Arborist = require(assets.libOffliner + '/alt-arborist')
+    //process.on('used', reportMockUsage)
   })
 )
-t.teardown(() => rmSync(
-  path.join(__dirname, testRootName), { recursive: true, force: true }
-))
+t.teardown(() => {
+  //process.off('used', reportMockUsage)
+  //console.log('$$$$$$ MOCKS OF CONCERN - USED: $$$$$$$$$$$$$$$$$$$$$$$')
+  //console.log(usedMocksMsgs)
+  return rmSync(
+    path.join(__dirname, testRootName), { recursive: true, force: true }
+  )
+})
 
 t.test('basic stuff', t => {
   const a = new Arborist({ path: '/some/kind/of/path' })

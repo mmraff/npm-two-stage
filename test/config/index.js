@@ -8,7 +8,7 @@ const stagedNpmLibPath = [
 
 const fileMap = {
   'utils_cmd-list_test.js': 'src/utils/cmd-list.js',
-  'utils_config_definitions_test.js': 'test/tempAssets8/npm/lib/utils/config/definitions.js',
+  'npm_test.js': 'test/tempAssets8/npm/lib/npm.js',
   'dl_npf_test.js': 'src/download/npm-package-filename.js',
   'dl_reconstruct-map_test.js': 'src/download/reconstruct-map.js',
   'dl_dltracker_test.js': 'src/download/dltracker.js',

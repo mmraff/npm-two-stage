@@ -145,6 +145,11 @@ let Arborist
 let mockDlt
 let n2sAssets
 
+// Time after time, this feature is causing EPERM grief; I'm sick of it.
+// Doing it differently; see in t.before().
+//const cache = t.testdir()
+let cache
+
 t.before(() =>
   makeAssets(
     testRootName, 'offliner/reify.js',
@@ -152,6 +157,7 @@ t.before(() =>
   )
   .then(assets => {
     n2sAssets = assets
+    cache = assets.fs('npmTmp')
     mockDlt = require(assets.libDownload + '/dltracker')
 
     Arborist = t.mock(assets.libOffliner + '/alt-arborist', {
@@ -171,13 +177,11 @@ t.teardown(() => {
   .then(() => fs.rmSync(
     join(__dirname, testRootName), {
       recursive: true, force: true,
-      // Windows has sporadically  been a pain with this test suite
-      maxRetries: 8, retryDelay: 1000
+      // Windows has sporadically  been a pain with this test suite (EPERM)
+      //maxRetries: 12, retryDelay: 1000
     }
   ))
 })
-
-const cache = t.testdir()
 
 const {
   normalizePath,
@@ -1241,6 +1245,57 @@ t.test('global', t => {
 t.test('workspaces', t => {
   t.test('reify simple-workspaces', t =>
     t.resolveMatchSnapshot(printReified(fixture(t, 'workspaces-simple')), 'should reify simple workspaces'))
+
+// FROM HERE
+  t.test('reify workspaces omit dev dependencies', async t => {
+    const runCase = async (t, opts) => {
+      const path = fixture(t, 'workspaces-conflicting-dev-deps')
+      const rootAjv = resolve(path, 'node_modules/ajv/package.json')
+      const ajvOfPkgA = resolve(path, 'a/node_modules/ajv/package.json')
+      const ajvOfPkgB = resolve(path, 'b/node_modules/ajv/package.json')
+
+      t.equal(fs.existsSync(rootAjv), true, 'root ajv exists')
+      t.equal(fs.existsSync(ajvOfPkgA), true, 'ajv under package a node_modules exists')
+      t.equal(fs.existsSync(ajvOfPkgB), true, 'ajv under package a node_modules exists')
+
+      await reify(path, { omit: ['dev'], ...opts })
+
+      return {
+        root: { exists: () => fs.existsSync(rootAjv) },
+        a: { exists: () => fs.existsSync(ajvOfPkgA) },
+        b: { exists: () => fs.existsSync(ajvOfPkgB) },
+      }
+    }
+
+    await t.test('default', async t => {
+      const { root, a, b } = await runCase(t)
+      t.equal(root.exists(), false, 'root')
+      t.equal(a.exists(), false, 'a')
+      t.equal(b.exists(), false, 'b')
+    })
+
+    await t.test('workspaces only', async t => {
+      const { root, a, b } = await runCase(t, { workspaces: ['a'] })
+      t.equal(root.exists(), false, 'root')
+      t.equal(a.exists(), false, 'a')
+      t.equal(b.exists(), true, 'b')
+    })
+
+    await t.test('workspaces + root', async t => {
+      const { root, a, b } = await runCase(t, { workspaces: ['a'], includeWorkspaceRoot: true })
+      t.equal(root.exists(), false, 'root')
+      t.equal(a.exists(), false, 'a')
+      t.equal(b.exists(), true, 'b')
+    })
+
+    await t.test('disable workspaces', async t => {
+      const { root, a, b } = await runCase(t, { workspacesEnabled: false })
+      t.equal(root.exists(), false, 'root')
+      t.equal(a.exists(), true, 'a')
+      t.equal(b.exists(), true, 'b')
+    })
+  })
+// TO HERE
 
   t.test('reify workspaces lockfile', async t => {
     const path = fixture(t, 'workspaces-simple')

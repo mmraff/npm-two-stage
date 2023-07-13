@@ -127,6 +127,9 @@ let mockNpmCliGit
 let mockLog
 let n2sAssets
 
+const usedMocksMsgs = []
+const reportMockUsage = msg => usedMocksMsgs.push(msg)
+
 tap.before(() =>
   makeAssets(testRootName, 'download/alt-git.js', { offliner: true })
   .then(assets => {
@@ -140,11 +143,17 @@ tap.before(() =>
     mockReadPkgJson = require(assets.nodeModules + '/read-package-json-fast')
     mockNpmCliGit = require(assets.nodeModules + '/@npmcli/git')
     mockLog = require(assets.nodeModules + '/proc-log')
+    //process.on('used', reportMockUsage)
   })
 )
-tap.teardown(() => rmSync(
-  path.join(__dirname, testRootName), { recursive: true, force: true }
-))
+tap.teardown(() => {
+  //process.off('used', reportMockUsage)
+  //console.log('$$$$$$ MOCKS OF CONCERN - USED: $$$$$$$$$$$$$$$$$$$$$$$')
+  //console.log(usedMocksMsgs)
+  return rmSync(
+    path.join(__dirname, testRootName), { recursive: true, force: true }
+  )
+})
 
 tap.test('no Arborist constructor in options', t => {
   const npaSpec = npa(testConfigs[0].spec)

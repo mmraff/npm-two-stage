@@ -2,12 +2,16 @@ const tap = require('tap')
 const oldCmdList = require('../node_modules/npm/lib/utils/cmd-list')
 const newCmdList = require('../src/utils/cmd-list')
 
+const functions = [ 'deref' ]
 const objects = [ 'aliases' ]
 const lists = [ 'commands' ]
 
 tap.test('All exports covered', t1 => {
   for (const item in newCmdList) {
-    if (!objects.includes(item) && !lists.includes(item)) {
+    if (!functions.includes(item)
+        && !lists.includes(item)
+        && !objects.includes(item))
+    {
       t1.fail(`unexpected export "${item}"`)
     }
   }
@@ -60,6 +64,49 @@ tap.test('differences between modified and original', t1 => {
 
   const modifiedOldAliases = { ...oldCmdList.aliases, dl: 'download' }
   t1.strictSame(newCmdList.aliases, modifiedOldAliases)
+
+  t1.end()
+})
+
+tap.test('deref', t1 => {
+  // Nothing
+  t1.equal(newCmdList.deref(), undefined)
+  for (const v of [ undefined, null, 0, '' ]) {
+    if (newCmdList.deref(v)) {
+      t1.fail(`deref should not give a result for ${v === '' ? '' : v}`)
+    }
+  }
+
+  // camelCase translation
+  t1.equal(newCmdList.deref('installTest'), 'install-test') // one from the list
+  t1.equal(newCmdList.deref('sendYourCamelToBed'), undefined) // no such
+
+  const identityFailures = []
+  for (const cmd of newCmdList.commands) {
+    if (newCmdList.deref(cmd) !== cmd) {
+      identityFailures.push(cmd)
+    }
+  }
+  if (identityFailures.length) {
+    t1.fail(
+      'Commands that did not deref correctly: ' + identityFailures.join(', ')
+    )
+  }
+
+  const unaliasFailures = []
+  for (const al in newCmdList.aliases) {
+    if (newCmdList.deref(al) !== newCmdList.aliases[al]) {
+      unaliasFailures.push(al)
+    }
+  }
+  if (unaliasFailures.length) {
+    t1.fail(
+      'Aliases that did not deref correctly: ' + unaliasFailures.join(', ')
+    )
+  }
+
+  // Resolution of a prefix
+  t1.equal(newCmdList.deref('install-cl'), 'ci') // one from the list
 
   t1.end()
 })

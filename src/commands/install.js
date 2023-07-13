@@ -29,7 +29,9 @@ class Install extends ArboristWorkspaceCmd {
     'global-style',
     'omit',
     'strict-peer-deps',
+    'prefer-dedupe',
     'package-lock',
+    'package-lock-only',
     'foreground-scripts',
     'ignore-scripts',
     'audit',
@@ -43,7 +45,7 @@ class Install extends ArboristWorkspaceCmd {
 
   static usage = ['[<package-spec> ...]']
 
-  async completion (opts) {
+  static async completion (opts) {
     const { partialWord } = opts
     // install can complete to a folder with a package.json, or any package.
     // if it has a slash, then it's gotta be a folder

@@ -34,17 +34,20 @@ const expectPropsAbsent = (t, obj, props) => {
     t.fail('Unexpected option(s) present: ' + badOpts.join(', '))
 }
 
+const usedMocksMsgs = []
+const reportMockUsage = msg => usedMocksMsgs.push(msg)
+
 tap.before(() =>
   makeAssets(
     testRootName, 'commands/download.js',
     {
       verbatim: {
         files: [
-          'node_modules/@npmcli/config/lib/type-defs.js',
-          'node_modules/@npmcli/config/lib/umask.js',
+          'node_modules/@npmcli/config/lib/env-replace.js', // required by config, parse-field.js
+          'node_modules/@npmcli/config/lib/parse-field.js', // required by config
+          'node_modules/@npmcli/config/lib/type-defs.js', // required by definition.js, definitions.js, parse-field.js
+          'node_modules/@npmcli/config/lib/umask.js', // required by type-defs.js, parse-field.js
         ],
-        //node_modules: [
-        //]
       }
     }
   )
@@ -56,11 +59,17 @@ tap.before(() =>
     Download = require(assets.npmLib + '/commands/download')
     mockItemAgents = require(assets.libDownload + '/item-agents.js')
     mockLockDeps = require(assets.libDownload + '/lock-deps.js')
+    //process.on('used', reportMockUsage)
   })
 )
-tap.teardown(() => rm(
-  path.join(__dirname, testRootName), { recursive: true, force: true }
-))
+tap.teardown(() => {
+  //process.off('used', reportMockUsage)
+  //console.log('$$$$$$ MOCKS OF CONCERN - USED: $$$$$$$$$$$$$$$$$$$$$$$')
+  //console.log(usedMocksMsgs)
+  return rm(
+    path.join(__dirname, testRootName), { recursive: true, force: true }
+  )
+})
 
 tap.test('No arguments, no package-json or lockfile-dir options', t1 => {
   const mockNpm = makeMockNpm()

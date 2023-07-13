@@ -37,6 +37,9 @@ const makeMockNpm = (args = {}) => {
   return new mockNpmClass(opts)
 }
 
+const usedMocksMsgs = []
+const reportMockUsage = msg => usedMocksMsgs.push(msg)
+
 tap.before(() =>
   makeAssets(
     testRootName, 'commands/install.js',
@@ -44,8 +47,10 @@ tap.before(() =>
       offliner: true,
       verbatim: {
         files: [
-          'node_modules/@npmcli/config/lib/type-defs.js',
-          'node_modules/@npmcli/config/lib/umask.js',
+          'node_modules/@npmcli/config/lib/env-replace.js', // required by config, parse-field.js
+          'node_modules/@npmcli/config/lib/parse-field.js', // required by config
+          'node_modules/@npmcli/config/lib/type-defs.js', // required by definition.js, definitions.js, parse-field.js
+          'node_modules/@npmcli/config/lib/umask.js', // required by type-defs.js, parse-field.js
         ],
         node_modules: [
           'npm-install-checks',
@@ -66,11 +71,17 @@ tap.before(() =>
     // This is needed to set up results for when install() fetches the manifest
     // of npm for an attempt at global installation:
     mockPacote = require(n2sAssets.nodeModules + '/pacote')
+    //process.on('used', reportMockUsage)
   })
 )
-tap.teardown(() => rmSync(
-  path.join(__dirname, testRootName), { recursive: true, force: true }
-))
+tap.teardown(() => {
+  //process.off('used', reportMockUsage)
+  //console.log('$$$$$$ MOCKS OF CONCERN - USED: $$$$$$$$$$$$$$$$$$$$$$$')
+  //console.log(usedMocksMsgs)
+  return rmSync(
+    path.join(__dirname, testRootName), { recursive: true, force: true }
+  )
+})
 
 tap.test('exec() on installer instantiated without npm object', t1 => {
   const inst = new Install()
@@ -346,8 +357,7 @@ tap.test('completion cases', t1 => {
   // hence the apparent duplication with pathSpec and partialWord
 
   t1.test('partialWord is a URL', t2 => {
-    const inst = new Install(mockNpm)
-    return inst.completion({ partialWord: 'https://whatever.net' })
+    return Install.completion({ partialWord: 'https://whatever.net' })
     .then(result => {
       t2.same(result, [])
     })
@@ -356,19 +366,17 @@ tap.test('completion cases', t1 => {
   // Don't know that completion ever gets called with this kind of input, but
   // there's no specific checking for this, only the implicit 'else' of line xx
   t1.test('partialWord has no path delimiters', t2 => {
-    const inst = new Install(mockNpm)
     const pathSpec = 'abc'
-    return inst.completion({ partialWord: pathSpec })
+    return Install.completion({ partialWord: pathSpec })
     .then(result => {
       t2.equal(result, undefined)
     })
   })
 
   t1.test('partialWord is a path, but dirname does not exist in filesystem', t2 => {
-    const inst = new Install(mockNpm)
     const pathSpec = 'a' + path.sep + 'b'
     const partialWord = 'a/b'
-    return inst.completion({ partialWord })
+    return Install.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
     })
@@ -376,13 +384,12 @@ tap.test('completion cases', t1 => {
 
   // This hits alternative at line xx
   t1.test('partialWord is an entry at filesystem root', t2 => {
-    const inst = new Install(mockNpm)
     const childName = 'abc'
     const pathSpec = path.sep + childName
     const partialWord = '/' + childName
     readdirConfig[ path.sep ]  = [ childName ]
     readdirConfig[ pathSpec ]  = []
-    return inst.completion({ partialWord })
+    return Install.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
     })
@@ -390,10 +397,9 @@ tap.test('completion cases', t1 => {
 
   // This hits line xx
   t1.test('partialWord looks like a child folder that does not exist', t2 => {
-    const inst = new Install(mockNpm)
     const partialWord = 'a/b'
     readdirConfig[ 'a' ] = [ 'c' ]
-    return inst.completion({ partialWord })
+    return Install.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
     })
@@ -401,38 +407,35 @@ tap.test('completion cases', t1 => {
 
   // This hits the catch, covering line xxx
   t1.test('partialWord is an only child that is not a folder', t2 => {
-    const inst = new Install(mockNpm)
     const partialWord = 'a/b'
     readdirConfig[ 'a' ] = [ 'b' ]
-    return inst.completion({ partialWord })
+    return Install.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
     })
   })
 
   t1.test('partialWord is a child with a sibling, but not a package folder', t2 => {
-    const inst = new Install(mockNpm)
     const parentPath = 'a'
     const childName = 'b'
     const pathSpec = parentPath + path.sep + childName
     const partialWord = parentPath + '/' + childName
     readdirConfig[ parentPath ]  = [ childName ]
     readdirConfig[ pathSpec ] = [ 'whatever' ]
-    return inst.completion({ partialWord })
+    return Install.completion({ partialWord })
     .then(result => {
       t2.same(result, [])
     })
   })
 
   t1.test('partialWord is a folder that has a package.json', t2 => {
-    const inst = new Install(mockNpm)
     const parentPath = 'a'
     const childName = 'b'
     const pathSpec = parentPath + path.sep + childName
     const partialWord = parentPath + '/' + childName
     readdirConfig[ parentPath ]  = [ childName ]
     readdirConfig[ pathSpec ] = [ 'package.json' ]
-    return inst.completion({ partialWord })
+    return Install.completion({ partialWord })
     .then(result => {
       t2.same(result, [ pathSpec ])
     })
