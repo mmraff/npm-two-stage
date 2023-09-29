@@ -166,13 +166,16 @@ const setup = () => {
   })
   if (didSomething) {
     const gifile = resolve(__dirname, './.gitignore')
+    const start = '### BEGIN IGNORED SYMLINKS ###'
+    const end = '### END IGNORED SYMLINKS ###'
     const gitignore = readFileSync(gifile, 'utf8')
-      .replace(/### BEGIN IGNORED SYMLINKS ###[\s\S]*### END IGNORED SYMLINKS ###/,
-      `### BEGIN IGNORED SYMLINKS ###
-### this list is generated automatically, do not edit directly
-### update it by running \`node test/fixtures/index.js\`
-${links.sort(localeCompare).join('\n')}
-### END IGNORED SYMLINKS ###`)
+      .replace(new RegExp(`${start}[\\s\\S]*${end}`), [
+        start,
+        '### this list is generated automatically, do not edit directly',
+        '### update it by running `node test/fixtures/index.js`',
+        ...links.sort(localeCompare),
+        end,
+      ].join('\n'))
     writeFileSync(gifile, gitignore)
   }
 }
