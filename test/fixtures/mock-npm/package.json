@@ -1,6 +1,6 @@
 {
   "name": "npm",
-  "version": "9.7.2",
+  "version": "9.8.1",
   "description": "mock npm",
   "main": "./index.js",
   "directories": {
