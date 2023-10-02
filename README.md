@@ -46,14 +46,14 @@ _________________________
 ## Before Proceeding
 Check that your **npm** installation is one of the versions targeted by
 this project.<br>
-**You are currently viewing the version that targets npm 9.7.2.**
+**You are currently viewing the version that targets npm 9.8.1.**
 
 ## To Install
 ### If an Internet connection is *not* available for the target platform:
 Refer to the [Manual Installation Instructions](docs/MANUAL-INSTALL.md).  
 
 ### If the target platform *can* be connected to the Internet:
-First install the npm registry package **@offliner/npm2stage-v9.7.2**, a
+First install the npm registry package **@offliner/npm2stage-v9.8.1**, a
 command line tool made to manage installation and removal of this version
 of npm-two-stage.
 Once installed, it will provide the command `npm2stage install`.
@@ -78,11 +78,11 @@ that is what will be written to package-lock.json; so a naive attempt to
 update npm-two-stage will either get the same version instead of the patched
 one, or it will fail with a git error, unless the following steps are taken:
 1. Execute the command `npm2stage uninstall`
-2. Use **npm** to uninstall **@offliner/npm2stage-v9.7.2**.
+2. Use **npm** to uninstall **@offliner/npm2stage-v9.8.1**.
 3. Clear the cache: `npm cache clear --force`
     * or you could be more surgically precise with this:<br>
       `npm cache clear $(npm cache ls |grep "npm-two-stage")`
-4. Use **npm** to re-install **@offliner/npm2stage-v9.7.2**.
+4. Use **npm** to re-install **@offliner/npm2stage-v9.8.1**.
 5. Execute `npm2stage install`
 
 After that, your applied npm-two-stage code will be current.
