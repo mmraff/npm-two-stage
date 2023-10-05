@@ -246,7 +246,6 @@ tap.test('parse', t1 => {
     const testURL = goodMakeInput.url.url
     const parsed = new URL(testURL)
     const raw = parsed.hostname + parsed.pathname
-console.log('RAW:', raw, '; ENCODED:', encodeURIComponent(raw))
     const result = npf.parse(encodeURIComponent(raw))
     t2.same(result, { type: 'url', url: raw })
     t2.end()
