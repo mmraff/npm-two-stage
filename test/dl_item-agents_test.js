@@ -449,8 +449,17 @@ tap.test('getOperations', t1 => {
     })
   })
 
-  t1.test('git repo spec that makes gitTrackerKeys throw', t2 => {
+  t1.test('git repo spec that makes npm-package-arg throw', t2 => {
     const spec = 'git://!@#$%^&*'
+    const opList = itemAgents.getOperations([ spec ], makeOpts())
+    if (opList.length !== 1 || !(opList[0] instanceof Promise))
+      t2.fail('Expected list containing a single element that is a Promise')
+    t2.rejects(opList[0], /Invalid URL/)
+    t2.end()
+  })
+
+  t1.test('git repo spec that makes gitTrackerKeys throw', t2 => {
+    const spec = 'git+ssh://git@git.my.private.server:somerepository.git'
     const opList = itemAgents.getOperations([ spec ], makeOpts())
     if (opList.length !== 1 || !(opList[0] instanceof Promise))
       t2.fail('Expected list containing a single element that is a Promise')

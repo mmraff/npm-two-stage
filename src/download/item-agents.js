@@ -30,6 +30,8 @@ class ItemAgent {
   constructor(spec, opts) {
     this.opts = opts
 
+    // Should not need to try-catch here, because spec was obtained by
+    // handleItem, using npa() in a try-catch.
     this.p = npa(spec)
     // original spec is now available as this.p.raw
 
@@ -313,7 +315,13 @@ class UrlItemAgent extends ItemAgent {
 }
 
 const handleItem = (spec, opts) => {
-  let parsed = npa(spec)
+  let parsed
+  try {
+    parsed = npa(spec)
+  }
+  catch (err) {
+    return Promise.reject(err)
+  }
   if (parsed.type == 'alias') {
     parsed = parsed.subSpec
   }
