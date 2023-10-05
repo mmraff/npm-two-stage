@@ -6,7 +6,7 @@ module.exports = {
 }
 
 const path = require('path')
-const url = require('url')
+const { URL } = require('url')
 
 /*
 Let c = successful capture array; then c[0] is entire match;
@@ -114,16 +114,18 @@ function parseFilename(str) {
     extension: matches[4]
   }
 
-  matches = url.parse(str)
-  if (matches.path) {
-    matches = path.parse(matches.path)
-    // This test does not assert that the input is an actual remote URL!
-    // It just has to contain a path with a directory and the name of a file in it.
-    if (matches.dir && matches.base) return {
-      type: 'url',
-      url: str
+  try {
+    matches = new URL('https://' + str)
+    // If the pathname is nothing but one or more slashes,
+    // we consider it worthless:
+    if (!(/^[/]+$/.test(matches.pathname))) {
+      return {
+        type: 'url',
+        url: str
+      }
     }
   }
+  catch (err) {}
 
   return null
 }
@@ -138,8 +140,9 @@ function hasTarballExt(str) {
 
 function isVersionAmbiguous(name, version) {
   expectString(name, 'argument')
-  if (version !== undefined) expectString(version, 'second argument')
-
+  if (version !== undefined) {
+    expectString(version, 'second argument')
+  }
   const str = version ? name + '-' + version : name
   return RE_AMBIGUOUS_VERSION.test(str)
 }
@@ -178,11 +181,10 @@ function makeTarballName(data) {
       break;
     case 'url':
       expectNonemptyString(data.url, 'url property')
-      const u = url.parse(data.url)
-      if (!(u.protocol && u.slashes && u.host && u.path)
-          || u.path === '/' || u.href !== data.url)
+      const u = new URL(data.url)
+      if (u.pathname === '/' || u.href !== data.url)
         throw new Error('value given for url does not look usable')
-      raw = u.host + u.path
+      raw = u.host + u.pathname + u.search + u.hash
       if (!hasTarballExt(raw)) raw += defaultExt
       break;
     default:

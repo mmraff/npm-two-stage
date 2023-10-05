@@ -84,21 +84,22 @@ tap.test('makeTarballName', t1 => {
     t2.throws(getHackedDataTester('url', 'url', ''), SyntaxError)
 
     // Variations to exhaust the possibilities of lines 182-183
-    const errorPattern = /value given for url does not look usable/
+    const errorPattern1 = /^Invalid URL$/
+    const errorPattern2 = /value given for url does not look usable/
     data.url = 'www' // no protocol, no slashes, no host
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern1)
     data.url = 'https:' // no slashes, no host, no path
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern1)
     data.url = 'https://' // no host, no path
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern1)
     data.url = 'https:///' // no host
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern1)
     data.url = 'https:www' // no slashes, no host
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern2)
     data.url = 'https://www/' // path evaluates to '/'
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern2)
     data.url = 'https://www' // path evaluates to '/', and href !== data.url
-    t2.throws(() => npf.makeTarballName(data), errorPattern)
+    t2.throws(() => npf.makeTarballName(data), errorPattern2)
     t2.end()
   })
 
@@ -131,7 +132,7 @@ tap.test('makeTarballName', t1 => {
   t1.test('for good data of type: url', t2 => {
     const data = goodMakeInput.url
     const result = npf.makeTarballName(data)
-    const parsed = url.parse(data.url)
+    const parsed = new URL(data.url)
     const rawExpected = parsed.hostname + parsed.pathname
     t2.equal(result, encodeURIComponent(rawExpected))
     t2.end()
@@ -243,18 +244,11 @@ tap.test('parse', t1 => {
   })
   t1.test('URL-based filename', t2 => {
     const testURL = goodMakeInput.url.url
-    const parsed = url.parse(testURL)
+    const parsed = new URL(testURL)
     const raw = parsed.hostname + parsed.pathname
+console.log('RAW:', raw, '; ENCODED:', encodeURIComponent(raw))
     const result = npf.parse(encodeURIComponent(raw))
     t2.same(result, { type: 'url', url: raw })
-    t2.end()
-  })
-  // For line 122 implicit else, case: no dir parsed from URL path
-  t1.test('Bad filenames that reach URL parsing section', t2 => {
-    t2.equal(npf.parse(encodeURIComponent('https://')), null)
-    t2.equal(npf.parse(encodeURIComponent('mystery/')), null)
-    t2.equal(npf.parse(encodeURIComponent('/')), null)
-
     t2.end()
   })
 

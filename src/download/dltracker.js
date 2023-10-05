@@ -1,10 +1,20 @@
 const { lstat, readFile, writeFile } = require('fs/promises')
 const path = require('path')
-const url = require('url')
+const { URL } = require('url')
 
 const semver = require('semver')
 const npf = require('./npm-package-filename')
 const reconstructMap = require('./reconstruct-map')
+
+// url.parse is on its way out
+const urlPathOrInput = (spec) => {
+  try {
+    const parsed = new URL(spec)
+    spec = parsed.host + parsed.pathname
+  }
+  catch (err) {}
+  return spec
+}
 
 const dummyFunc = () => {}
 const dummyLog = {
@@ -507,9 +517,7 @@ function create(where, opts) {
           }
           break
         case 'url':
-          let spec = data.spec
-          const u = url.parse(spec)
-          if (u.protocol) spec = u.host + u.path
+          const spec = urlPathOrInput(data.spec)
           map[spec] = copy
           break
         // no default currently necessary: it would never be visited
@@ -650,9 +658,7 @@ function create(where, opts) {
         }
         break
       case 'url':
-        let spec2 = spec
-        const u = url.parse(spec2)
-        if (u.protocol) spec2 = u.host + u.path
+        const spec2 = urlPathOrInput(spec)
         data = tables.url[spec2]
         if (data) {
           result = { spec: spec }
