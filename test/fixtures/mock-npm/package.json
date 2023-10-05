@@ -1,13 +1,13 @@
 {
   "name": "npm",
-  "version": "9.8.1",
+  "version": "10.1.0",
   "description": "mock npm",
   "main": "./index.js",
   "directories": {
     "lib": "./lib"
   },
   "dependencies": {
-    "pacote": "^15.2.0"
+    "pacote": "^17.0.4"
   },
   "devDependencies": {},
   "scripts": {

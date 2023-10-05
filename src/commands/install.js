@@ -38,6 +38,8 @@ class Install extends ArboristWorkspaceCmd {
     'bin-links',
     'fund',
     'dry-run',
+    'cpu',
+    'os',
     'offline',          // mmr: npm-two-stage
     'offline-dir',      // mmr: npm-two-stage
     ...super.params,

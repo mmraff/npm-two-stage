@@ -137,7 +137,8 @@ const Shrinkwrap = require('@npmcli/arborist/lib/shrinkwrap')
 const { start, stop } = require('./lib/mock-server-proxy')
 const {
   registry,
-  advisoryBulkResponse
+  advisoryBulkResponse,
+  oneSocket,
 } = require(arbFixtures + '/server.js')
 
 const testRootName = 'tempAssets5'
@@ -219,7 +220,7 @@ t.test('update a yarn.lock file', async t => {
 })
 
 t.test('weirdly broken lockfile without resolved value', t =>
-  t.resolveMatchSnapshot(printReified(fixture(t, 'dep-missing-resolved'))))
+  t.resolveMatchSnapshot(printReified(fixture(t, 'dep-missing-resolved'), oneSocket(t))))
 
 t.test('testing-peer-deps package', t =>
   t.resolveMatchSnapshot(printReified(fixture(t, 'testing-peer-deps'))))
@@ -523,6 +524,18 @@ t.test('still do not install optional deps with mismatched platform specificatio
 
 t.test('fail to install deps with mismatched platform specifications', t =>
   t.rejects(printReified(fixture(t, 'platform-specification')), { code: 'EBADPLATFORM' }))
+
+t.test('success to install optional deps with matched platform specifications with os and cpu options', t =>
+  t.resolveMatchSnapshot(printReified(
+    fixture(t, 'optional-platform-specification'), { os: 'not-your-os', cpu: 'not-your-cpu' })))
+
+t.test('fail to install optional deps with matched os and mismatched cpu with os and cpu options', t =>
+  t.resolveMatchSnapshot(printReified(
+    fixture(t, 'optional-platform-specification'), { os: 'not-your-os', cpu: 'another-cpu' })))
+
+t.test('fail to install optional deps with mismatched os and matched cpu with os and cpu options', t =>
+  t.resolveMatchSnapshot(printReified(
+    fixture(t, 'optional-platform-specification'), { os: 'another-os', cpu: 'not-your-cpu' })))
 
 t.test('dry run, do not get anything wet', async t => {
   const cases = [
@@ -1478,7 +1491,7 @@ t.test('do not reify root when root matches duplicated metadep', async t => {
 
 t.test('reify properly with all deps when lockfile is ancient', async t => {
   const path = fixture(t, 'sax')
-  const tree = await reify(path)
+  const tree = await reify(path, oneSocket(t))
   t.matchSnapshot(printTree(tree))
   fs.statSync(path + '/node_modules/tap/node_modules/.bin/nyc')
 })
